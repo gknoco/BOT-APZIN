@@ -1,0 +1,578 @@
+'use strict';
+
+/**
+ * Fluxo do AP: fila -> sala privada -> regras -> mediador -> PIX -> pagamento ->
+ * sala liberada -> resultado. Toda a parte que fala com o Discord mora aqui.
+ */
+
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  PermissionFlagsBits,
+} = require('discord.js');
+
+const config = require('../config');
+const { obterConfig, definirConfig } = require('../db');
+const { embed, reais, mencao, mencaoCargo, tituloCurto } = require('../util/embeds');
+const filas = require('./filas');
+const partidas = require('./partidas');
+const paineis = require('./paineis');
+const mediadores = require('./mediadores');
+const blacklist = require('./blacklist');
+const auditoria = require('./auditoria');
+const royalSupabase = require('./royalSupabase');
+
+const { STATUS } = partidas;
+
+const NOME_TIME = { 1: 'Equipe 1', 2: 'Equipe 2' };
+const nomeTime = (time) => NOME_TIME[Number(time)] || `Equipe ${time}`;
+
+function textoJogadores(lista) {
+  return [1, 2]
+    .map((time) => {
+      const doTime = lista.filter((linha) => Number(linha.time) === time);
+      const linhas = doTime.length
+        ? doTime.map((linha) => `${linha.confirmou ? '✅' : '⏳'} ${mencao(linha.user_id)}`).join('\n')
+        : '`vazio`';
+      return `**${nomeTime(time)}**\n${linhas}`;
+    })
+    .join('\n\n');
+}
+
+/** "1v1 Mobile Gelo Normal" — tipo da partida no card da sala. */
+function tipoPartida(modo, gelo) {
+  if (!modo) return String(gelo || 'AP');
+  const variante = config.varianteDoModo(modo, gelo);
+  return `${tituloCurto(modo)}${variante ? ` ${variante.nome}` : ''}`;
+}
+
+function embedPartida(partida, lista) {
+  const modo = config.modoPorId(partida.modo);
+  const variante = config.varianteDoModo(modo, partida.gelo);
+
+  // Card de abertura da sala: "Aguardando" + aposta + premiação + jogadores.
+  // Sem textão de instruções — o fluxo anda pelos botões.
+  if (partida.status === STATUS.CONFIRMANDO) {
+    const comissao = Number(partida.comissao) > 0 ? Number(partida.comissao) : config.COMISSAO_PADRAO;
+    const premio = Math.round(Number(partida.preco) * 2 * (1 - comissao));
+    const jogadores = lista.length
+      ? lista
+          .map((linha, indice) => `${indice + 1}. ${mencao(linha.user_id)}${linha.confirmou ? ' ✅' : ''}`)
+          .join('\n')
+      : '`sem jogadores`';
+
+    return embed(`⏳ Aguardando · ${tipoPartida(modo, partida.gelo)}`, null, {
+      cor: config.CORES.aviso,
+      campos: [
+        { name: 'Aposta', value: reais(partida.preco), inline: true },
+        { name: 'Premiação', value: reais(premio), inline: true },
+        { name: 'Jogadores', value: jogadores, inline: false },
+      ],
+      rodape: `Sala ${partida.id} · ORG Royal AP`,
+    });
+  }
+
+  const campos = [
+    { name: 'Modo', value: modo ? modo.titulo : partida.modo, inline: true },
+    { name: 'Aposta', value: reais(partida.preco), inline: true },
+    { name: 'Tipo', value: variante ? `${variante.emoji} ${variante.nome}` : partida.gelo, inline: true },
+    { name: 'Jogadores', value: textoJogadores(lista), inline: false },
+    {
+      name: 'Regra da partida',
+      value: partida.regras
+        ? `${partida.regras}\n— por ${mencao(partida.regras_por)}`
+        : '`ninguém enviou ainda`',
+      inline: false,
+    },
+  ];
+
+  let titulo = `🎯 AP ${modo ? modo.titulo : partida.modo} · ${reais(partida.preco)}`;
+  let descricao = '';
+  let cor = config.CORES.principal;
+
+  switch (partida.status) {
+    case STATUS.AGUARDANDO_MEDIADOR:
+      descricao = `**Passo 2 · Mediação**\nRegras confirmadas. Aguardando ${mencaoCargo(config.CARGO_MEDIADOR_ID)} assumir a sala.`;
+      cor = config.CORES.aviso;
+      campos.push({
+        name: 'PIX do mediador',
+        value: 'aparece aqui quando o mediador assumir a sala',
+        inline: false,
+      });
+      break;
+    case STATUS.AGUARDANDO_PAGAMENTO:
+      descricao =
+        '**Passo 3 · Pagamento**\n' +
+        `Mediador: ${mencao(partida.mediador_id)}\n` +
+        'Clique em **Enviar PIX** para mandar a chave, e em **Pagamento recebido** depois de conferir os comprovantes.';
+      cor = config.CORES.aviso;
+      campos.push({
+        name: 'PIX do mediador',
+        value: 'consulte a mensagem de pagamento enviada pelo mediador nesta sala',
+        inline: false,
+      });
+      break;
+    case STATUS.PAGO:
+      descricao =
+        '**Passo 4 · Sala**\nPagamento confirmado ✅\n' +
+        'Clique em **Criar sala (Nix)**: o ID e a senha são publicados automaticamente no canal da fila.';
+      cor = config.CORES.gelo;
+      campos.push({
+        name: 'PIX do mediador',
+        value: 'pagamento confirmado',
+        inline: true,
+      });
+      break;
+    case STATUS.SALA_LIBERADA:
+      descricao =
+        '**Passo 5 · Sala liberada**\nEntrem no Free Fire com o ID e a senha abaixo.\n' +
+        'Quando os **dois** estiverem dentro da sala, cada um digita `/go` aqui no canal.\n' +
+        'O bot avisa e a partida inicia em 3 segundos.';
+      cor = config.CORES.sucesso;
+      campos.push(
+        { name: 'ID da sala', value: partida.sala_id ? `\`${partida.sala_id}\`` : '—', inline: true },
+        { name: 'Senha', value: partida.sala_senha ? `\`${partida.sala_senha}\`` : '—', inline: true },
+      );
+      break;
+    case STATUS.EM_ANDAMENTO:
+      descricao =
+        '**Partida em andamento ⚔️**\nOs dois jogadores deram GO.\n' +
+        'Ao terminar, o mediador clica no vencedor (ou aplica W.O.).';
+      cor = config.CORES.sucesso;
+      campos.push(
+        { name: 'ID da sala', value: partida.sala_id ? `\`${partida.sala_id}\`` : '—', inline: true },
+        { name: 'Senha', value: partida.sala_senha ? `\`${partida.sala_senha}\`` : '—', inline: true },
+      );
+      break;
+    case STATUS.FINALIZADA:
+      titulo = `🏆 AP encerrado · ${nomeTime(partida.vencedor_time)} venceu`;
+      descricao =
+        `**Resultado:** ${nomeTime(partida.vencedor_time)} venceu${partida.motivo_fim === 'wo' ? ' por **W.O.**' : ''}.\n` +
+        `Valor: ${reais(partida.preco)} · Modo: ${modo ? modo.titulo : partida.modo}`;
+      cor = config.CORES.ouro;
+      break;
+    case STATUS.CANCELADA:
+      titulo = '🚫 AP cancelado';
+      descricao = `Essa sala foi cancelada.\nMotivo: ${partida.motivo_fim || 'não informado'}`;
+      cor = config.CORES.erro;
+      break;
+    default:
+      descricao = `Status: ${partida.status}`;
+  }
+
+  if (partida.mediador_id) {
+    campos.push({ name: 'Mediador', value: mencao(partida.mediador_id), inline: true });
+  }
+
+  return embed(titulo, descricao, {
+    cor,
+    campos,
+    rodape: `Sala ${partida.id} · ORG Royal AP`,
+  });
+}
+
+function linha(...botoes) {
+  return new ActionRowBuilder().addComponents(...botoes);
+}
+
+function componentesPartida(partida) {
+  const id = partida.id;
+  const linhas = [];
+  const botao = (customId, label, emoji, style) =>
+    new ButtonBuilder().setCustomId(customId).setLabel(label).setEmoji(emoji).setStyle(style);
+
+  switch (partida.status) {
+    case STATUS.CONFIRMANDO:
+      linhas.push(
+        linha(
+          botao(`ap:confirmar:${id}`, 'Confirmar Partida', '✅', ButtonStyle.Success),
+          botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
+        ),
+      );
+      break;
+    case STATUS.AGUARDANDO_MEDIADOR:
+      linhas.push(
+        linha(
+          botao(`ap:assumir:${id}`, 'Assumir sala', '👑', ButtonStyle.Primary),
+          botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
+        ),
+      );
+      break;
+    case STATUS.AGUARDANDO_PAGAMENTO:
+      linhas.push(
+        linha(
+          botao(`ap:pix:${id}`, 'Enviar PIX', '💸', ButtonStyle.Primary),
+          botao(`ap:pago:${id}`, 'Pagamento recebido', '✅', ButtonStyle.Success),
+          botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
+        ),
+      );
+      break;
+    case STATUS.PAGO:
+      linhas.push(
+        linha(
+          botao(`ap:criarsala:${id}`, 'Criar sala (Nix)', '🎮', ButtonStyle.Primary),
+          botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
+        ),
+      );
+      break;
+    case STATUS.SALA_LIBERADA:
+    case STATUS.EM_ANDAMENTO:
+      linhas.push(
+        linha(
+          botao(`ap:vencer:${id}:1`, 'Equipe 1 venceu', '🏆', ButtonStyle.Success),
+          botao(`ap:vencer:${id}:2`, 'Equipe 2 venceu', '🏆', ButtonStyle.Success),
+        ),
+        linha(
+          botao(`ap:wo:${id}:1`, 'W.O. da Equipe 1', '⚠️', ButtonStyle.Secondary),
+          botao(`ap:wo:${id}:2`, 'W.O. da Equipe 2', '⚠️', ButtonStyle.Secondary),
+          botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
+        ),
+      );
+      break;
+    case STATUS.FINALIZADA:
+    case STATUS.CANCELADA:
+      linhas.push(linha(botao(`ap:fechar:${id}`, 'Fechar sala', '🔒', ButtonStyle.Secondary)));
+      break;
+    default:
+      break;
+  }
+  return linhas;
+}
+
+/** Categoria onde as salas são criadas (env -> banco -> nome "filas aqui"). */
+async function resolverCategoria(guild, db, chave, envId) {
+  const salvo = obterConfig(db, guild.id, chave, envId);
+  if (salvo) {
+    const porId =
+      guild.channels.cache.get(salvo) || (await guild.channels.fetch(salvo).catch(() => null));
+    if (porId && porId.type === ChannelType.GuildCategory) return porId;
+  }
+  const categorias = guild.channels.cache.filter((canal) => canal.type === ChannelType.GuildCategory);
+  return (
+    categorias.find((canal) => /filas?\s*aqui/i.test(canal.name)) ||
+    categorias.find((canal) => /\bfilas?\b/i.test(canal.name)) ||
+    null
+  );
+}
+
+async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogadores }) {
+  // A sala privada nasce DENTRO da categoria configurada (CATEGORIA_FILAS_ID ou
+  // `/boombot setcategoria`). Sem categoria configurada o bot tenta achar uma
+  // categoria de filas pelo nome antes de criar na raiz do servidor.
+  const categoria = await resolverCategoria(guild, db, 'categoria_filas', config.CATEGORIA_FILAS_ID);
+  const A = PermissionFlagsBits;
+  const permissoes = [
+    { id: guild.roles.everyone.id, deny: [A.ViewChannel] },
+    {
+      id: client.user.id,
+      allow: [A.ViewChannel, A.SendMessages, A.EmbedLinks, A.ReadMessageHistory, A.ManageChannels, A.ManageMessages],
+    },
+    ...jogadores.map((userId) => ({
+      id: String(userId),
+      allow: [A.ViewChannel, A.SendMessages, A.ReadMessageHistory, A.EmbedLinks],
+    })),
+  ];
+  // Só mediadores e ADM veem a sala de aposta.
+  for (const cargo of mediadores.mencoes(db, guild.id)) {
+    permissoes.push({
+      id: cargo,
+      allow: [A.ViewChannel, A.SendMessages, A.ReadMessageHistory, A.EmbedLinks],
+    });
+  }
+
+  // #fila-gelo-normal-001 — numeração contínua por tipo de entrada.
+  const nome = paineis.nomeSalaFila(guild, modo, gelo);
+
+  const canal = await guild.channels.create({
+    name: nome,
+    type: ChannelType.GuildText,
+    ...(categoria ? { parent: categoria.id } : {}),
+    topic: `AP ${modo.titulo} · ${reais(preco)} · ${gelo} · sala privada`,
+    permissionOverwrites: permissoes,
+  });
+
+  return canal;
+}
+
+async function publicarSala(client, db, partida) {
+  try {
+    const canal = client.channels.cache.get(partida.canal_id) || (await client.channels.fetch(partida.canal_id));
+    if (!canal) return false;
+    const lista = partidas.jogadores(db, partida.id);
+    const mensagem = await canal.send({
+      content: `${lista.map((linha) => mencao(linha.user_id)).join(' ')} — sala de AP criada.`,
+      embeds: [embedPartida(partida, lista)],
+      components: componentesPartida(partida),
+      allowedMentions: { parse: ['users'] },
+    });
+    partidas.definirMensagem(db, partida.id, mensagem.id);
+    // Nada de "mandem o ID e a senha": o mediador cria a sala pelo bot.
+    return true;
+  } catch (erro) {
+    console.error('[fluxo] não consegui publicar a sala:', erro.message);
+    return false;
+  }
+}
+
+async function atualizarPartida(client, db, partidaId) {
+  const partida = partidas.buscar(db, partidaId);
+  if (!partida) return false;
+  try {
+    const canal = client.channels.cache.get(partida.canal_id) || (await client.channels.fetch(partida.canal_id));
+    if (!canal) return false;
+    const lista = partidas.jogadores(db, partidaId);
+    const payload = { embeds: [embedPartida(partida, lista)], components: componentesPartida(partida) };
+
+    if (partida.mensagem_id) {
+      const mensagem = await canal.messages.fetch(partida.mensagem_id).catch(() => null);
+      if (mensagem) {
+        await mensagem.edit(payload);
+        return true;
+      }
+    }
+    const nova = await canal.send({ ...payload, allowedMentions: { parse: ['users'] } });
+    partidas.definirMensagem(db, partidaId, nova.id);
+    return true;
+  } catch (erro) {
+    console.error('[fluxo] não consegui atualizar a sala:', erro.message);
+    return false;
+  }
+}
+
+/**
+ * Manda a chave PIX do mediador na sala e na DM dos jogadores.
+ * Usado pelo botão "Enviar PIX" e pelo comando /pix.
+ */
+async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }) {
+  // A chave vem do Supabase e nunca é persistida no SQLite da partida.
+  const partida = partidas.buscar(db, partidaId);
+  if (!partida) throw new Error('Partida não encontrada.');
+  await atualizarPartida(client, db, partidaId);
+
+  const jogadores = partidas.jogadores(db, partidaId);
+  const aviso = jogadores.map((linha) => mencao(linha.user_id)).join(' ');
+  const texto = [
+    `💸 **PIX do mediador** — ${mencao(mediadorId)}`,
+    `**Chave:** \`${chave}\``,
+    titular ? `**Titular:** ${titular}` : null,
+    `**Valor por capitão (1 por time):** ${reais(partida.preco)}`,
+    '',
+    'Enviem o comprovante **nesta sala**. O mediador libera a sala depois de conferir.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  try {
+    const canal =
+      client.channels.cache.get(partida.canal_id) || (await client.channels.fetch(partida.canal_id));
+    await canal?.send({ content: `${aviso}\n${texto}`, allowedMentions: { parse: ['users'] } });
+
+    for (const linha of jogadores) {
+      const membro = await canal?.guild?.members?.fetch?.(linha.user_id)?.catch(() => null);
+      await membro?.send?.({ embeds: [embed('💸 PIX do seu AP', texto)] })?.catch?.(() => {});
+    }
+  } catch (erro) {
+    console.error('[fluxo] não consegui anunciar o PIX:', erro.message);
+  }
+
+  return partida;
+}
+
+/**
+ * Coloca o jogador na fila e, se o grupo fechar, cria a sala privada.
+ * Lança Error com mensagem amigável quando algo impede a entrada.
+ */
+async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
+  const modoInfo = config.modoPorId(modo);
+  if (!modoInfo) throw new Error('Modo de AP inválido.');
+  const valor = Number(preco);
+  if (!config.PRECOS.includes(valor)) throw new Error('Faixa de aposta inválida.');
+  if (!config.varianteDoModo(modoInfo, gelo)) {
+    throw new Error('Escolha uma opção de entrada válida para esse modo.');
+  }
+
+  const bloqueio = blacklist.obter(db, guild.id, userId);
+  if (bloqueio) throw new Error(`Você está na lista negra da ORG: **${bloqueio.motivo}**.`);
+
+  const resultado = filas.entrar(db, {
+    guildId: guild.id,
+    modo: modoInfo.id,
+    preco: valor,
+    gelo,
+    userId,
+  });
+
+  if (!resultado.entrou) {
+    throw new Error(`Você já está nessa fila (posição ${resultado.posicao}).`);
+  }
+
+  const painelOk = await paineis.atualizar(client, db, {
+    guildId: guild.id,
+    modo: modoInfo.id,
+    preco: valor,
+  });
+  if (!painelOk) {
+    console.error(
+      `[fluxo] o jogador entrou na fila, mas o painel ${modoInfo.id} (${reais(valor)}) não atualizou. ` +
+        'Confira se o bot pode Ver o canal, Enviar e Editar mensagens.',
+    );
+  }
+
+  const naFila = filas.contar(db, { guildId: guild.id, modo: modoInfo.id, preco: valor, gelo });
+  // TODA fila abre com 2 capitães (1 por time). Em 3x3/4x4 o capitão leva o
+  // time dele para a sala personalizada com o ID/senha — não espera 6 ou 8.
+  if (naFila < config.CAPITAES_POR_PARTIDA) {
+    return {
+      posicao: resultado.posicao,
+      naFila,
+      faltam: config.CAPITAES_POR_PARTIDA - naFila,
+      fechou: false,
+      partida: null,
+    };
+  }
+
+  const ids = filas.reservar(db, {
+    guildId: guild.id,
+    modo: modoInfo.id,
+    preco: valor,
+    gelo,
+    quantidade: config.CAPITAES_POR_PARTIDA,
+  });
+  if (!ids) {
+    return { posicao: resultado.posicao, naFila, faltam: 1, fechou: false, partida: null };
+  }
+
+  const jogadores = ids.map((id, indice) => ({
+    userId: id,
+    time: indice + 1,
+  }));
+
+  let canal = null;
+  try {
+    canal = await criarCanalPartida(client, db, guild, { modo: modoInfo, preco: valor, gelo, jogadores: ids });
+  } catch (erro) {
+    console.error('[fluxo] não consegui criar a sala privada:', erro.message);
+    for (const jogador of jogadores) {
+      filas.entrar(db, {
+        guildId: guild.id,
+        modo: modoInfo.id,
+        preco: valor,
+        gelo,
+        userId: jogador.userId,
+      });
+    }
+    await paineis.atualizar(client, db, { guildId: guild.id, modo: modoInfo.id });
+    throw new Error(
+      'Os dois capitães entraram, mas não consegui criar a sala privada. Peça para um ADM verificar se o bot tem **Gerenciar Canais** e se a categoria de filas existe.',
+    );
+  }
+
+  const partida = partidas.criar(db, {
+    guildId: guild.id,
+    modo: modoInfo.id,
+    preco: valor,
+    gelo,
+    canalId: canal.id,
+    jogadores,
+  });
+
+  await publicarSala(client, db, partida);
+  await paineis.atualizar(client, db, { guildId: guild.id, modo: modoInfo.id, preco: valor });
+  await auditoria.registrar(db, client, {
+    guildId: guild.id,
+    acao: 'AP criado',
+    detalhe: `${modoInfo.titulo} · ${reais(valor)} · ${gelo} · sala ${canal.name} · ${ids.length} capitães (1 por time)`,
+  });
+
+  return { posicao: resultado.posicao, naFila: 0, faltam: 0, fechou: true, partida, canalId: canal.id };
+}
+
+/** Finaliza e avisa na sala. */
+async function finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo }) {
+  const existente = partidas.buscar(db, partidaId);
+  let resultado;
+  if (existente?.status === STATUS.FINALIZADA) {
+    // Se a RPC remota falhou depois do commit SQLite, o mesmo botão pode
+    // repetir a sincronização. A RPC usa o ID da partida como chave idempotente.
+    if (Number(existente.vencedor_time) !== Number(vencedorTime) || existente.motivo_fim !== motivo) {
+      throw new Error('Essa partida já foi encerrada com outro resultado.');
+    }
+    resultado = { partida: existente, jogadores: partidas.jogadores(db, partidaId) };
+  } else {
+    resultado = partidas.finalizar(db, { partidaId, vencedorTime, autorId, motivo });
+  }
+
+  await royalSupabase.registrarResultadoPartida({
+    guildId: resultado.partida.guild_id,
+    matchId: partidaId,
+    winnerTime: vencedorTime,
+    stake: resultado.partida.preco,
+    players: resultado.jogadores,
+    reason: motivo,
+  });
+  return resultado;
+}
+
+async function encerrarPartida(client, db, { partidaId, vencedorTime, autorId, motivo = 'resultado' }) {
+  const resultado = await finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo });
+  await atualizarPartida(client, db, partidaId);
+  await auditoria.registrar(db, client, {
+    guildId: resultado.partida.guild_id,
+    autorId,
+    acao: motivo === 'wo' ? 'W.O. aplicado' : 'Resultado registrado',
+    detalhe: `Sala ${partidaId} · ${nomeTime(vencedorTime)} venceu · ${reais(resultado.partida.preco)}`,
+  });
+  return resultado;
+}
+
+async function aplicarWO(client, db, { partidaId, timeAusente, autorId }) {
+  const ausente = Number(timeAusente);
+  if (![1, 2].includes(ausente)) throw new Error('O time ausente precisa ser 1 ou 2.');
+  const resultado = await finalizarERegistrarNoSupabase(db, {
+    partidaId,
+    vencedorTime: ausente === 1 ? 2 : 1,
+    autorId,
+    motivo: 'wo',
+  });
+  await atualizarPartida(client, db, partidaId);
+  await auditoria.registrar(db, client, {
+    guildId: resultado.partida.guild_id,
+    autorId,
+    acao: 'W.O. aplicado',
+    detalhe: `Sala ${partidaId} · ${nomeTime(timeAusente)} não apareceu · ${reais(resultado.partida.preco)}`,
+  });
+  return resultado;
+}
+
+async function cancelarPartida(client, db, { partidaId, autorId, motivo }) {
+  const partida = partidas.cancelar(db, { partidaId, autorId, motivo });
+  await atualizarPartida(client, db, partidaId);
+  await auditoria.registrar(db, client, {
+    guildId: partida.guild_id,
+    autorId,
+    acao: 'AP cancelado',
+    detalhe: `Sala ${partidaId} · ${motivo}`,
+  });
+  return partida;
+}
+
+module.exports = {
+  STATUS,
+  nomeTime,
+  textoJogadores,
+  tipoPartida,
+  embedPartida,
+  componentesPartida,
+  resolverCategoria,
+  criarCanalPartida,
+  publicarSala,
+  atualizarPartida,
+  entrarNaFila,
+  anunciarPix,
+  encerrarPartida,
+  aplicarWO,
+  cancelarPartida,
+  definirConfig,
+};

@@ -1,0 +1,39 @@
+'use strict';
+
+/** Convites: descobre quem convidou quem comparando os usos dos convites. */
+
+const cache = new Map();
+
+async function atualizarCache(guild) {
+  const convites = await guild.invites.fetch();
+  const mapa = new Map();
+  for (const convite of convites.values()) {
+    mapa.set(convite.code, convite.uses ?? 0);
+  }
+  cache.set(guild.id, mapa);
+  return mapa;
+}
+
+/** Chamado quando alguém entra: devolve o código usado (ou null). */
+async function detectar(member) {
+  const guild = member.guild;
+  try {
+    const antes = cache.get(guild.id);
+    if (!antes) {
+      await atualizarCache(guild);
+      return null;
+    }
+    const depois = await atualizarCache(guild);
+    for (const [codigo, usos] of depois.entries()) {
+      if ((antes.get(codigo) ?? 0) < usos) {
+        return codigo;
+      }
+    }
+    return null;
+  } catch (erro) {
+    console.error('[convites] não consegui ler os convites:', erro.message);
+    return null;
+  }
+}
+
+module.exports = { atualizarCache, detectar };

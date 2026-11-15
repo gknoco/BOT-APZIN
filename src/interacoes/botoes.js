@@ -1,0 +1,673 @@
+'use strict';
+
+/** Cliques em botões: fila, gelo, regras, mediação, PIX, resultado. */
+
+const { ButtonStyle } = require('discord.js');
+const config = require('../config');
+const fluxo = require('../servicos/fluxo');
+const partidas = require('../servicos/partidas');
+const staffSupabase = require('../servicos/staffSupabase');
+const filas = require('../servicos/filas');
+const paineis = require('../servicos/paineis');
+const plantao = require('../servicos/plantao');
+const salas = require('../servicos/salas');
+const mediadores = require('../servicos/mediadores');
+const auditoria = require('../servicos/auditoria');
+const royalSupabase = require('../servicos/royalSupabase');
+const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
+const {
+  EFEMERO,
+  responderPrivado,
+  responderErro,
+  ehMediador,
+  ehAdmin,
+  ehStaff,
+} = require('../util/seguranca');
+
+const varianteNome = (modo, id) => config.varianteDoModo(modo, id)?.nome ?? String(id);
+
+/** O botão já pode ter sido reconhecido por deferUpdate antes da consulta PIX. */
+async function responderVerificacaoPix(interaction, payload) {
+  const corpo = typeof payload === 'string' ? { content: payload } : { ...payload };
+  corpo.flags = (corpo.flags ?? 0) | EFEMERO;
+  if (interaction.deferred || interaction.replied) return interaction.followUp(corpo);
+  // O helper também trata o caso em que o Discord aceitou o ACK, mas o estado
+  // local ainda está falso (40060): tenta followUp, nunca um segundo reply.
+  return responderPrivado(interaction, corpo);
+}
+
+/**
+ * Mensagem PÚBLICA na sala: quem confirmou, quem falta e a marcação da
+ * @STAFF / @MEDIADOR — exatamente o texto combinado com a ORG.
+ */
+async function avisarConfirmacao(client, db, { partida, userId, completo, faltando = [] }) {
+  try {
+    const canal =
+      client?.channels?.cache?.get?.(partida.canal_id) || (await client?.channels?.fetch?.(partida.canal_id));
+    if (!canal?.send) return;
+
+    // Só mediadores e ADM são marcados nas partidas (suporte fica no atendimento externo).
+    const cargos = mediadores.mencoes(db, partida.guild_id);
+    const marcaStaff = cargos.length ? `\n${cargos.map((id) => mencaoCargo(id)).join(' ')}` : '';
+    const restantes =
+      faltando.length > 1
+        ? `Agora faltam ${faltando.length} jogadores: ${faltando.map((id) => mencao(id)).join(', ')}.`
+        : `Agora falta apenas ${mencao(faltando[0])} para confirmar.`;
+
+    await canal.send({
+      content: completo
+        ? `✅ ${mencao(userId)} confirmou a partida. Todos confirmaram! Partida iniciando...${marcaStaff}`
+        : `✅ ${mencao(userId)} confirmou a partida. ${restantes}${marcaStaff}`,
+      allowedMentions: { users: [String(userId)], roles: cargos.map(String) },
+    });
+  } catch (erro) {
+    console.error('[botoes] não consegui avisar a confirmação na sala:', erro.message);
+  }
+}
+
+/**
+ * Edita o PRÓPRIO card que o jogador clicou (não depende do ID salvo no banco).
+ * É isso que garante o nome aparecendo na hora e o Sair só nesta faixa.
+ */
+async function atualizarCardDoClique(interaction, db, modo, preco) {
+  const valor = Number(preco);
+  if (!config.PRECOS.includes(valor)) return false;
+  try {
+    const entradas = filas.listar(db, { guildId: interaction.guildId, modo: modo.id });
+    const card = paineis.mensagemPreco(modo, valor, entradas);
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(card);
+    } else if (typeof interaction.update === 'function') {
+      await interaction.update(card);
+    } else {
+      await interaction.editReply(card);
+    }
+    return true;
+  } catch (erro) {
+    console.error('[botoes] não consegui editar o card da fila:', erro.message);
+    return false;
+  }
+}
+
+async function entrarNaFilaBotao(interaction, { db, client }, modoId, preco, gelo) {
+  if (!interaction.guild) return responderErro(interaction, 'Use os painéis dentro do servidor.');
+  const modo = config.modoPorId(modoId);
+  if (!modo) return responderErro(interaction, 'Painel antigo. Peça para a staff publicar o painel de novo.');
+
+  try {
+    await fluxo.entrarNaFila(client, db, {
+      guild: interaction.guild,
+      userId: interaction.user.id,
+      modo: modo.id,
+      preco: Number(preco),
+      gelo,
+    });
+
+    // Sem mensagem efêmera: o clique edita o card do painel na hora.
+    await atualizarCardDoClique(interaction, db, modo, Number(preco));
+    return true;
+  } catch (erro) {
+    if (/já está nessa fila/i.test(String(erro.message))) {
+      return responderPrivado(interaction, { embeds: [embedErro(erro.message)] });
+    }
+    return responderErro(interaction, erro.message);
+  }
+}
+
+async function sairDaFila(interaction, { db, client }, modoId, alvo) {
+  const modo = config.modoPorId(modoId);
+  if (!modo) return responderErro(interaction, 'Painel inválido.');
+  const preco = alvo === 'todos' ? null : Number(alvo);
+
+  const removidas = filas.sair(db, {
+    guildId: interaction.guildId,
+    modo: modo.id,
+    userId: interaction.user.id,
+    preco,
+  });
+  if (!removidas) return responderErro(interaction, 'Você não está nessa fila.');
+  await paineis.atualizar(client, db, { guildId: interaction.guildId, modo: modo.id, preco });
+  // Sem mensagem extra: o próprio card volta para "Nenhum jogador" e perde o Sair.
+  await atualizarCardDoClique(interaction, db, modo, preco);
+  return true;
+}
+
+async function confirmarRegras(interaction, { db, client }, partidaId) {
+  try {
+    const resultado = partidas.confirmar(db, partidaId, interaction.user.id);
+    await fluxo.atualizarPartida(client, db, partidaId);
+
+    const faltando = partidas
+      .jogadores(db, partidaId)
+      .filter((linha) => linha.confirmou !== 1)
+      .map((linha) => linha.user_id);
+    await avisarConfirmacao(client, db, {
+      partida: resultado.partida,
+      userId: interaction.user.id,
+      completo: resultado.completo,
+      faltando,
+    });
+
+    if (resultado.completo) {
+      return responderPrivado(interaction, {
+        embeds: [embedSucesso('Todos confirmaram! ✅\nPartida iniciando — a staff já foi marcada na sala.')],
+      });
+    }
+
+    return responderPrivado(interaction, {
+      embeds: [
+        embedSucesso(
+          resultado.jaConfirmou
+            ? 'Você já tinha confirmado. Falta o resto do pessoal.'
+            : `Confirmação registrada: **${resultado.confirmados}/${resultado.total}**.\nAguardando os outros jogadores...`,
+        ),
+      ],
+    });
+  } catch (erro) {
+    return responderErro(interaction, erro.message);
+  }
+}
+
+async function assumirSala(interaction, { db, client }, partidaId) {
+  if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
+    return responderErro(interaction, 'Só mediadores/ADM podem assumir salas.');
+  }
+  const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
+  if (!registro?.pix_chave) {
+    return responderErro(
+      interaction,
+      'Cadastre sua chave PIX antes de assumir uma sala: `/registrar_pix chave:SuaChave`.',
+    );
+  }
+
+  try {
+    const partida = partidas.assumir(db, partidaId, interaction.user.id, registro.comissao);
+    await fluxo.atualizarPartida(client, db, partidaId);
+    await auditoria.registrar(db, client, {
+      guildId: interaction.guildId,
+      autorId: interaction.user.id,
+      acao: 'Sala assumida',
+      detalhe: `Sala ${partidaId} · ${reais(partida.preco)}`,
+    });
+    return responderPrivado(interaction, {
+      embeds: [embedSucesso('Você assumiu a sala. Agora envie seu PIX e confira o pagamento.')],
+    });
+  } catch (erro) {
+    return responderErro(interaction, erro.message);
+  }
+}
+
+async function enviarPix(interaction, { db, client }, partidaId) {
+  if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) return responderErro(interaction, 'Só o mediador da sala pode enviar o PIX.');
+  const partida = partidas.buscar(db, partidaId);
+  if (!partida) return responderErro(interaction, 'Sala não encontrada.');
+
+  const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
+  if (!registro?.pix_chave) {
+    return responderErro(interaction, 'Você ainda não cadastrou PIX. Use `/registrar_pix`.');
+  }
+  if (partida.mediador_id && partida.mediador_id !== interaction.user.id && !ehAdmin(interaction.member)) {
+    return responderErro(interaction, 'Essa sala é de outro mediador.');
+  }
+
+  await fluxo.anunciarPix(client, db, {
+    partidaId,
+    mediadorId: interaction.user.id,
+    chave: registro.pix_chave,
+    titular: registro.pix_titular,
+  });
+
+  return responderPrivado(interaction, { embeds: [embedSucesso('PIX enviado na sala. Confira os comprovantes.')] });
+}
+
+async function pagamentoRecebido(interaction, { db, client }, partidaId) {
+  if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só o mediador pode confirmar o pagamento.');
+  try {
+    partidas.marcarPago(db, partidaId);
+    await fluxo.atualizarPartida(client, db, partidaId);
+    await auditoria.registrar(db, client, {
+      guildId: interaction.guildId,
+      autorId: interaction.user.id,
+      acao: 'Pagamento confirmado',
+      detalhe: `Sala ${partidaId}`,
+    });
+    return responderPrivado(interaction, {
+      embeds: [
+        embedSucesso(
+          'Pagamento confirmado ✅\nAgora clique em **Criar sala (Nix)** — o ID e a senha vão direto para o canal da fila.',
+        ),
+      ],
+    });
+  } catch (erro) {
+    return responderErro(interaction, erro.message);
+  }
+}
+
+async function fecharSala(interaction, { db, client }, partidaId) {
+  if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só a staff pode fechar a sala.');
+  const partida = partidas.buscar(db, partidaId);
+  await responderPrivado(interaction, { content: '🔒 Fechando esta sala em 5 segundos...' });
+  setTimeout(async () => {
+    try {
+      const canal =
+        interaction.channel ??
+        client.channels.cache.get(partida?.canal_id) ??
+        (await client.channels.fetch(partida?.canal_id));
+      await canal?.delete('Sala de AP encerrada');
+    } catch (erro) {
+      console.error('[botoes] não consegui fechar a sala:', erro.message);
+    }
+  }, 5000);
+  return true;
+}
+
+async function handleBotao(interaction, ctx) {
+  const partes = String(interaction.customId || '').split(':');
+  if (partes[0] !== 'ap') return false;
+
+  const acao = partes[1];
+  const args = partes.slice(2);
+  const { db, client } = ctx;
+
+  // "regras" e "liberar" abrem modal: showModal precisa ser a PRIMEIRA resposta,
+  // por isso esses dois não podem ser adiados.
+  const abreModal =
+    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar';
+
+  // Confirma o clique imediatamente (deferUpdate) em todos os outros casos:
+  // o Discord nunca mostra "O aplicativo não respondeu". O painel continua
+  // igual e o texto do resultado vai em mensagem privada (followUp).
+  if (!abreModal && !interaction.deferred && !interaction.replied) {
+    try {
+      await interaction.deferUpdate();
+    } catch (erro) {
+      console.error(`[botoes] não consegui confirmar o clique em ${interaction.customId}:`, erro.message);
+    }
+  }
+
+  try {
+    switch (acao) {
+      case 'entrar':
+      case 'gelo':
+        await entrarNaFilaBotao(interaction, ctx, args[0], args[1], args[2]);
+        return true;
+
+      case 'roletagirar': {
+        try {
+          const resultado = await royalSupabase.girar({ guildId: interaction.guildId, userId: interaction.user.id, request: interaction.id });
+          let entrega = 'O giro e o prêmio foram registrados no Supabase.';
+          if (resultado.reward_type === 'role') {
+            try {
+              if (!interaction.member?.roles?.add) throw new Error('Membro/cargo indisponível para entrega.');
+              await interaction.member.roles.add(String(resultado.reward_value));
+              await royalSupabase.marcarRecompensaEntregue({
+                guildId: interaction.guildId,
+                userId: interaction.user.id,
+                request: interaction.id,
+              });
+              entrega = 'O cargo foi concedido.';
+            } catch (erroEntrega) {
+              await royalSupabase.auditar({
+                guildId: interaction.guildId,
+                actorId: interaction.user.id,
+                action: 'reward.delivery.pending',
+                entityType: 'roulette_spin',
+                entityId: resultado.spin_id,
+                requestId: interaction.id,
+                detail: `Cargo pendente: ${String(erroEntrega.message || 'falha Discord').slice(0, 300)}`,
+              });
+              entrega = 'O prêmio foi registrado, mas a entrega do cargo ficou pendente para a staff.';
+            }
+          }
+          await responderPrivado(interaction, {
+            content: `🎰 Você ganhou **${resultado.prize_name}**! Recompensa: **${resultado.reward_type} · ${resultado.reward_value}**\n${entrega}`,
+          });
+        } catch (erro) {
+          await responderErro(interaction, erro.message);
+        }
+        return true;
+      }
+
+      case 'sair':
+        await sairDaFila(interaction, ctx, args[0], args[1]);
+        return true;
+
+      case 'confirmar':
+        await confirmarRegras(interaction, ctx, args[0]);
+        return true;
+
+      case 'assumir':
+        await assumirSala(interaction, ctx, args[0]);
+        return true;
+
+      case 'pix':
+        await enviarPix(interaction, ctx, args[0]);
+        return true;
+
+      case 'pago':
+        await pagamentoRecebido(interaction, ctx, args[0]);
+        return true;
+
+      case 'vencer': {
+        if (!ehMediador(interaction.member)) {
+          await responderErro(interaction, 'Só o mediador pode declarar o vencedor.');
+          return true;
+        }
+        const time = Number(args[1]);
+        const resultado = await fluxo.encerrarPartida(client, db, {
+          partidaId: args[0],
+          vencedorTime: time,
+          autorId: interaction.user.id,
+        });
+        await responderPrivado(interaction, {
+          content: `🏆 **${fluxo.nomeTime(time)}** venceu o AP de ${reais(resultado.partida.preco)}. Resultado salvo!`,
+        });
+        return true;
+      }
+
+      case 'wo': {
+        if (!ehMediador(interaction.member)) {
+          await responderErro(interaction, 'Só o mediador pode aplicar W.O.');
+          return true;
+        }
+        const ausente = Number(args[1]);
+        const resultado = await fluxo.aplicarWO(client, db, {
+          partidaId: args[0],
+          timeAusente: ausente,
+          autorId: interaction.user.id,
+        });
+        await responderPrivado(interaction, {
+          content:
+            `⚠️ W.O. aplicado.\n**${fluxo.nomeTime(ausente)}** não apareceu — vitória de ` +
+            `**${fluxo.nomeTime(resultado.partida.vencedor_time)}** (${reais(resultado.partida.preco)}).`,
+        });
+        return true;
+      }
+
+      case 'cancelar': {
+        if (!ehMediador(interaction.member)) {
+          await responderErro(interaction, 'Só a staff pode cancelar um AP.');
+          return true;
+        }
+        await fluxo.cancelarPartida(client, db, {
+          partidaId: args[0],
+          autorId: interaction.user.id,
+          motivo: `cancelada por ${interaction.user.tag}`,
+        });
+        await responderPrivado(interaction, { embeds: [embedSucesso('Sala cancelada e registrada na auditoria.')] });
+        return true;
+      }
+
+      case 'fechar':
+        return await fecharSala(interaction, { ...ctx, db }, args[0]);
+
+      case 'regras':
+      case 'liberar': {
+        // abre modal (tratado em interacoes/modais.js)
+        const { abrirModalRegras, abrirModalSala } = require('./modais');
+        if (acao === 'regras') await abrirModalRegras(interaction, db, args[0]);
+        else await abrirModalSala(interaction, db, args[0]);
+        return true;
+      }
+
+      case 'botnome':
+      case 'botavatar':
+      case 'botdescricao':
+      case 'botstatus': {
+        if (!ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Só ADMs podem mudar o perfil do bot.');
+          return true;
+        }
+        const { abrirModalBotPerfil } = require('./modais');
+        await abrirModalBotPerfil(interaction, acao.replace(/^bot/, ''));
+        return true;
+      }
+
+      case 'plantaoentrar': {
+        // Exige um dos CARGOS configurados (Mediador/ADM). Só cai na permissão
+        // de Administrador quando nenhum cargo foi configurado ainda.
+        const cargosMed = mediadores.cargos(db, interaction.guildId);
+        const temCargo = mediadores.temCargoMediador(db, interaction.guildId, interaction.member);
+        if (!temCargo && !(cargosMed.length === 0 && ehAdmin(interaction.member))) {
+          await responderErro(
+            interaction,
+            'Você não tem nenhum dos cargos configurados para mediação (Mediador/ADM). Fale com a administração.',
+          );
+          return true;
+        }
+        plantao.entrar(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        await interaction.editReply(plantao.painel(db, interaction.guildId));
+        const posicao = plantao.posicao(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        await responderPrivado(interaction, {
+          embeds: [embedSucesso(`Você está no plantão${posicao ? ` (posição ${posicao})` : ''}. Boa! ⚡`)],
+        });
+        return true;
+      }
+
+      case 'plantaosair': {
+        const saiu = plantao.sair(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        await interaction.editReply(plantao.painel(db, interaction.guildId));
+        await responderPrivado(interaction, {
+          embeds: [embedSucesso(saiu ? 'Você saiu do plantão.' : 'Você não estava no plantão.')],
+        });
+        return true;
+      }
+
+      case 'plantaostatus': {
+        await interaction.editReply(plantao.painel(db, interaction.guildId));
+        return true;
+      }
+
+      case 'medlimpar': {
+        if (!ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Só ADM configura o módulo de mediadores.');
+          return true;
+        }
+        const removidos = plantao.limpar(db, interaction.guildId);
+        await interaction.editReply(mediadores.painelConfig(db, interaction.guildId));
+        await responderPrivado(interaction, {
+          embeds: [embedSucesso(`Fila de mediadores limpa (${removidos} mediador(es) removido(s)).`)],
+        });
+        return true;
+      }
+
+      case 'medmodo': {
+        if (!ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Só ADM configura o módulo de mediadores.');
+          return true;
+        }
+        const atual = mediadores.modo(db, interaction.guildId);
+        const novo = atual === 'rodizio' ? 'fila' : 'rodizio';
+        mediadores.definirModo(db, interaction.guildId, novo);
+        await interaction.editReply(mediadores.painelConfig(db, interaction.guildId));
+        await responderPrivado(interaction, {
+          embeds: [embedSucesso(`Modo de mediação agora é **${mediadores.MODOS[novo]}**.`)],
+        });
+        return true;
+      }
+
+      case 'medgestaopix': {
+        if (!ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Só ADM vê a gestão de PIX dos mediadores.');
+          return true;
+        }
+        const mediadoresCadastrados = await staffSupabase.listar(interaction.guildId);
+        const corpo = mediadoresCadastrados.length
+          ? mediadoresCadastrados
+              .map(
+                (linha) =>
+                  `${mencao(linha.user_id)} — ${linha.pix_chave ? 'PIX cadastrado' : '**sem PIX**'} · ` +
+                  `${(linha.comissao * 100).toFixed(1)}%${linha.ativo ? '' : ' · inativo'}`,
+              )
+              .join('\n')
+          : 'Nenhum mediador cadastrado ainda. Use `/registrar_pix`.';
+        await responderPrivado(interaction, {
+          embeds: [
+            embed('💠 Gestão PIX · mediadores', corpo, {
+              cor: config.CORES.principal,
+              rodape: 'Chaves completas não aparecem aqui · ORG Royal AP',
+            }),
+          ],
+        });
+        return true;
+      }
+
+      case 'medreenviar': {
+        if (!ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Só ADM pode reenviar o painel de mediadores.');
+          return true;
+        }
+        const canalPainel = interaction.channel;
+        if (!canalPainel?.send) {
+          await responderErro(interaction, 'Use esse botão em um canal de texto.');
+          return true;
+        }
+        await canalPainel.send(mediadores.painelConfig(db, interaction.guildId));
+        await responderPrivado(interaction, {
+          embeds: [embedSucesso('Painel de mediadores reenviado neste canal.')],
+        });
+        return true;
+      }
+
+      case 'pixregistrar': {
+        // showModal deve ser o primeiro ACK e precisa chegar dentro de 3s.
+        // A autorização é conferida obrigatoriamente no submit em aplicarPix.
+        const { abrirModalPix } = require('./modais');
+        await abrirModalPix(interaction);
+        return true;
+      }
+
+      case 'pixverificar': {
+        const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
+        const corpo = registro?.pix_chave
+          ? `**Chave PIX:** \`${registro.pix_chave}\`\n**Titular:** ${registro.pix_titular || '—'}\n` +
+            `**Cidade:** ${registro.pix_cidade || '—'}\n**Comissão:** ${(registro.comissao * 100).toFixed(1)}%`
+          : 'Você ainda não cadastrou PIX. Clique em **Configurar Pix**.';
+        await responderVerificacaoPix(interaction, { embeds: [embed('💠 Seu cadastro PIX', corpo)] });
+        return true;
+      }
+
+      case 'criarsala': {
+        const partida = partidas.buscar(db, args[0]);
+        if (!partida) {
+          await responderErro(interaction, 'Sala não encontrada.');
+          return true;
+        }
+        if (!mediadores.ehMediador(db, interaction.guildId, interaction.member)) {
+          await responderErro(interaction, 'Só o mediador desta sala pode criar a sala do jogo.');
+          return true;
+        }
+        if (partida.mediador_id && partida.mediador_id !== interaction.user.id && !ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Essa sala é de outro mediador.');
+          return true;
+        }
+        try {
+          const criada = await salas.criarSalaDaPartida(client, db, { partidaId: args[0] });
+          await fluxo.atualizarPartida(client, db, args[0]);
+          await auditoria.registrar(db, client, {
+            guildId: interaction.guildId,
+            autorId: interaction.user.id,
+            acao: 'Sala do jogo criada',
+            detalhe: `Sala ${args[0]} · room ${criada.dados.room_id}`,
+          });
+          await responderPrivado(interaction, {
+            embeds: [
+              embedSucesso(
+                `Sala criada! 🎮\n**ID:** \`${criada.dados.room_id}\` · **Senha:** \`${criada.dados.password}\`` +
+                  (criada.canalId ? `\nID e senha publicados em <#${criada.canalId}>.` : ''),
+              ),
+            ],
+          });
+        } catch (erro) {
+          await responderErro(interaction, erro.message);
+        }
+        return true;
+      }
+
+      case 'ranking': {
+        const lista = await royalSupabase.topPerfis(
+          interaction.guildId,
+          'vitorias',
+          config.LIMITES.RANKING,
+        );
+        const medalhas = ['🥇', '🥈', '🥉'];
+        const corpo = lista.length
+          ? lista
+              .map(
+                (linha, indice) =>
+                  `${medalhas[indice] ?? `**${indice + 1}.**`} ${mencao(linha.user_id)} — ${linha.wins}V / ${linha.losses}D`,
+              )
+              .join('\n')
+          : 'Ranking ainda vazio. Bora fechar AP!';
+        await responderPrivado(interaction, { embeds: [embed('🏆 Ranking · vitórias', corpo)] });
+        return true;
+      }
+
+      case 'como':
+      case 'ajuda': {
+        await responderPrivado(interaction, {
+          embeds: [
+            embed(
+              '❓ Como funciona o AP',
+              '1. Escolha a faixa no menu do painel.\n' +
+                '2. Escolha **Gelo Infinito** ou **Gelo Normal**.\n' +
+                '3. O grupo fecha → sala privada criada automaticamente.\n' +
+                '4. Um jogador envia a regra e **todos** confirmam.\n' +
+                '5. O mediador assume, manda o PIX e confere o pagamento.\n' +
+                '6. Sala liberada → joguem → mediador declara o vencedor.\n\n' +
+                'Dúvida? Use a staff pelos canais oficiais.',
+              { rodape: 'ORG Royal AP' },
+            ),
+          ],
+        });
+        return true;
+      }
+
+      case 'minhasalas': {
+        if (!ehStaff(interaction.member)) {
+          await responderErro(interaction, 'Só a staff vê as salas.');
+          return true;
+        }
+        const ativas = partidas
+          .ativas(db, interaction.guildId)
+          .filter((partida) => partida.status !== 'confirmando');
+        const corpo = ativas.length
+          ? ativas
+              .map(
+                (partida) =>
+                  `• <#${partida.canal_id}> — ${partida.modo} · ${reais(partida.preco)} · \`${partida.status}\`\n` +
+                  `┄ mediador: ${partida.mediador_id ? mencao(partida.mediador_id) : 'livre'}`,
+              )
+              .join('\n')
+          : 'Nenhuma sala precisando de mediador agora. 🙌';
+        await responderPrivado(interaction, { embeds: [embed('📋 Salas em andamento', corpo)] });
+        return true;
+      }
+
+      case 'pixinfo': {
+        const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
+        const corpo = registro?.pix_chave
+          ? `**Chave:** \`${registro.pix_chave}\`\n**Titular:** ${registro.pix_titular || '—'}\n` +
+            `**Comissão:** ${(registro.comissao * 100).toFixed(1)}%\n**Status:** ${registro.ativo ? 'ativo' : 'inativo'}`
+          : 'Você ainda não cadastrou PIX. Use `/registrar_pix chave:SuaChave`.';
+        await responderPrivado(interaction, { embeds: [embed('💸 Meu PIX', corpo)] });
+        return true;
+      }
+
+      default:
+        return false;
+    }
+  } catch (erro) {
+    console.error(`[botoes] erro em ${interaction.customId}:`, erro);
+    await responderErro(
+      interaction,
+      erro.message || 'Deu um erro aqui. Tente de novo ou chame um ADM.',
+    ).catch(() => {});
+    return true;
+  }
+}
+
+module.exports = {
+  handleBotao,
+  responderVerificacaoPix,
+};
