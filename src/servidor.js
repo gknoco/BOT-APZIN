@@ -10,6 +10,7 @@
  */
 
 const http = require('http');
+const mercadoPagoWebhook = require('./servicos/mercadoPagoWebhook');
 
 const TEXTO = 'Bot Royal AP Online e Operante!';
 
@@ -18,14 +19,29 @@ function corpoResposta() {
 }
 
 function criarServidor() {
-  return http.createServer((req, res) => {
-    const corpo = corpoResposta();
-    res.writeHead(200, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Content-Length': Buffer.byteLength(corpo),
-      'Cache-Control': 'no-store',
-    });
-    res.end(req.method === 'HEAD' ? undefined : corpo);
+  return http.createServer(async (req, res) => {
+    try {
+      if (await mercadoPagoWebhook.tratar(req, res)) return;
+      const caminho = new URL(req.url || '/', 'http://localhost').pathname;
+      if (!['/', '/health'].includes(caminho) || !['GET', 'HEAD'].includes(req.method)) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end('Not found\n');
+        return;
+      }
+      const corpo = corpoResposta();
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Length': Buffer.byteLength(corpo),
+        'Cache-Control': 'no-store',
+      });
+      res.end(req.method === 'HEAD' ? undefined : corpo);
+    } catch (erro) {
+      console.error('[http] erro ao processar requisição:', erro?.message || erro);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end('Internal server error\n');
+      }
+    }
   });
 }
 

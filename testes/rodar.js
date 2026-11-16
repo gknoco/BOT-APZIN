@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -10,6 +11,9 @@ const { abrirBanco } = require('../src/db');
 const comandos = require('../src/comandos');
 const { responderPrivado, ehComponente, EFEMERO } = require('../src/util/seguranca');
 const { responderVerificacaoPix } = require('../src/interacoes/botoes');
+const vendas = require('../src/comandos/vendas');
+const modais = require('../src/interacoes/modais');
+const mercadoPago = require('../src/servicos/mercadoPago');
 const db = abrirBanco(process.env.DATABASE_PATH);
 const testes = [];
 function test(name, fn) { testes.push({ name, fn }); }
@@ -40,6 +44,53 @@ test('novos comandos estão registrados e comandos legados não existem', () => 
   assert.ok(comandos.nomes.includes('lojinha'));
   assert.ok(comandos.nomes.includes('inventario'));
   for (const nome of comandos.nomes) assert.equal(/legado-impossivel/i.test(nome), false, nome);
+});
+
+test('ROYAL SALA registra os comandos pedidos e o painel contém somente os dois botões oficiais', () => {
+  for (const nome of ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar']) {
+    assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
+  }
+  const painel = vendas.componentesPainelCompra().flatMap((linha) => linha.components.map((componente) => componente.toJSON()));
+  assert.deepEqual(painel.map((botao) => botao.label), ['Adquirir Sala', 'Ver pacotes de salas']);
+  assert.deepEqual(vendas.PACOTES_SALAS.map((p) => [p.quantidade, p.totalCentavos]), [
+    [1, 3], [5, 15], [10, 30], [20, 60], [50, 150], [100, 300],
+  ]);
+});
+
+test('modal de compra preserva ordem de quantidade/cupom e inclui e-mail exigido pelo Pix', async () => {
+  let modal;
+  await modais.abrirModalCompra({ showModal: async (valor) => { modal = valor; return true; } });
+  const json = modal.toJSON();
+  assert.equal(json.title, 'Adquirir Salas');
+  assert.deepEqual(json.components.map((row) => row.components[0].custom_id), ['quantidade', 'cupom', 'email']);
+  assert.equal(json.components[0].components[0].required, false);
+  assert.equal(json.components[1].components[0].required, false);
+});
+
+test('criações Nix passam pela reserva Supabase e exigem reconciliação quando o resultado é incerto', () => {
+  const nixCommand = fs.readFileSync(path.join(__dirname, '../src/comandos/nix.js'), 'utf8');
+  const matchService = fs.readFileSync(path.join(__dirname, '../src/servicos/salas.js'), 'utf8');
+  const wrapper = fs.readFileSync(path.join(__dirname, '../src/servicos/criarSalaComCredito.js'), 'utf8');
+  assert.match(nixCommand, /criarSalaComCredito\.criar/);
+  assert.match(matchService, /criarSalaComCredito\.criar/);
+  assert.doesNotMatch(nixCommand, /nix\.criarSala\(/);
+  assert.match(wrapper, /vendas\.reservarSala/);
+  assert.match(wrapper, /const estado = conclusiva \? 'failed' : 'unknown'/);
+  assert.match(wrapper, /vendas\.liquidarUsoSala/);
+});
+
+test('migração ROYAL SALA usa RLS service_role e contém ledger/wallet/webhook persistentes', () => {
+  const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261116044000_royal_room_sales.sql'), 'utf8');
+  for (const tabela of ['royal_room_purchase_orders', 'royal_room_coupons', 'royal_room_wallets', 'royal_room_usages', 'royal_room_ledger', 'royal_room_mp_webhook_events']) {
+    assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${tabela}`));
+  }
+  assert.match(sql, /ENABLE ROW LEVEL SECURITY/i);
+  assert.match(sql, /GRANT ALL PRIVILEGES ON TABLE public\.%I TO service_role/i);
+  assert.match(sql, /royal_room_apply_payment/);
+  assert.match(sql, /payment_id_already_linked/);
+  assert.match(sql, /v_order\.status = 'manual_review' AND v_status = 'approved'/);
+  assert.match(sql, /royal_room_reserve_room/);
+  assert.match(sql, /royal_room_resolve_usage/);
 });
 
 test('diretório de serviços não contém o módulo removido', () =>
@@ -180,14 +231,30 @@ test('modal/context menu não são componentes e resposta deferida usa editReply
     deferred: true,
     replied: false,
     isModalSubmit: () => true,
-    editReply: async () => chamadas.push('editReply'),
+    editReply: async (payload) => chamadas.push(['editReply', payload]),
     followUp: async () => chamadas.push('followUp'),
   };
   await responderPrivado(interaction, { content: 'PIX salvo.' });
-  assert.deepEqual(chamadas, ['editReply']);
+  assert.equal(chamadas[0][0], 'editReply');
+  assert.equal(Object.hasOwn(chamadas[0][1], 'flags'), false);
   const modais = fs.readFileSync(path.join(__dirname, '../src/interacoes/modais.js'), 'utf8');
   const handler = modais.slice(modais.indexOf('async function handleModal'));
   assert.ok(handler.indexOf('interaction.deferReply') < handler.indexOf('aplicarPix(interaction, db)'));
+});
+
+test('Pix usa centavos exatos e webhook exige assinatura HMAC íntegra', () => {
+  assert.equal(mercadoPago.centavos('0.03'), 3);
+  assert.equal(mercadoPago.centavos('1.50'), 150);
+  assert.equal(mercadoPago.centavos('1.001'), null);
+  const secret = 'offline-test-secret';
+  const dataId = '123456789';
+  const requestId = 'req-offline-test';
+  const ts = '1700000000';
+  const manifesto = `id:${dataId};request-id:${requestId};ts:${ts};`;
+  const v1 = crypto.createHmac('sha256', secret).update(manifesto).digest('hex');
+  const signature = `ts=${ts},v1=${v1}`;
+  assert.equal(mercadoPago.assinaturaValida({ signature, requestId, dataId, secret }), true);
+  assert.equal(mercadoPago.assinaturaValida({ signature, requestId: 'wrong', dataId, secret }), false);
 });
 
 async function main() {

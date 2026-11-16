@@ -30,6 +30,7 @@ const modulos = [
   require('./verp'),
   require('./nix'),
   require('./royal'),
+  require('./vendas'),
 ];
 
 const comandos = modulos.flatMap((modulo) => modulo.comandos);

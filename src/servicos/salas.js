@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../config');
 const { embed, reais, mencao } = require('../util/embeds');
-const nix = require('./nix');
+const criarSalaComCredito = require('./criarSalaComCredito');
 const paineis = require('./paineis');
 const partidas = require('./partidas');
 
@@ -100,19 +100,27 @@ async function publicarSalaLiberada(client, db, partidaId, dados) {
  * Cria a sala na Nix para uma partida já paga, grava ID/senha e avisa no canal
  * da fila. Lança Error amigável quando não pode.
  */
-async function criarSalaDaPartida(client, db, { partidaId }) {
+async function criarSalaDaPartida(client, db, { partidaId, actorId, requestId }) {
   const partida = partidas.buscar(db, partidaId);
   if (!partida) throw new Error('Sala não encontrada.');
   if (!['pago', 'sala_liberada'].includes(partida.status)) {
     throw new Error('Confirme o pagamento antes de criar a sala do jogo.');
   }
 
-  const dados = await nix.criarSala({
-    senha: senhaAleatoria(),
-    delayMinutos: 10,
-    modo: modoNix(partida),
-    nome: `Royal AP ${reais(partida.preco)}`,
+  const criacao = await criarSalaComCredito.criar({
+    guildId: partida.guild_id,
+    userId: actorId,
+    requestId,
+    source: 'match',
+    sourceRef: String(partidaId),
+    sala: {
+      senha: senhaAleatoria(),
+      delayMinutos: 10,
+      modo: modoNix(partida),
+      nome: `Royal AP ${reais(partida.preco)}`,
+    },
   });
+  const dados = criacao.dados;
 
   partidas.liberarSala(db, partidaId, {
     salaId: dados.room_id,
@@ -124,7 +132,7 @@ async function criarSalaDaPartida(client, db, { partidaId }) {
     return null;
   });
 
-  return { dados, partida: partidas.buscar(db, partidaId), canalId };
+  return { dados, partida: partidas.buscar(db, partidaId), canalId, creditoLiquidado: criacao.creditoLiquidado };
 }
 
 module.exports = {

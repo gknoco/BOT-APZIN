@@ -2,7 +2,6 @@
 
 /** Cliques em botões: fila, gelo, regras, mediação, PIX, resultado. */
 
-const { ButtonStyle } = require('discord.js');
 const config = require('../config');
 const fluxo = require('../servicos/fluxo');
 const partidas = require('../servicos/partidas');
@@ -14,6 +13,9 @@ const salas = require('../servicos/salas');
 const mediadores = require('../servicos/mediadores');
 const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
+const comprasSalas = require('../servicos/comprasSalas');
+const vendasDb = require('../servicos/roomSalesSupabase');
+const vendasUI = require('../comandos/vendas');
 const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
 const {
   EFEMERO,
@@ -272,7 +274,7 @@ async function handleBotao(interaction, ctx) {
   // "regras" e "liberar" abrem modal: showModal precisa ser a PRIMEIRA resposta,
   // por isso esses dois não podem ser adiados.
   const abreModal =
-    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar';
+    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar';
 
   // Confirma o clique imediatamente (deferUpdate) em todos os outros casos:
   // o Discord nunca mostra "O aplicativo não respondeu". O painel continua
@@ -547,6 +549,54 @@ async function handleBotao(interaction, ctx) {
         return true;
       }
 
+      case 'comprar': {
+        const { abrirModalCompra } = require('./modais');
+        await abrirModalCompra(interaction, null);
+        return true;
+      }
+
+      case 'verpacotes': {
+        await responderPrivado(interaction, {
+          embeds: [vendasUI.embedPacotes()],
+          components: vendasUI.componentesPacotes(),
+        });
+        return true;
+      }
+
+      case 'verificarcompra': {
+        const pedido = await comprasSalas.verificarPedido({
+          orderId: args[0],
+          guildId: interaction.guildId,
+          userId: interaction.user.id,
+        });
+        const mensagem = pedido.status === 'approved'
+          ? 'Pagamento aprovado! O saldo de salas já foi liberado na sua conta.'
+          : pedido.status === 'manual_review'
+            ? 'O pagamento está em revisão. Nenhum crédito foi liberado; não faça outro Pix para este pedido.'
+            : `Pagamento ainda não aprovado (status: **${pedido.status || 'pendente'}**). Assim que o Mercado Pago confirmar, o saldo será liberado automaticamente.`;
+        await responderPrivado(interaction, {
+          embeds: [embed(pedido.status === 'approved' ? '✅ Pix aprovado' : '💠 Status do Pix', mensagem)],
+        });
+        return true;
+      }
+
+      case 'compraslimparcargos': {
+        if (!config.DEV_OWNER_ID || String(interaction.user.id) !== String(config.DEV_OWNER_ID)) {
+          await responderErro(interaction, 'Somente DEV_OWNER_ID pode alterar as permissões de compras.');
+          return true;
+        }
+        const atual = await vendasDb.obterConfiguracao(interaction.guildId);
+        const salvo = await vendasDb.salvarConfiguracao({
+          guildId: interaction.guildId,
+          roleIds: [],
+          channelId: atual.panel_channel_id,
+          actorId: interaction.user.id,
+        });
+        await interaction.editReply(vendasUI.embedPainelPermissoes(salvo));
+        await responderPrivado(interaction, { content: 'Todos os cargos de compra foram removidos. As compras por botão estão bloqueadas até selecionar novos cargos.' });
+        return true;
+      }
+
       case 'criarsala': {
         const partida = partidas.buscar(db, args[0]);
         if (!partida) {
@@ -562,7 +612,11 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         try {
-          const criada = await salas.criarSalaDaPartida(client, db, { partidaId: args[0] });
+          const criada = await salas.criarSalaDaPartida(client, db, {
+            partidaId: args[0],
+            actorId: interaction.user.id,
+            requestId: interaction.id,
+          });
           await fluxo.atualizarPartida(client, db, args[0]);
           await auditoria.registrar(db, client, {
             guildId: interaction.guildId,
@@ -574,7 +628,8 @@ async function handleBotao(interaction, ctx) {
             embeds: [
               embedSucesso(
                 `Sala criada! 🎮\n**ID:** \`${criada.dados.room_id}\` · **Senha:** \`${criada.dados.password}\`` +
-                  (criada.canalId ? `\nID e senha publicados em <#${criada.canalId}>.` : ''),
+                  (criada.canalId ? `\nID e senha publicados em <#${criada.canalId}>.` : '') +
+                  (criada.creditoLiquidado ? '' : '\n⚠️ O crédito ficou reservado e precisa de reconciliação pela administração.'),
               ),
             ],
           });

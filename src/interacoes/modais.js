@@ -8,14 +8,19 @@ const {
   TextInputStyle,
   ActionRowBuilder,
   ActivityType,
+  AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require('discord.js');
 const config = require('../config');
 const partidas = require('../servicos/partidas');
 const staffSupabase = require('../servicos/staffSupabase');
 const mediadores = require('../servicos/mediadores');
 const fluxo = require('../servicos/fluxo');
+const comprasSalas = require('../servicos/comprasSalas');
+const vendasUI = require('../comandos/vendas');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
-const { embedSucesso } = require('../util/embeds');
+const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
 async function abrirModalRegras(interaction, db, partidaId) {
   const partida = partidas.buscar(db, partidaId);
@@ -238,6 +243,119 @@ async function abrirModalPix(interaction) {
   }
 }
 
+/** Modal de compra; pacotes fixos preenchem a quantidade no customId. */
+async function abrirModalCompra(interaction, quantidadeFixa = null) {
+  const quantidade = Number(quantidadeFixa);
+  const fixo = Number.isInteger(quantidade) && quantidade >= 1 && quantidade <= 100;
+  const modal = new ModalBuilder()
+    .setCustomId(`ap:modalcompra:${fixo ? quantidade : 'custom'}`)
+    .setTitle('Adquirir Salas');
+  const campos = [];
+  if (!fixo) {
+    campos.push(new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('quantidade')
+        .setLabel('Quantidade de salas (R$ 0,03 cada)')
+        .setStyle(TextInputStyle.Short)
+        .setMinLength(1)
+        .setMaxLength(4)
+        .setPlaceholder('Ex: 5')
+        .setRequired(false),
+    ));
+  }
+  campos.push(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('cupom')
+        .setLabel('Cupom de desconto (opcional)')
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(32)
+        .setRequired(false),
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('email')
+        .setLabel('E-mail do pagador (exigido pelo Mercado Pago)')
+        .setStyle(TextInputStyle.Short)
+        .setMinLength(5)
+        .setMaxLength(254)
+        .setPlaceholder('voce@exemplo.com')
+        .setRequired(true),
+    ),
+  );
+  modal.addComponents(...campos);
+  return interaction.showModal(modal);
+}
+
+async function aplicarCompraSalas(interaction, partes) {
+  if (!interaction.guildId) {
+    await responderErro(interaction, 'O sistema de compra funciona somente dentro do servidor.');
+    return true;
+  }
+  if (!(await vendasUI.exigirCargoCompra(interaction))) return true;
+  const quantidadeFixa = String(partes[2] || 'custom');
+  const quantidade = quantidadeFixa === 'custom'
+    ? Number(String(interaction.fields.getTextInputValue('quantidade') || '').trim())
+    : Number(quantidadeFixa);
+  if (!Number.isInteger(quantidade) || quantidade < 1) {
+    await responderErro(interaction, 'O preenchimento da quantidade de salas é obrigatório e precisa ser um número inteiro maior que zero.');
+    return true;
+  }
+  const email = String(interaction.fields.getTextInputValue('email') || '').trim();
+  const cupom = String(interaction.fields.getTextInputValue('cupom') || '').trim();
+
+  const { order, payment } = await comprasSalas.criarPedidoPix({
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+    requestId: interaction.id,
+    quantity: quantidade,
+    couponCode: cupom,
+    payerEmail: email,
+  });
+
+  const expiracao = payment.expiresAt || order.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const expiracaoTexto = dataBR(Date.parse(expiracao));
+  const detalheCupom = Number(order.discount_cents) > 0 ? `**Desconto aplicado:** ${reais(order.discount_cents)}` : null;
+  const card = embed(
+    'PIX GERADO',
+    [
+      `**Pacote selecionado:** ${Number(order.rooms_quantity || quantidade)} salas`,
+      `**Valor exato:** ${reais(order.amount_cents)}`,
+      detalheCupom,
+      `**Expiração:** ${expiracaoTexto}`,
+      '',
+      'O saldo é liberado automaticamente assim que o Mercado Pago aprovar o pagamento.',
+      `**Pedido:** \`${order.id}\``,
+    ].filter(Boolean).join('\n'),
+    { cor: config.CORES.ouro, rodape: 'ROYAL SALA · Pix Mercado Pago' },
+  );
+  const arquivos = [];
+  const base64 = String(payment.qrBase64 || '').replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+  if (base64 && base64.length <= 6 * 1024 * 1024 && /^[A-Za-z0-9+/=]+$/.test(base64)) {
+    const imagem = Buffer.from(base64, 'base64');
+    if (imagem.length > 0 && imagem.length <= 4 * 1024 * 1024) {
+      card.setImage('attachment://royal-sala-qr.png');
+      arquivos.push(new AttachmentBuilder(imagem, { name: 'royal-sala-qr.png' }));
+    }
+  }
+  if (!arquivos.length) throw new Error('O Mercado Pago não retornou a imagem do QR Code. O pedido ficou registrado; não gere outro Pix e procure a administração.');
+
+  const pixCopiaCola = String(payment.qrCode || '').replace(/[\r\n`]/g, '').slice(0, 4000);
+  const botoes = [new ButtonBuilder()
+    .setCustomId(`ap:verificarcompra:${order.id}`)
+    .setLabel('Verificar pagamento')
+    .setStyle(ButtonStyle.Primary)];
+  if (/^https:\/\//i.test(String(payment.ticketUrl || ''))) {
+    botoes.push(new ButtonBuilder().setURL(payment.ticketUrl).setLabel('Abrir Pix no Mercado Pago').setStyle(ButtonStyle.Link));
+  }
+  return responderPrivado(interaction, {
+    content: `**Pix copia e cola**\n\`\`\`\n${pixCopiaCola}\n\`\`\``,
+    embeds: [card],
+    files: arquivos,
+    components: [new ActionRowBuilder().addComponents(...botoes)],
+  });
+}
+
 async function aplicarPix(interaction, db) {
   if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
     await responderErro(interaction, 'Só mediadores/ADM registram PIX de recebimento.');
@@ -288,7 +406,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalregras', 'modalsala'].includes(tipo);
+    ['modalpix', 'modalregras', 'modalsala', 'modalcompra'].includes(tipo);
   if (!reconhecido) return false;
 
   // Submit de modal é uma interação nova. Confirmar imediatamente e depois
@@ -309,6 +427,7 @@ async function handleModal(interaction, { db, client }) {
     // Modais do /botperfil (nome, avatar, descrição e status do bot).
     if (String(tipo || '').startsWith('modalbot')) return await aplicarPerfilBot(interaction, client, tipo);
     if (tipo === 'modalpix') return await aplicarPix(interaction, db);
+    if (tipo === 'modalcompra') return await aplicarCompraSalas(interaction, partes);
 
     if (tipo === 'modalregras') {
       const texto = interaction.fields.getTextInputValue('regra');
@@ -348,6 +467,7 @@ module.exports = {
   abrirModalSala,
   abrirModalBotPerfil,
   abrirModalPix,
+  abrirModalCompra,
   CAMPOS_BOT,
   handleModal,
 };

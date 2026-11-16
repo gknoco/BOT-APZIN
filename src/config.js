@@ -132,6 +132,10 @@ function numero(valor, padrao, minimo = -Infinity, maximo = Infinity) {
   return Math.min(maximo, Math.max(minimo, convertido));
 }
 
+function idsLista(valor) {
+  return [...new Set(String(valor || '').split(',').map((id) => id.trim()).filter((id) => /^\d{17,20}$/.test(id)))].slice(0, 20);
+}
+
 const config = {
   PLACEHOLDER,
   PRECOS,
@@ -151,6 +155,12 @@ const config = {
   /** Credenciais server-side; nunca enviar ou registrar a service-role key. */
   SUPABASE_URL: texto(process.env.SUPABASE_URL),
   SUPABASE_SERVICE_ROLE_KEY: texto(process.env.SUPABASE_SERVICE_ROLE_KEY),
+  /** Credenciais privadas de cobrança. Nunca imprimir ou enviar ao Discord. */
+  MP_ACCESS_TOKEN: texto(process.env.MP_ACCESS_TOKEN),
+  MP_WEBHOOK_SECRET: texto(process.env.MP_WEBHOOK_SECRET),
+  MP_WEBHOOK_URL: texto(process.env.MP_WEBHOOK_URL),
+  DEV_OWNER_ID: texto(process.env.DEV_OWNER_ID),
+  CARGOS_SUPER_ADMIN_IDS: idsLista(process.env.CARGOS_SUPER_ADMIN_IDS),
 
   /**
    * CATEGORIA onde nascem as salas privadas de partida (quando a fila fecha,

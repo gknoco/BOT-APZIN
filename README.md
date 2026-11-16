@@ -23,6 +23,7 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
    - `supabase/migrations/202611150001_supabase_source_of_truth.sql`
    - `supabase/migrations/202611150002_economy_source_of_truth.sql`
    - `supabase/migrations/202611150003_service_role_security.sql`
+   - `supabase/migrations/20261116044000_royal_room_sales.sql`
 4. Faça backup do banco local atual e execute `npm run migrate:supabase` antes de iniciar o bot v4. O backfill usa uma RPC idempotente para importar valores locais em perfis ausentes/zerados, preserva dados remotos não conflitantes e **aborta sem sobrescrever** quando o mesmo perfil tem valores locais/remotos diferentes; reconcilie esses casos manualmente e execute novamente. Após todas as gravações remotas, limpa chaves PIX locais antigas e snapshots/auditoria.
 5. Execute `npm run commands:sync` ou deixe o bot sincronizar os comandos no evento `ready`.
 6. Inicie com `npm start`.
@@ -67,3 +68,31 @@ Os produtos podem conceder coins, giros, cargos, resgates físicos ou PIX. Compr
 - `npm start` abre também o health check HTTP para Railway/Render.
 
 O bot exige o **Server Members Intent** para rastrear convites. A detecção por diferença de usos é tratada como observação; convites simultâneos ou indisponíveis são registrados sem inventar um convidador.
+
+## Central de vendas ROYAL SALA
+
+A migração `20261116044000_royal_room_sales.sql` cria os pedidos Pix, cupons, carteiras, ledger, reservas/uso de salas, eventos de webhook e RPCs transacionais; as tabelas têm RLS e grants/policies somente para `service_role`. A compra Pix é idempotente, o QR e o código copia-e-cola são enviados em resposta efêmera, e o saldo só é creditado após consultar a API autenticada do Mercado Pago e validar status, moeda, valor e referência externa. O webhook assinado é persistido no Supabase e processado pelo worker com retry durável.
+
+Comandos e permissões:
+
+- `/permicompras` — somente `DEV_OWNER_ID`; define no Supabase os cargos autorizados para compra e o canal onde será publicado o painel.
+- `/painelcomprar` — dono do bot, proprietário do servidor ou IDs em `CARGOS_SUPER_ADMIN_IDS`; publica no canal configurado.
+- `/comprar` — exige um dos cargos definidos por `/permicompras`; publica o painel no canal atual.
+- `/cupomcompras criar` e `/cupomcompras desativar` — somente `DEV_OWNER_ID`.
+- `/minhassalas` — mostra saldo disponível, reservas, salas criadas hoje e total histórico, consultados no Supabase.
+- `/salasreconciliar` — somente dono do bot/Administrador; resolve uma chamada Nix cujo resultado ficou incerto. Não repita a criação enquanto o crédito estiver reservado.
+
+O painel principal tem apenas os botões **Adquirir Sala** e **Ver pacotes de salas**. O menu fixo oferece 1, 5, 10, 20, 50 ou 100 salas; a tarifa-base é R$ 0,03 por sala. O formulário pede quantidade, cupom opcional e e-mail do pagador: o campo de e-mail é necessário porque a API de pagamentos do Mercado Pago exige `payer.email`, e o bot Discord não recebe o e-mail do usuário. A seleção de pacote confirma a quantidade no modal antes de gerar o Pix, permitindo informar e-mail/cupom.
+
+### Variáveis privadas no Railway
+
+Adicione estas variáveis em **Railway → projeto → serviço do bot → Variables** e faça redeploy. Nunca as inclua em `.env.example`, commit, log ou mensagem Discord:
+
+1. `MP_ACCESS_TOKEN` — em [Suas integrações](https://www.mercadopago.com.br/developers/panel/app), selecione a aplicação do bot → **Credenciais** → escolha **Teste** para validar ou **Produção** para cobrar valores reais → copie o **Access Token**. É uma chave privada de backend; não use a Public Key.
+2. `MP_WEBHOOK_SECRET` — na mesma aplicação, abra **Webhooks → Configurar notificações**, configure os eventos de pagamento e a URL, salve e revele/copie a assinatura secreta. Use a assinatura do ambiente correspondente. O código valida `x-signature` e `x-request-id` antes de enfileirar a notificação.
+3. `MP_WEBHOOK_URL` — URL HTTPS pública exata do serviço Railway, terminada em `/webhooks/mercadopago` (por exemplo, `https://seu-dominio.up.railway.app/webhooks/mercadopago`). Ela também é enviada como `notification_url` na criação Pix; o servidor aceita `GET` para health check e `POST` assinado para eventos.
+4. `DEV_OWNER_ID` — ID numérico da conta Discord do dono. Ative **Modo de desenvolvedor** em Discord → Configurações avançadas, clique com o botão direito/toque no perfil do dono → **Copiar ID**.
+5. `CARGOS_SUPER_ADMIN_IDS` — IDs de cargos superiores autorizados a publicar `/painelcomprar`, separados por vírgula. Copie cada ID de cargo com Modo de desenvolvedor ligado.
+6. `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` — URL e chave `service_role` do projeto Supabase **Apzin**, em **Project Settings → API** (ou **API Keys** no painel atual). A `service_role` é segredo administrativo; nunca use a chave `anon` e nunca a exponha.
+
+Antes do modo produção, confirme no Railway todas as variáveis acima, valide a URL do webhook pelo endpoint `GET`, faça um pagamento de teste com as credenciais de teste/conta de teste e verifique `/minhassalas`. A referência oficial do [Access Token](https://www.mercadopago.com.br/developers/pt/docs/your-integrations/credentials), do [Pix via API](https://www.mercadopago.com.br/developers/pt/reference/online-payments/checkout-api-payments/create-payment/post) e de [Webhooks/assinatura](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/additional-content/your-integrations/notifications/webhooks) descreve os campos e passos do painel. A aplicação exige credenciais e configuração corretas; nenhum sistema pode prometer disponibilidade ou aprovação de pagamentos “100% sem erros”.

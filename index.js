@@ -18,6 +18,7 @@ const config = require('./src/config');
 const { abrirBanco } = require('./src/db');
 const { iniciarServidor } = require('./src/servidor');
 const eventos = require('./src/eventos');
+const mercadoPagoWorker = require('./src/servicos/mercadoPagoWorker');
 
 const TENTATIVAS_LOGIN = 5;
 const ESPERA_MAXIMA = 60 * 1000;
@@ -81,8 +82,10 @@ const client = new Client({
 
 eventos.montar(client, db);
 eventos.ligarProcesso(db);
+mercadoPagoWorker.iniciar();
 
 process.on('SIGTERM', () => {
+  mercadoPagoWorker.parar();
   try {
     servidorHttp.close?.();
   } catch {

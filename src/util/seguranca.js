@@ -53,7 +53,10 @@ function ehComponente(interaction) {
 async function responder(interaction, payload) {
   const corpo = typeof payload === 'string' ? { content: payload } : payload;
   // Comando já adiado (deferReply) → usa a mensagem "pensando" (editReply).
-  if (interaction.deferred && !ehComponente(interaction)) return interaction.editReply(corpo);
+  if (interaction.deferred && !ehComponente(interaction)) {
+    const { flags: _flagsOriginais, ...payloadEditavel } = corpo;
+    return interaction.editReply(payloadEditavel);
+  }
   // Componente já confirmado (deferUpdate/update) → followUp, sem mexer no painel.
   if (interaction.deferred || interaction.replied || reconhecidaRemotamente.has(interaction)) {
     return interaction.followUp(corpo);

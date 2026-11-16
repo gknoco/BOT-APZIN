@@ -174,7 +174,7 @@ function jogador(uid, regiao = 'BR') {
  * POST /rooms — cria a sala no Free Fire com uma conta bot da Nix.
  * Em AP/custom o tempo vai de 1 a 10 min; em Battle Royale, de 1 a 20.
  */
-async function criarSala({
+function validarCriacaoSala({
   senha,
   delayMinutos = 10,
   modo = 'ap_padrao',
@@ -224,6 +224,11 @@ async function criarSala({
     corpo.carregamento = Boolean(carregamento);
   }
 
+  return corpo;
+}
+
+async function criarSala(opcoes = {}) {
+  const corpo = validarCriacaoSala(opcoes);
   return requisitar('/rooms', { metodo: 'POST', corpo });
 }
 
@@ -301,6 +306,7 @@ module.exports = {
   mensagemErro,
   saldo,
   jogador,
+  validarCriacaoSala,
   criarSala,
   iniciarSala,
   liberarSala,

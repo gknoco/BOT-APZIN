@@ -13,9 +13,10 @@
  * /nix resultado sessao:      → resultado/vencedor da partida
  */
 
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
 const config = require('../config');
 const nix = require('../servicos/nix');
+const criarSalaComCredito = require('../servicos/criarSalaComCredito');
 const mediadores = require('../servicos/mediadores');
 const { exigirStaff, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso, dataBR } = require('../util/embeds');
@@ -120,7 +121,7 @@ async function executarJogador(interaction) {
 async function executarCriarSala(interaction, db) {
   if (!(await exigirCargoMediador(interaction, db))) return;
 
-  const dados = await nix.criarSala({
+  const sala = {
     senha: interaction.options.getString('senha'),
     delayMinutos: interaction.options.getInteger('tempo') ?? 10,
     modo: interaction.options.getString('modo') || 'ap_padrao',
@@ -128,10 +129,27 @@ async function executarCriarSala(interaction, db) {
     mapa: interaction.options.getString('mapa'),
     ouro1500: Boolean(interaction.options.getBoolean('ouro1500')),
     carregamento: Boolean(interaction.options.getBoolean('carregamento')),
+  };
+  const aviso = interaction.options.getString('avisar');
+  if (aviso === 'canal') {
+    const canal = interaction.channel;
+    const privado = canal?.type === ChannelType.PrivateThread || Boolean(
+      canal?.permissionOverwrites?.cache?.get?.(String(interaction.guildId))?.deny?.has?.(PermissionFlagsBits.ViewChannel),
+    );
+    if (!privado) return responderErro(interaction, 'Por segurança, ID e senha não podem ser divulgados em canal público. Use um canal de texto com acesso negado a @everyone ou selecione “Não avisar”.');
+  }
+
+  const resultado = await criarSalaComCredito.criar({
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+    requestId: interaction.id,
+    source: 'nix_command',
+    sourceRef: interaction.id,
+    sala,
   });
+  const dados = resultado.dados;
 
   const extra = [];
-  const aviso = interaction.options.getString('avisar');
   if (aviso === 'canal' && interaction.channel?.isTextBased?.()) {
     await interaction.channel
       .send({
@@ -145,6 +163,7 @@ async function executarCriarSala(interaction, db) {
       .catch(() => {});
     extra.push({ name: 'Aviso', value: `Sala divulgada em <#${interaction.channel.id}>.` });
   }
+  if (!resultado.creditoLiquidado) extra.push({ name: 'Crédito', value: 'A sala foi criada, mas a confirmação do consumo ficou pendente no Supabase. Não repita a criação; avise a administração.' });
 
   return responderPrivado(interaction, { embeds: [embedSala(dados, extra)] });
 }
