@@ -115,35 +115,39 @@ function clientePedidos(pedidos, consultas) {
   };
 }
 
-test('painel elegante preserva preço, benefícios e exatamente os dois botões oficiais', () => {
+test('painel comercial tem hierarquia visual, preço claro e dois botões funcionais', () => {
   const card = vendas.embedPainelCompra().toJSON();
   assert.match(card.title, /ROYAL SALA/);
-  assert.match(card.description, /R\$ 0,03 por sala/);
+  assert.match(card.fields[0].value, /R\$ 0,03/);
   assert.doesNotMatch(card.description, /━{3,}|-{3,}/);
   assert.match(card.description, /automaticamente/);
   const componentes = vendas.componentesPainelCompra().flatMap((row) => row.toJSON().components);
   assert.deepEqual(componentes.map((item) => [item.custom_id, item.label]), [
-    ['ap:comprar', 'Adquirir Sala'], ['ap:verpacotes', 'Ver pacotes de salas'],
+    ['ap:meupainel', 'Ver meu Painel'], ['ap:verpacotes', 'Comprar salas'],
   ]);
   assert.deepEqual(vendas.comandos.map((item) => item.data.name), [
     'painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar',
   ]);
 });
 
-test('pacotes mantêm quantidades e preços, com quantidade/unitário/total no menu', () => {
+test('select de pacotes tem placeholder exato, ícone e preço unitário/total em cada opção', () => {
   assert.equal(vendas.PRECO_SALA_CENTAVOS, 3);
   assert.deepEqual(vendas.PACOTES_SALAS.map((item) => [item.quantidade, item.totalCentavos]), [
     [1, 3], [5, 15], [10, 30], [20, 60], [50, 150], [100, 300],
   ]);
   const menu = vendas.componentesPacotes()[0].toJSON().components[0];
   assert.equal(menu.custom_id, 'ap:compraspacote');
+  assert.equal(menu.placeholder, 'Escolha seu pacote de salas...');
+  const cardPacotes = vendas.embedPacotes().toJSON();
+  assert.equal(cardPacotes.fields.length, 6);
   for (const [i, item] of menu.options.entries()) {
     const pacote = vendas.PACOTES_SALAS[i];
     assert.equal(item.value, String(pacote.quantidade));
-    assert.ok(item.label.includes(`${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`));
-    assert.ok(item.label.includes(reais(pacote.totalCentavos)));
+    assert.equal(item.label, `${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`);
+    assert.equal(item.emoji.name, pacote.emoji);
     assert.match(item.description, /R\$ 0,03/);
-    assert.ok(item.description.includes(reais(pacote.totalCentavos)));
+    assert.ok(item.description.includes(`Total ${reais(pacote.totalCentavos)}`));
+    assert.match(cardPacotes.fields[i].name, new RegExp(`${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`));
   }
 });
 
@@ -276,13 +280,13 @@ test('handler antigo de verificação permanece compatível com pagamentos pende
   }
 });
 
-test('Copia e Cola consulta pedido por ID, guild e dono e entrega bloco efêmero', async () => {
+test('Copia e Cola consulta pedido por ID, guild e dono e entrega somente o código bruto em bloco efêmero', async () => {
   const pedidos = [{ id: ID_PEDIDO, guild_id: 'guild-a', user_id: 'user-a', pix_copy_paste: '000201CODIGO_PIX_TESTE', status: 'pending' }];
   const consultas = [];
   await comMocks([[supabase, { obterCliente: () => clientePedidos(pedidos, consultas) }]], async () => {
     const interaction = interacao(`ap:copiarpix:${ID_PEDIDO}`);
     await botoes.handleBotao(interaction, ctx);
-    assert.equal(ultimoPayload(interaction).content, 'Copie o código Pix abaixo:\n```\n000201CODIGO_PIX_TESTE\n```');
+    assert.equal(ultimoPayload(interaction).content, '```\n000201CODIGO_PIX_TESTE\n```');
     assert.equal(ultimoPayload(interaction).flags & EFEMERO, EFEMERO);
     assert.deepEqual(consultas[0].filtros, [['id', ID_PEDIDO], ['guild_id', 'guild-a'], ['user_id', 'user-a']]);
     for (const alteracao of [{ user: { id: 'user-b' } }, { guildId: 'guild-b' }]) {
@@ -301,38 +305,55 @@ test('Copia e Cola sanitiza quebra de bloco e limita tamanho seguro', async () =
       await botoes.handleBotao(interaction, ctx);
       const payload = ultimoPayload(interaction);
       if (codigo.length > 1700) assert.match(texto(payload), /limite seguro/);
-      else assert.equal(payload.content, 'Copie o código Pix abaixo:\n```\n000102\n```');
+      else assert.equal(payload.content, '```\n000102\n```');
       assert.equal(payload.flags & EFEMERO, EFEMERO);
     });
   }
 });
 
-test('/comprar é privado por 15 minutos e /painelcomprar publica permanentemente', async () => {
+test('/comprar expira em 15 minutos e /painelcomprar fixa no canal atual e salva a configuração Supabase', async () => {
   const tarefas = [];
   const timeoutOriginal = global.setTimeout;
   global.setTimeout = (callback, atraso) => { tarefas.push({ callback, atraso }); return { unref() {} }; };
   const temporaria = { delete: async () => { temporaria.apagada = true; } };
-  const permanente = { delete: async () => { permanente.apagada = true; } };
+  let fixado = false;
+  const permanente = { pin: async () => { fixado = true; } };
   const interaction = interacao('comando');
   interaction.editReply = async (payload) => { interaction.chamadas.push(['editReply', payload]); return temporaria; };
   interaction.deleteReply = async () => { temporaria.apagada = true; };
+  interaction.guild.ownerId = interaction.user.id;
+  let enviadoNoCanal = false;
+  interaction.channel = {
+    id: 'canal-atual', guildId: 'guild-a',
+    send: async (payload) => {
+      enviadoNoCanal = true;
+      assert.equal(payload.embeds[0].toJSON().title, 'ROYAL SALA | Central de créditos');
+      assert.deepEqual(payload.components[0].toJSON().components.map((item) => item.label), ['Ver meu Painel', 'Comprar salas']);
+      return permanente;
+    },
+  };
+  let configSalva;
   try {
     await comMocks([
-      [vendasDb, { obterConfiguracao: async () => ({ allowed_role_ids: ['role-a'], panel_channel_id: 'canal-vendas' }) }],
+      [vendasDb, {
+        obterConfiguracao: async () => ({ allowed_role_ids: ['role-a'], panel_channel_id: 'canal-anterior' }),
+        salvarConfiguracao: async (args) => { configSalva = args; },
+      }],
     ], async () => {
       interaction.member.roles.cache.set('role-a', {});
       await vendas.comandos.find((item) => item.data.name === 'comprar').executar(interaction);
       assert.equal(tarefas.length, 1);
       assert.equal(tarefas[0].atraso, 900000);
-      assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, '⚡ ROYAL SALA · Central de créditos');
-      interaction.guild.ownerId = interaction.user.id;
-      const canal = { id: 'canal-vendas', guildId: 'guild-a', send: async () => permanente };
-      await vendas.comandos.find((item) => item.data.name === 'painelcomprar').executar(interaction, { client: { channels: { cache: new Map([['canal-vendas', canal]]) } } });
+      assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, 'ROYAL SALA | Central de créditos');
+      await vendas.comandos.find((item) => item.data.name === 'painelcomprar').executar(interaction);
       assert.equal(tarefas.length, 1);
+      assert.equal(enviadoNoCanal, true);
+      assert.equal(fixado, true);
+      assert.deepEqual(configSalva, { guildId: 'guild-a', roleIds: ['role-a'], channelId: 'canal-atual', actorId: 'user-a' });
       await tarefas[0].callback();
       assert.equal(temporaria.apagada, true);
-      assert.equal(permanente.apagada, undefined);
-      assert.match(texto(ultimoPayload(interaction)), /permanentemente/);
+      assert.equal(fixado, true);
+      assert.match(texto(ultimoPayload(interaction)), /registrado com sucesso no Supabase/);
     });
   } finally { global.setTimeout = timeoutOriginal; }
 });
@@ -354,14 +375,22 @@ test('exclusão temporária tolera Discord Unknown Message sem log', async () =>
   } finally { console.warn = original; }
 });
 
-test('permissão async false não libera consulta do saldo em /minhassalas', async () => {
+test('/minhassalas e Ver meu Painel liberam somente os próprios dados a qualquer comprador', async () => {
+  const dados = { available_rooms: 3, purchased_rooms_total: 5, reserved_rooms: 1, created_today: 2, created_total: 9, approved_purchase_count: 2, pending_usages: [] };
   const interaction = interacao('comando');
+  let identidade;
   await comMocks([
-    [mediadores, { podeUsarSalas: async () => false }],
+    [vendasDb, { estatisticasSalas: async (guildId, userId) => { identidade = { guildId, userId }; return dados; } }],
   ], async () => {
-    assert.equal(await vendas.exigirStaffSalas(interaction, ctx.db), false);
-    await vendas.comandos.find((item) => item.data.name === 'minhassalas').executar(interaction, ctx);
-    assert.match(texto(ultimoPayload(interaction)), /Cargo de mediação exigido/);
+    await vendas.comandos.find((item) => item.data.name === 'minhassalas').executar(interaction);
+    assert.deepEqual(identidade, { guildId: 'guild-a', userId: 'user-a' });
+    assert.equal(ultimoPayload(interaction).embeds[0].toJSON().fields[0].name, 'SALAS DISPONÍVEIS');
+    assert.equal(ultimoPayload(interaction).embeds[0].toJSON().fields[0].value, '**3**');
+    const botao = interacao('ap:meupainel');
+    await botoes.handleBotao(botao, ctx);
+    assert.deepEqual(identidade, { guildId: 'guild-a', userId: 'user-a' });
+    assert.equal(ultimoPayload(botao).embeds[0].toJSON().fields[0].name, 'SALAS DISPONÍVEIS');
+    assert.equal(ultimoPayload(botao).flags & EFEMERO, EFEMERO);
   });
 });
 

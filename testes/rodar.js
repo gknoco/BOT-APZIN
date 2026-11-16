@@ -56,7 +56,7 @@ test('ROYAL SALA registra os comandos pedidos e o painel contém somente os dois
     assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
   }
   const painel = vendas.componentesPainelCompra().flatMap((linha) => linha.components.map((componente) => componente.toJSON()));
-  assert.deepEqual(painel.map((botao) => botao.label), ['Adquirir Sala', 'Ver pacotes de salas']);
+  assert.deepEqual(painel.map((botao) => botao.label), ['Ver meu Painel', 'Comprar salas']);
   assert.deepEqual(vendas.PACOTES_SALAS.map((p) => [p.quantidade, p.totalCentavos]), [
     [1, 3], [5, 15], [10, 30], [20, 60], [50, 150], [100, 300],
   ]);
@@ -322,9 +322,9 @@ test('botão Copia e Cola busca código Pix pelo pedido, servidor e dono e envia
   assert.match(modalSource, /setLabel\('Copia e Cola'\)/);
   assert.match(buttonSource, /case 'copiarpix'/);
   assert.match(buttonSource, /vendasDb\.obterPixPedidoUsuario/);
-  assert.match(buttonSource, /Copie o código Pix abaixo/);
+  assert.doesNotMatch(buttonSource, /Copie o código Pix abaixo/);
   assert.match(dbSource, /\.eq\('user_id', String\(userId\)\)/);
-  assert.match(buttonSource, /responderPrivado\(interaction, \{\s*content: `Copie o código Pix/);
+  assert.match(buttonSource, /responderPrivado\(interaction, \{\s*content: `/);
 });
 
 test('versículo público não revela quem chamou o comando nem inclui avatar/menção', () => {

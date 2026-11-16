@@ -566,6 +566,16 @@ async function handleBotao(interaction, ctx) {
         return true;
       }
 
+      case 'meupainel': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Abra seu painel de salas dentro do servidor.');
+          return true;
+        }
+        const dados = await vendasDb.estatisticasSalas(interaction.guildId, interaction.user.id);
+        await responderPrivado(interaction, { embeds: [vendasUI.embedMeuPainel(dados)] });
+        return true;
+      }
+
       case 'verificarcompra': {
         const pedido = await comprasSalas.verificarPedido({
           orderId: args[0],
@@ -593,7 +603,7 @@ async function handleBotao(interaction, ctx) {
           guildId: interaction.guildId,
           userId: interaction.user.id,
         });
-        const codigo = String(pedido?.pix_copy_paste || '').replace(/[\r\n`]/g, '').trim();
+        const codigo = String(pedido?.pix_copy_paste || '').replace(/[\s`]/g, '');
         if (!codigo) {
           await responderErro(interaction, 'Não encontrei o código Pix deste pedido. Confirme se o pedido pertence à sua conta ou gere um novo atendimento.');
           return true;
@@ -603,7 +613,8 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         await responderPrivado(interaction, {
-          content: `Copie o código Pix abaixo:\n\`\`\`\n${codigo}\n\`\`\``,
+          content: `\`\`\`\n${codigo}\n\`\`\``,
+          allowedMentions: { parse: [] },
         });
         return true;
       }
@@ -621,7 +632,7 @@ async function handleBotao(interaction, ctx) {
           actorId: interaction.user.id,
         });
         await interaction.editReply(vendasUI.embedPainelPermissoes(salvo));
-        await responderPrivado(interaction, { content: 'Todos os cargos de compra foram removidos. As compras por botão estão bloqueadas até selecionar novos cargos.' });
+        await responderPrivado(interaction, { content: '✅ Todos os cargos autorizados foram removidos com sucesso do Supabase. As compras por botão ficam bloqueadas até selecionar novos cargos.' });
         return true;
       }
 

@@ -4,8 +4,6 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelSelectMenuBuilder,
-  ChannelType,
   RoleSelectMenuBuilder,
   SlashCommandBuilder,
   StringSelectMenuBuilder,
@@ -13,57 +11,76 @@ const {
 } = require('discord.js');
 const config = require('../config');
 const vendasDb = require('../servicos/roomSalesSupabase');
-const mediadores = require('../servicos/mediadores');
 const { ehAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso, reais, mencaoCargo } = require('../util/embeds');
 
 const PRECO_SALA_CENTAVOS = 3;
-const PACOTES_SALAS = [1, 5, 10, 20, 50, 100].map((quantidade) => ({
+const ICONES_PACOTES = ['🧩', '📦', '🎁', '🧰', '🏆', '👑'];
+const PACOTES_SALAS = [1, 5, 10, 20, 50, 100].map((quantidade, indice) => ({
   quantidade,
+  emoji: ICONES_PACOTES[indice],
   totalCentavos: quantidade * PRECO_SALA_CENTAVOS,
 }));
 const MAX_CARGOS_COMPRA = 10;
 
 function embedPainelCompra() {
   return embed(
-    '⚡ ROYAL SALA · Central de créditos',
-    [
-      'Créditos para criar salas automatizadas de Free Fire pela Nix FF, com liberação após confirmação segura do pagamento.',
-      '',
-      '**INVESTIMENTO**  ·  R$ 0,03 por sala',
-      '**PAGAMENTO**  ·  Pix processado pelo Mercado Pago',
-      '**CRÉDITOS**  ·  entram automaticamente após aprovação',
-      '**USO**  ·  cada crédito libera uma criação de sala Nix',
-      '',
-      'Use **Adquirir Sala** para escolher a quantidade ou **Ver pacotes de salas** para comparar as opções disponíveis.',
-    ].join('\n'),
-    { cor: config.CORES.ouro, rodape: 'ORG ROYAL AP  ·  Seguro · Automático · Persistido no Supabase' },
+    'ROYAL SALA | Central de créditos',
+    'Créditos pré-pagos para criar salas de Free Fire pela Nix FF. Um fluxo simples, com pagamento Pix seguro e saldo liberado automaticamente após a confirmação do Mercado Pago.',
+    {
+      cor: config.CORES.ouro,
+      campos: [
+        { name: 'VALOR POR SALA', value: '**R$ 0,03**', inline: true },
+        { name: 'PAGAMENTO', value: 'Pix · Mercado Pago', inline: true },
+        { name: 'LIBERAÇÃO', value: 'Automática após aprovação', inline: true },
+        { name: 'COMO FUNCIONA', value: 'Consulte seu saldo ou selecione um pacote. Após o pagamento aprovado, os créditos ficam disponíveis para criar salas.', inline: false },
+      ],
+      rodape: 'ORG ROYAL AP · Créditos e pedidos protegidos no Supabase',
+    },
   );
 }
 
 function componentesPainelCompra() {
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('ap:comprar').setLabel('Adquirir Sala').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('ap:verpacotes').setLabel('Ver pacotes de salas').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('ap:meupainel').setLabel('Ver meu Painel').setEmoji('📊').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('ap:verpacotes').setLabel('Comprar salas').setEmoji('🛍️').setStyle(ButtonStyle.Success),
     ),
   ];
 }
 
 function embedPacotes() {
-  const corpo = PACOTES_SALAS.map((pacote) => {
-    const unidade = pacote.quantidade === 1 ? 'sala' : 'salas';
-    return `**${pacote.quantidade} ${unidade}**  ·  ${pacote.quantidade} × R$ 0,03  =  **${reais(pacote.totalCentavos)}**`;
-  }).join('\n');
-  return embed('📦 Pacotes ROYAL SALA', [
-    'Escolha a quantidade ideal para suas criações de sala.',
-    '',
-    corpo,
-    '',
-    'Após selecionar, informe o e-mail do pagador e, se tiver, o cupom de desconto.',
-  ].join('\n'), {
+  return embed('Pacotes de salas', 'Valores transparentes, sem taxas escondidas. Selecione seu pacote para continuar.', {
     cor: config.CORES.principal,
-    rodape: 'Preço unitário: R$ 0,03 por sala · Pix Mercado Pago',
+    campos: PACOTES_SALAS.map((pacote) => ({
+      name: `${pacote.emoji}  ${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`,
+      value: `**${reais(pacote.totalCentavos)}**\n${reais(PRECO_SALA_CENTAVOS)} por sala`,
+      inline: true,
+    })),
+    rodape: 'Pix processado pelo Mercado Pago · R$ 0,03 por sala',
+  });
+}
+
+function embedMeuPainel(dados = {}) {
+  const operacoesPendentes = Array.isArray(dados.pending_usages) ? dados.pending_usages : [];
+  const pendentes = operacoesPendentes.length;
+  const listaPendentes = operacoesPendentes.slice(0, 5)
+    .map((item) => `• \`${item.request_id}\` — ${item.status}`).join('\n');
+  const descricao = 'Seu saldo e seu histórico pessoal de créditos neste servidor.' +
+    (pendentes ? `\n\n**Operações pendentes** (não tente novamente até confirmar):\n${listaPendentes}` : '');
+  return embed('Seu painel | ROYAL SALA', descricao, {
+    cor: config.CORES.ouro,
+    campos: [
+      { name: 'SALAS DISPONÍVEIS', value: `**${Number(dados.available_rooms || 0)}**`, inline: true },
+      { name: 'SALAS ADQUIRIDAS', value: `**${Number(dados.purchased_rooms_total || 0)}**`, inline: true },
+      { name: 'EM RESERVA', value: `**${Number(dados.reserved_rooms || 0)}**`, inline: true },
+      { name: 'CRIADAS HOJE', value: `**${Number(dados.created_today || 0)}**`, inline: true },
+      { name: 'CRIADAS NO TOTAL', value: `**${Number(dados.created_total || 0)}**`, inline: true },
+      { name: 'COMPRAS APROVADAS', value: `**${Number(dados.approved_purchase_count || 0)}**`, inline: true },
+    ],
+    rodape: pendentes
+      ? `${pendentes} operação(ões) pendente(s) · consulte a administração antes de tentar novamente · Supabase`
+      : 'Dados pessoais consultados em tempo real no Supabase',
   });
 }
 
@@ -82,13 +99,14 @@ function componentesPacotes() {
     new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId('ap:compraspacote')
-        .setPlaceholder('Escolha a quantidade de salas…')
+        .setPlaceholder('Escolha seu pacote de salas...')
         .setMinValues(1)
         .setMaxValues(1)
-        .addOptions(PACOTES_SALAS.map(({ quantidade, totalCentavos }) => ({
-          label: `${quantidade} ${quantidade === 1 ? 'sala' : 'salas'} — ${reais(totalCentavos)}`,
+        .addOptions(PACOTES_SALAS.map(({ quantidade, totalCentavos, emoji }) => ({
+          label: `${quantidade} ${quantidade === 1 ? 'sala' : 'salas'}`,
           value: String(quantidade),
-          description: `R$ 0,03 por sala · total ${reais(totalCentavos)}`,
+          description: `${reais(PRECO_SALA_CENTAVOS)} por sala · Total ${reais(totalCentavos)}`,
+          emoji: { name: emoji },
         }))),
     ),
   ];
@@ -99,12 +117,14 @@ function embedPainelPermissoes(settings = {}) {
   const canal = settings.panel_channel_id ? `<#${settings.panel_channel_id}>` : '`não definido`';
   const textoRoles = roles.length ? roles.map(mencaoCargo).join(', ') : '`nenhum cargo autorizado`';
   return {
-    embeds: [embed('⚙️ Permissões de compras · ROYAL SALA', [
-      `**Cargos autorizados para /comprar e botões de compra:** ${textoRoles}`,
-      `**Canal do painel publicado por /painelcomprar:** ${canal}`,
-      '',
-      'Selecione somente cargos de Administradores/Mediadores. A lista é salva no Supabase.',
-    ].join('\n'), { cor: config.CORES.principal, rodape: 'Somente DEV_OWNER_ID pode alterar esta configuração' })],
+    embeds: [embed('Configurações de compra | ROYAL SALA', 'Gerencie o acesso à Central de Compras. As alterações são gravadas no Supabase.', {
+      cor: config.CORES.principal,
+      campos: [
+        { name: 'CARGOS AUTORIZADOS', value: textoRoles, inline: false },
+        { name: 'CANAL REGISTRADO', value: canal, inline: false },
+      ],
+      rodape: 'Apenas DEV_OWNER_ID pode alterar os cargos · /painelcomprar publica no canal atual',
+    })],
     components: [
       new ActionRowBuilder().addComponents(
         new RoleSelectMenuBuilder()
@@ -112,14 +132,6 @@ function embedPainelPermissoes(settings = {}) {
           .setPlaceholder('Cargos de Administrador/Mediador autorizados…')
           .setMinValues(0)
           .setMaxValues(MAX_CARGOS_COMPRA),
-      ),
-      new ActionRowBuilder().addComponents(
-        new ChannelSelectMenuBuilder()
-          .setCustomId('ap:comprascanal')
-          .setPlaceholder('Canal onde /painelcomprar publicará o painel…')
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
       ),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ap:compraslimparcargos').setLabel('Remover todos os cargos autorizados').setStyle(ButtonStyle.Danger),
@@ -154,25 +166,41 @@ async function exigirCargoCompra(interaction) {
   return false;
 }
 
-async function exigirStaffSalas(interaction, db) {
-  return (await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member)) || ehAdmin(interaction.member);
-}
-
 const comandos = [
   {
-    data: new SlashCommandBuilder().setName('painelcomprar').setDescription('Publica o painel ROYAL SALA no canal de vendas configurado'),
-    async executar(interaction, { client }) {
+    data: new SlashCommandBuilder().setName('painelcomprar').setDescription('Publica e fixa o painel ROYAL SALA neste canal'),
+    async executar(interaction) {
       if (!interaction.guildId) return responderErro(interaction, 'Use /painelcomprar dentro do servidor.');
       const autorizado = String(interaction.user.id) === String(config.DEV_OWNER_ID) ||
         (interaction.guild?.ownerId && String(interaction.user.id) === String(interaction.guild.ownerId)) ||
         config.CARGOS_SUPER_ADMIN_IDS.some((id) => interaction.member?.roles?.cache?.has?.(id));
       if (!autorizado) return responderErro(interaction, 'Só cargos administrativos superiores podem publicar o painel de vendas.');
+      const canal = interaction.channel;
+      if (!canal?.send || String(canal.guildId) !== String(interaction.guildId)) return responderErro(interaction, 'Use /painelcomprar em um canal de texto deste servidor onde o bot possa enviar mensagens.');
       const settings = await vendasDb.obterConfiguracao(interaction.guildId);
-      if (!settings.panel_channel_id) return responderErro(interaction, 'Canal de vendas não configurado. O dono do bot deve definir o canal em /permicompras.');
-      const canal = client.channels.cache.get(String(settings.panel_channel_id)) || await client.channels.fetch(String(settings.panel_channel_id)).catch(() => null);
-      if (!canal?.send || String(canal.guildId) !== String(interaction.guildId)) return responderErro(interaction, 'O canal de vendas configurado não existe neste servidor ou o bot não pode enviar mensagens nele.');
       const mensagem = await canal.send({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
-      return responderPrivado(interaction, { embeds: [embedSucesso(`Painel ROYAL SALA publicado permanentemente em <#${canal.id}>. Ele permanecerá disponível até ser removido manualmente.`)] });
+      let fixado = false;
+      try {
+        if (typeof mensagem.pin === 'function') {
+          await mensagem.pin();
+          fixado = true;
+        }
+      } catch (erro) {
+        console.warn('[vendas] painel público enviado, mas não foi possível fixá-lo:', erro.message);
+      }
+      try {
+        await vendasDb.salvarConfiguracao({
+          guildId: interaction.guildId,
+          roleIds: Array.isArray(settings.allowed_role_ids) ? settings.allowed_role_ids : [],
+          channelId: canal.id,
+          actorId: interaction.user.id,
+        });
+      } catch (erro) {
+        console.error('[vendas] painel enviado, mas não foi possível salvar o canal no Supabase:', erro.message);
+        return responderErro(interaction, `O painel foi publicado em <#${canal.id}>, mas não consegui salvar a configuração no Supabase. Confira o acesso ao banco antes de publicar outro painel.`);
+      }
+      const statusFixado = fixado ? 'publicado e fixado' : 'publicado, mas não foi possível fixá-lo (confira a permissão Gerenciar Mensagens do bot)';
+      return responderPrivado(interaction, { embeds: [embedSucesso(`Painel ${statusFixado} em <#${canal.id}>. Canal registrado com sucesso no Supabase. A mensagem é pública e permanente.`)] });
     },
   },
   {
@@ -210,7 +238,7 @@ const comandos = [
     },
   },
   {
-    data: new SlashCommandBuilder().setName('permicompras').setDescription('Configura os cargos autorizados e o canal do painel de vendas'),
+    data: new SlashCommandBuilder().setName('permicompras').setDescription('Configura os cargos autorizados para a Central de Compras'),
     async executar(interaction) {
       if (!interaction.guildId) return responderErro(interaction, 'Use /permicompras dentro do servidor.');
       if (!(await ehDonoConfigurado(interaction))) return;
@@ -233,29 +261,18 @@ const comandos = [
       if (sub === 'criar') {
         const percent = interaction.options.getInteger('desconto');
         const cupom = await vendasDb.salvarCupom({ guildId: interaction.guildId, code, discountPercent: percent, active: true, actorId: interaction.user.id });
-        return responderPrivado(interaction, { embeds: [embedSucesso(`Cupom **${cupom.code}** ativo com **${cupom.discount_percent}%** de desconto.`)] });
+        return responderPrivado(interaction, { embeds: [embedSucesso(`Cupom **${cupom.code}** salvo no Supabase e ativo com **${cupom.discount_percent}%** de desconto.`)] });
       }
       const cupom = await vendasDb.salvarCupom({ guildId: interaction.guildId, code, active: false, actorId: interaction.user.id });
-      return responderPrivado(interaction, { embeds: [embedSucesso(`Cupom **${cupom.code}** desativado.`)] });
+      return responderPrivado(interaction, { embeds: [embedSucesso(`Cupom **${cupom.code}** desativado com sucesso no Supabase.`)] });
     },
   },
   {
     data: new SlashCommandBuilder().setName('minhassalas').setDescription('Mostra saldo e histórico das salas da sua conta'),
-    async executar(interaction, { db }) {
+    async executar(interaction) {
       if (!interaction.guildId) return responderErro(interaction, 'Use /minhassalas dentro do servidor.');
-      if (!(await exigirStaffSalas(interaction, db))) return responderErro(interaction, mediadores.AVISO_CARGO);
       const dados = await vendasDb.estatisticasSalas(interaction.guildId, interaction.user.id);
-      const pendentes = Array.isArray(dados.pending_usages) ? dados.pending_usages : [];
-      const listaPendentes = pendentes.slice(0, 5).map((item) => `• \`${item.request_id}\` — ${item.status}`).join('\n');
-      const descricao = [
-        `**Salas disponíveis:** ${Number(dados.available_rooms || 0)}`,
-        `**Créditos reservados/em reconciliação:** ${Number(dados.reserved_rooms || 0)}`,
-        `**Salas criadas hoje:** ${Number(dados.created_today || 0)}`,
-        `**Salas criadas no histórico:** ${Number(dados.created_total || 0)}`,
-        `**Salas adquiridas no total:** ${Number(dados.purchased_rooms_total || 0)}`,
-        pendentes.length ? `\n**Operações pendentes** (envie o código à administração):\n${listaPendentes}` : '',
-      ].filter(Boolean).join('\n');
-      return responderPrivado(interaction, { embeds: [embed('📊 Minhas salas · ROYAL SALA', descricao, { cor: config.CORES.ouro, rodape: 'Saldo e histórico consultados no Supabase' })] });
+      return responderPrivado(interaction, { embeds: [embedMeuPainel(dados)] });
     },
   },
   {
@@ -279,7 +296,7 @@ const comandos = [
         sessionId: interaction.options.getString('sessao'),
         note: interaction.options.getString('observacao'),
       });
-      return responderPrivado(interaction, { embeds: [embedSucesso(`Operação conciliada como **${registro.status}**. ${resultado === 'created' ? 'Um crédito foi consumido.' : 'A reserva foi devolvida.'}`)] });
+      return responderPrivado(interaction, { embeds: [embedSucesso(`Operação conciliada e registrada no Supabase como **${registro.status}**. ${resultado === 'created' ? 'Um crédito foi consumido.' : 'A reserva foi devolvida.'}`)] });
     },
   },
 ];
@@ -291,12 +308,12 @@ module.exports = {
   embedPainelCompra,
   componentesPainelCompra,
   embedPacotes,
+  embedMeuPainel,
   componentesPacotes,
   agendarExclusaoPainel,
   embedPainelPermissoes,
   ehDonoConfigurado,
   ehCargoCompra,
   exigirCargoCompra,
-  exigirStaffSalas,
   comandos,
 };
