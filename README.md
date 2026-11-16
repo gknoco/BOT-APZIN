@@ -12,7 +12,7 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 - Compras que concedem coins/giros creditam o perfil; resgates PIX/físicos ficam com status `pending`.
 - Entregas de cargos da roleta/loja também ficam pendentes no Supabase até a atribuição do Discord ser confirmada; falhas não são descartadas silenciosamente.
 - As migrações v4 revogam acesso de `anon`/`authenticated`, ativam RLS nas tabelas persistentes e reservam policies/grants ao backend `service_role`; somente essa role executa as RPCs `SECURITY DEFINER`.
-- `/ajuda` é gerado a partir do registro real de comandos e os organiza por categoria; o modal valida o e-mail Pix, o botão **Copia e Cola** responde em privado e o painel de `/comprar` expira após cinco minutos; o comportamento pré-existente de `/painelcomprar` foi preservado.
+- `/ajuda` é gerado a partir do registro real de comandos e os organiza por categoria; o modal valida o e-mail Pix, o botão **Copia e Cola** responde em privado e o painel de `/comprar` expira após 30 minutos; o comportamento pré-existente de `/painelcomprar` foi preservado.
 - `/configcanal1`, `/configcanal2`, `/logs`, `/boombot setlog`, `/boombot setcategoria`, canais/cargos/modo de mediadores e configurações `/conectar` são gravados em `discord_configuracoes` sem espelho ou fallback local; os mediadores consultam as configurações persistidas na nuvem.
 - A remoção resiliente trata mensagens inexistentes (Discord `10008`) sem interromper `/clearall`; falhas de canal inexistente (`10003`) nas boas-vindas/saídas não geram avisos repetidos.
 
@@ -86,15 +86,15 @@ Comandos e permissões:
 
 - `/permicompras` — somente `DEV_OWNER_ID`; define no Supabase os cargos autorizados para a Central de Compras.
 - `/painelcomprar` — dono do bot, proprietário do servidor ou IDs em `CARGOS_SUPER_ADMIN_IDS`; publica e fixa o painel no canal atual, registra esse canal no Supabase e mantém a mensagem pública permanente.
-- `/comprar` — exige um dos cargos definidos por `/permicompras`; abre o painel somente para quem executou, com expiração após 15 minutos.
+- `/comprar` — exige um dos cargos definidos por `/permicompras`; abre o painel somente para quem executou, com expiração após 30 minutos.
 - `/setcargo cargo:<cargo>` — Administrador ou proprietário do servidor; atribui o cargo escolhido a todos os membros (humanos e bots) e apresenta relatório de resultados.
 - `/cupomcompras criar` e `/cupomcompras desativar` — somente `DEV_OWNER_ID`.
 - `/minhassalas` — qualquer membro pode consultar privadamente o próprio saldo, reservas e histórico no Supabase; o `guild_id` e o `user_id` são obtidos da interação.
 - `/salasreconciliar` — somente dono do bot/Administrador; resolve uma chamada Nix cujo resultado ficou incerto. Não repita a criação enquanto o crédito estiver reservado.
 
-O painel principal mantém o visual original e os botões **Adquirir Sala** e **Ver pacotes de salas**. **Adquirir Sala** abre o formulário direto; **Ver pacotes de salas** responde em privado com seis linhas minimalistas, cada uma apenas com carrinho, quantidade e total: 1 sala — R$ 0,03; 5 — R$ 0,15; 10 — R$ 0,30; 20 — R$ 0,60; 50 — R$ 1,50; 100 — R$ 3,00. O select usa o placeholder `Escolha seu pacote de salas...` e lista somente quantidade e preço total, sem subtítulos. O formulário pede quantidade, cupom opcional e e-mail do pagador, exigido pela API do Mercado Pago.
+O painel principal mantém o visual original e os botões **Adquirir Sala** e **Ver pacotes de salas**. **Adquirir Sala** abre o formulário direto; **Ver pacotes de salas** responde em privado apenas com o embed minimalista e o select, sem botões adicionais. O embed mostra seis linhas com carrinho, quantidade e total: 1 sala — R$ 0,03; 5 — R$ 0,15; 10 — R$ 0,30; 20 — R$ 0,60; 50 — R$ 1,50; 100 — R$ 3,00. O select usa o placeholder `Escolha seu pacote de salas...` e cada opção tem carrinho, quantidade e preço total, sem subtítulos. Essa resposta é efêmera e expira em 30 minutos. O formulário pede quantidade, cupom opcional e e-mail do pagador, exigido pela API do Mercado Pago.
 
-Após gerar o Pix, o pedido e o código ficam persistidos no Supabase. **Copia e Cola** devolve em resposta efêmera apenas o payload Pix bruto dentro de um bloco de código, sem texto introdutório; o botão **Verificar pagamento** consulta o Mercado Pago. Os créditos só podem ser liberados para o `user_id` e o `guild_id` associados à ordem. A validação verifica o formato do e-mail informado, não sua propriedade. O painel de `/comprar` é efêmero e expira após 15 minutos; `/painelcomprar` publica e fixa uma mensagem permanente no canal onde foi executado, registrando o canal no Supabase.
+Após gerar o Pix, o pedido e o código ficam persistidos no Supabase. **Copia e Cola** devolve em resposta efêmera apenas o payload Pix bruto dentro de um bloco de código, sem texto introdutório; o botão **Verificar pagamento** consulta o Mercado Pago. Os créditos só podem ser liberados para o `user_id` e o `guild_id` associados à ordem. A validação verifica o formato do e-mail informado, não sua propriedade. Os painéis temporários de `/comprar` e **Ver pacotes de salas** expiram após 30 minutos; `/painelcomprar` publica e fixa uma mensagem permanente no canal onde foi executado, registrando o canal no Supabase.
 
 ### Variáveis privadas no Railway
 

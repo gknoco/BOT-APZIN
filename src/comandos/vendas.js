@@ -15,6 +15,7 @@ const { ehAdmin, responderPrivado, responderErro } = require('../util/seguranca'
 const { embed, embedSucesso, reais, mencaoCargo } = require('../util/embeds');
 
 const PRECO_SALA_CENTAVOS = 3;
+const TEMPO_EXPIRACAO_PAINEL_MS = 30 * 60 * 1000;
 const PACOTES_SALAS = [1, 5, 10, 20, 50, 100].map((quantidade) => ({
   quantidade,
   totalCentavos: quantidade * PRECO_SALA_CENTAVOS,
@@ -79,7 +80,7 @@ function embedMeuPainel(dados = {}) {
   });
 }
 
-function agendarExclusaoPainel(mensagem, agendar = setTimeout, atraso = 15 * 60 * 1000) {
+function agendarExclusaoPainel(mensagem, agendar = setTimeout, atraso = TEMPO_EXPIRACAO_PAINEL_MS) {
   const timer = agendar(() => {
     Promise.resolve(mensagem?.delete?.()).catch((erro) => {
       if (Number(erro?.code) !== 10008) console.warn('[vendas] não consegui apagar painel temporário:', erro.message);
@@ -98,7 +99,7 @@ function componentesPacotes() {
         .setMinValues(1)
         .setMaxValues(1)
         .addOptions(PACOTES_SALAS.map(({ quantidade, totalCentavos }) => ({
-          label: `${quantidade} ${quantidade === 1 ? 'sala' : 'salas'} - ${reais(totalCentavos)}`,
+          label: `🛒 ${quantidade} ${quantidade === 1 ? 'sala' : 'salas'} - ${reais(totalCentavos)}`,
           value: String(quantidade),
         }))),
     ),
@@ -197,12 +198,12 @@ const comandos = [
     },
   },
   {
-    data: new SlashCommandBuilder().setName('comprar').setDescription('Abre em privado o painel ROYAL SALA por 15 minutos'),
+    data: new SlashCommandBuilder().setName('comprar').setDescription('Abre em privado o painel ROYAL SALA por 30 minutos'),
     async executar(interaction) {
       if (!interaction.guildId) return responderErro(interaction, 'Use /comprar dentro do servidor.');
       if (!(await exigirCargoCompra(interaction))) return;
       const mensagem = await interaction.editReply({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
-      agendarExclusaoPainel({ delete: () => interaction.deleteReply() }, undefined, 15 * 60 * 1000);
+      agendarExclusaoPainel({ delete: () => interaction.deleteReply() });
       return mensagem;
     },
   },
@@ -296,6 +297,7 @@ const comandos = [
 
 module.exports = {
   PRECO_SALA_CENTAVOS,
+  TEMPO_EXPIRACAO_PAINEL_MS,
   PACOTES_SALAS,
   MAX_CARGOS_COMPRA,
   embedPainelCompra,

@@ -151,9 +151,43 @@ test('embed de pacotes usa carrinho e contém somente quantidade/total; o select
   for (const [i, item] of menu.options.entries()) {
     const pacote = vendas.PACOTES_SALAS[i];
     assert.equal(item.value, String(pacote.quantidade));
-    assert.equal(item.label, `${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'} - ${reais(pacote.totalCentavos)}`);
+    assert.equal(item.label, `🛒 ${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'} - ${reais(pacote.totalCentavos)}`);
     assert.equal(item.description, undefined);
     assert.equal(item.emoji, undefined);
+  }
+  assert.deepEqual(menu.options.map((item) => item.label), [
+    '🛒 1 sala - R$ 0,03',
+    '🛒 5 salas - R$ 0,15',
+    '🛒 10 salas - R$ 0,30',
+    '🛒 20 salas - R$ 0,60',
+    '🛒 50 salas - R$ 1,50',
+    '🛒 100 salas - R$ 3,00',
+  ]);
+});
+
+test('Ver pacotes responde somente com embed e select, sem botões, e agenda exclusão em 30 minutos', async () => {
+  const tarefas = [];
+  const timeoutOriginal = global.setTimeout;
+  global.setTimeout = (callback, atraso) => { tarefas.push({ callback, atraso }); return { unref() {} }; };
+  const mensagem = { delete: async () => { mensagem.apagada = true; } };
+  const interaction = interacao('ap:verpacotes');
+  interaction.followUp = async (payload) => { interaction.chamadas.push(['followUp', payload]); return mensagem; };
+  try {
+    await botoes.handleBotao(interaction, ctx);
+    const payload = ultimoPayload(interaction);
+    assert.equal(payload.embeds.length, 1);
+    assert.equal(payload.components.length, 1);
+    const componentes = payload.components[0].toJSON().components;
+    assert.equal(componentes.length, 1);
+    assert.equal(componentes[0].type, 3);
+    assert.equal(componentes[0].placeholder, 'Escolha seu pacote de salas...');
+    assert.equal(payload.flags & EFEMERO, EFEMERO);
+    assert.equal(tarefas.length, 1);
+    assert.equal(tarefas[0].atraso, 30 * 60 * 1000);
+    await tarefas[0].callback();
+    assert.equal(mensagem.apagada, true);
+  } finally {
+    global.setTimeout = timeoutOriginal;
   }
 });
 
@@ -317,7 +351,7 @@ test('Copia e Cola sanitiza quebra de bloco e limita tamanho seguro', async () =
   }
 });
 
-test('/comprar expira em 15 minutos e /painelcomprar fixa no canal atual e salva a configuração Supabase', async () => {
+test('/comprar expira em 30 minutos e /painelcomprar fixa no canal atual e salva a configuração Supabase', async () => {
   const tarefas = [];
   const timeoutOriginal = global.setTimeout;
   global.setTimeout = (callback, atraso) => { tarefas.push({ callback, atraso }); return { unref() {} }; };
@@ -349,7 +383,7 @@ test('/comprar expira em 15 minutos e /painelcomprar fixa no canal atual e salva
       interaction.member.roles.cache.set('role-a', {});
       await vendas.comandos.find((item) => item.data.name === 'comprar').executar(interaction);
       assert.equal(tarefas.length, 1);
-      assert.equal(tarefas[0].atraso, 900000);
+      assert.equal(tarefas[0].atraso, 30 * 60 * 1000);
       assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, '⚡ ROYAL SALA · Central de créditos');
       await vendas.comandos.find((item) => item.data.name === 'painelcomprar').executar(interaction);
       assert.equal(tarefas.length, 1);
@@ -372,7 +406,7 @@ test('exclusão temporária tolera Discord Unknown Message sem log', async () =>
   try {
     vendas.agendarExclusaoPainel({ delete: async () => { throw Object.assign(new Error('Unknown Message'), { code: 10008 }); } }, (fn, atraso) => {
       callback = fn;
-      assert.equal(atraso, 900000);
+      assert.equal(atraso, 30 * 60 * 1000);
       return { unref() {} };
     });
     callback();

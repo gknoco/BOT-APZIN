@@ -78,7 +78,7 @@ test('/ajuda lista todos os comandos e subcomandos registrados', () => {
   }
 });
 
-test('expiração configurável de painéis mantém o padrão de quinze minutos', () => {
+test('expiração configurável de painéis mantém o padrão de trinta minutos', () => {
   let callback;
   let atraso;
   let apagamentos = 0;
@@ -87,11 +87,11 @@ test('expiração configurável de painéis mantém o padrão de quinze minutos'
     atraso = ms;
     return { unref() {} };
   });
-  assert.equal(atraso, 900000);
+  assert.equal(atraso, 30 * 60 * 1000);
   callback();
   assert.equal(apagamentos, 1);
   const fonte = fs.readFileSync(path.join(__dirname, '../src/comandos/vendas.js'), 'utf8');
-  assert.match(fonte, /15 \* 60 \* 1000/);
+  assert.match(fonte, /30 \* 60 \* 1000/);
 });
 
 test('modal de compra preserva ordem de quantidade/cupom e inclui e-mail exigido pelo Pix', async () => {

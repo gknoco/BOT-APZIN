@@ -559,10 +559,11 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'verpacotes': {
-        await responderPrivado(interaction, {
+        const mensagemPacotes = await responderPrivado(interaction, {
           embeds: [vendasUI.embedPacotes()],
           components: vendasUI.componentesPacotes(),
         });
+        vendasUI.agendarExclusaoPainel(mensagemPacotes);
         return true;
       }
 
