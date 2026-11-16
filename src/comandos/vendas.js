@@ -49,10 +49,7 @@ function componentesPainelCompra() {
 }
 
 function embedPacotes() {
-  const linhas = PACOTES_SALAS.map((pacote) =>
-    `🛒 **${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}** — \`${reais(pacote.totalCentavos)}\``,
-  ).join('\n');
-  return embed('Pacotes de salas', linhas, {
+  return embed('Escolha seu pacote', 'Selecione a quantidade de salas no menu abaixo para continuar.', {
     cor: config.CORES.principal,
   });
 }

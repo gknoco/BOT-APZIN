@@ -142,10 +142,9 @@ test('embed de pacotes usa carrinho e contém somente quantidade/total; o select
   assert.equal(menu.custom_id, 'ap:compraspacote');
   assert.equal(menu.placeholder, 'Escolha seu pacote de salas...');
   const cardPacotes = vendas.embedPacotes().toJSON();
-  const linhasEsperadas = vendas.PACOTES_SALAS.map((pacote) =>
-    `🛒 **${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}** — \`${reais(pacote.totalCentavos)}\``,
-  ).join('\n');
-  assert.equal(cardPacotes.description, linhasEsperadas);
+  assert.equal(cardPacotes.title, 'Escolha seu pacote');
+  assert.equal(cardPacotes.description, 'Selecione a quantidade de salas no menu abaixo para continuar.');
+  assert.doesNotMatch(cardPacotes.description, /🛒|R\$|\d+ salas?/);
   assert.equal(cardPacotes.fields, undefined);
   assert.equal(cardPacotes.footer, undefined);
   for (const [i, item] of menu.options.entries()) {
