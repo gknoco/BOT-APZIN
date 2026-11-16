@@ -5,7 +5,7 @@
  *
  * REGRA DE OURO: o Discord exige resposta em menos de 3 segundos. Por isso o
  * primeiro passo é SEMPRE confirmar o clique (deferUpdate); só depois o bot
- * grava no SQLite e redesenha o painel. Assim nenhum menu mostra
+ * grava no Supabase e redesenha o painel. Assim nenhum menu mostra
  * "O aplicativo não respondeu a tempo".
  */
 
@@ -13,8 +13,6 @@ const config = require('../config');
 const filas = require('../servicos/filas');
 const paineis = require('../servicos/paineis');
 const mediadores = require('../servicos/mediadores');
-const staffSupabase = require('../servicos/staffSupabase');
-const persistenciaSupabase = require('../servicos/supabase');
 const plantao = require('../servicos/plantao');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
@@ -45,7 +43,7 @@ async function publicarNoCanal(ctx, interaction, canalId, tipo) {
       client.channels.cache?.get?.(canalId) || (await client.channels.fetch(canalId).catch(() => null));
     if (!canal?.send) return false;
 
-    const payload = tipo === 'medpix' ? plantao.painelRegistroPix() : plantao.painel(ctx.db, interaction.guildId);
+    const payload = tipo === 'medpix' ? plantao.painelRegistroPix() : await plantao.painel(ctx.db, interaction.guildId);
     const mensagem = await canal.send(payload);
     if (typeof mensagem?.pin === 'function') await mensagem.pin().catch(() => {});
     return true;
@@ -127,19 +125,13 @@ async function handleSelect(interaction, ctx) {
     const valores = (interaction.values || []).map(String).filter(Boolean);
     try {
       if (acao === 'medcargos') {
-        await staffSupabase.definirConfig(interaction.guildId, 'cargos_mediadores', JSON.stringify(valores));
-        await persistenciaSupabase.definirConfig(interaction.guildId, 'cargos_mediadores', JSON.stringify(valores));
-        mediadores.definirCargos(ctx.db, interaction.guildId, valores);
+        await mediadores.definirCargos(ctx.db, interaction.guildId, valores);
       }
       if (acao === 'medfila') {
-        await staffSupabase.definirConfig(interaction.guildId, 'canal_bateponto', valores[0]);
-        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_bateponto', valores[0]);
-        mediadores.definirCanalBatePonto(ctx.db, interaction.guildId, valores[0]);
+        await mediadores.definirCanalBatePonto(ctx.db, interaction.guildId, valores[0]);
       }
       if (acao === 'medpix') {
-        await staffSupabase.definirConfig(interaction.guildId, 'canal_configpix', valores[0]);
-        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_configpix', valores[0]);
-        mediadores.definirCanalConfigPix(ctx.db, interaction.guildId, valores[0]);
+        await mediadores.definirCanalConfigPix(ctx.db, interaction.guildId, valores[0]);
       }
     } catch (erro) {
       console.error(`[selects] não consegui salvar ${acao}:`, erro.message);
@@ -157,7 +149,7 @@ async function handleSelect(interaction, ctx) {
     }
 
     // Painel novo, já com a escolha gravada.
-    await redesenhar(interaction, mediadores.painelConfig(ctx.db, interaction.guildId));
+    await redesenhar(interaction, await mediadores.painelConfig(ctx.db, interaction.guildId));
     if (aviso) await responderPrivado(interaction, { content: aviso }).catch(() => {});
     return true;
   }
@@ -175,7 +167,7 @@ async function handleSelect(interaction, ctx) {
     return true;
   }
 
-  const entradas = filas.listar(ctx.db, { guildId: interaction.guildId, modo: modo.id, preco });
+  const entradas = await filas.listar(ctx.db, { guildId: interaction.guildId, modo: modo.id, preco });
   const linhas = config.variantesDoModo(modo).map((variante) => {
     const ids = entradas.filter((linha) => linha.gelo === variante.id).map((linha) => linha.user_id);
     return `${variante.emoji} **${variante.nome}** (${ids.length}/${config.CAPITAES_POR_PARTIDA} capitães): ${listaUsuarios(ids)}`;

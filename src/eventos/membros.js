@@ -78,13 +78,20 @@ async function publicar(member, chave, montarEmbed, clienteSupabase) {
   }
 }
 
-function registrar(client) {
-  client.on(Events.GuildMemberAdd, (member) =>
-    publicar(member, 'canal_boas_vindas', embedEntrada),
-  );
-  client.on(Events.GuildMemberRemove, (member) =>
-    publicar(member, 'canal_saida', embedSaida),
-  );
+function registrar(client, db) {
+  const enviar = async (member, chave, montarEmbed) => {
+    try {
+      await publicar(member, chave, montarEmbed, db?.client);
+    } catch (erro) {
+      console.error('[membros] falha no evento:', erro.message);
+    }
+  };
+  client.on(Events.GuildMemberAdd, (member) => {
+    void enviar(member, 'canal_boas_vindas', embedEntrada);
+  });
+  client.on(Events.GuildMemberRemove, (member) => {
+    void enviar(member, 'canal_saida', embedSaida);
+  });
 }
 
 module.exports = { registrar, publicar, embedEntrada, embedSaida };

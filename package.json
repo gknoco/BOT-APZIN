@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "test": "node testes/rodar.js",
+    "test": "node testes/rodar.js && node --test testes/vendas.js && node testes/comandos-polish.js && node testes/servicos.js && node testes/operacional.js && node --test testes/permissoes.js",
     "commands:sync": "node scripts/registrar-comandos.js",
     "seed:versiculos": "node scripts/seed-versiculos.js",
     "migrate:supabase": "node scripts/migrar-supabase.js"
@@ -20,8 +20,5 @@
     "@supabase/supabase-js": "^2.119.0",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.7"
-  },
-  "optionalDependencies": {
-    "better-sqlite3": "^12.4.1"
   }
 }

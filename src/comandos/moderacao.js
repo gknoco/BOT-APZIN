@@ -2,9 +2,8 @@
 
 /** Moderação: blacklist, limpeza, anúncios, DMs e logs. */
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
 const config = require('../config');
-const { obterConfig, definirConfig } = require('../db');
 const persistenciaSupabase = require('../servicos/supabase');
 const blacklist = require('../servicos/blacklist');
 const auditoria = require('../servicos/auditoria');
@@ -38,7 +37,7 @@ const comandos = [
       const sub = interaction.options.getSubcommand();
 
       if (sub === 'listar') {
-        const lista = blacklist.listar(db, interaction.guildId);
+        const lista = await blacklist.listar(db, interaction.guildId);
         const corpo = lista.length
           ? lista
               .map(
@@ -57,7 +56,7 @@ const comandos = [
 
       if (sub === 'adicionar') {
         const motivo = interaction.options.getString('motivo');
-        blacklist.adicionar(db, {
+        await blacklist.adicionar(db, {
           guildId: interaction.guildId,
           userId: alvo.id,
           motivo,
@@ -74,7 +73,7 @@ const comandos = [
         });
       }
 
-      const removeu = blacklist.remover(db, { guildId: interaction.guildId, userId: alvo.id });
+      const removeu = await blacklist.remover(db, { guildId: interaction.guildId, userId: alvo.id });
       if (!removeu) return responderErro(interaction, `${mencao(alvo.id)} não estava na lista negra.`);
 
       await auditoria.registrar(db, client, {
@@ -219,9 +218,14 @@ const comandos = [
         });
       }
 
-      db.prepare(
-        'INSERT INTO logs_dm (guild_id, user_id, autor_id, mensagem, criado_em) VALUES (?, ?, ?, ?, ?)',
-      ).run(interaction.guildId, alvo.id, interaction.user.id, mensagem, Date.now());
+      const { error } = await db.client.from('royal_logs_dm').insert({
+        guild_id: String(interaction.guildId),
+        user_id: String(alvo.id),
+        autor_id: String(interaction.user.id),
+        mensagem,
+        criado_em: Date.now(),
+      });
+      if (error) throw new Error(`A DM foi enviada, mas não consegui salvar seu registro no Supabase: ${error.message}`);
 
       await auditoria.registrar(db, client, {
         guildId: interaction.guildId,
@@ -307,11 +311,11 @@ const comandos = [
     async executar(interaction, { db }) {
       if (!(await exigirAdmin(interaction))) return;
       const alvo = interaction.options.getUser('usuario');
-      const info = db
-        .prepare('DELETE FROM logs_dm WHERE guild_id = ? AND user_id = ?')
-        .run(interaction.guildId, alvo.id);
+      const { count, error } = await db.client.from('royal_logs_dm').delete({ count: 'exact' })
+        .eq('guild_id', String(interaction.guildId)).eq('user_id', String(alvo.id));
+      if (error) throw new Error(`Não consegui apagar o histórico de DMs no Supabase: ${error.message}`);
       return responderPrivado(interaction, {
-        content: `🧹 Apaguei **${info.changes}** registro(s) de DM com ${mencao(alvo.id)}.`,
+        content: `🧹 Apaguei **${count ?? 0}** registro(s) de DM com ${mencao(alvo.id)}.`,
       });
     },
   },
@@ -327,21 +331,17 @@ const comandos = [
       const canal = interaction.options.getChannel('canal');
 
       if (canal) {
-        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id);
-        definirConfig(db, interaction.guildId, 'canal_logs', canal.id);
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id, db.client);
         return responderPrivado(interaction, {
           embeds: [embedSucesso(`Canal de logs definido: ${canal}.\nTudo que a staff fizer vai aparecer lá.`)],
         });
       }
 
-      let atual = null;
-      try {
-        atual = await persistenciaSupabase.obterConfig(interaction.guildId, 'canal_logs');
-      } catch (erro) {
-        console.warn('[logs] usando a configuração local como fallback:', erro.message);
-      }
-      atual = atual || obterConfig(db, interaction.guildId, 'canal_logs', config.CANAL_LOGS_ID);
-      const recentes = auditoria.recentes(db, interaction.guildId, 10);
+      const [canalSalvo, recentes] = await Promise.all([
+        persistenciaSupabase.obterConfig(interaction.guildId, 'canal_logs', db.client),
+        auditoria.recentes(db, interaction.guildId, 10),
+      ]);
+      const atual = canalSalvo || config.CANAL_LOGS_ID;
       const corpo = recentes.length
         ? recentes
             .map((linha) => `\`${dataBR(linha.criado_em)}\` **${linha.acao}** — ${linha.detalhe || '—'}`)

@@ -1,19 +1,19 @@
 # ORG Royal AP — Bot Discord v4
 
-Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, roleta e lojinha. Na v4, PIX, carteira (moedas e giros), compras, roleta, inventário e rankings de perfis usam o Supabase como fonte de verdade. O dispatcher deduplica interações Discord e os helpers evitam uma segunda resposta inicial quando a API retorna 40060.
+Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, roleta e lojinha. Toda a persistência usa exclusivamente o Supabase: filas, partidas, painéis, plantão, blacklist, telagem, configurações, auditoria, PIX, carteira (moedas e giros), compras, roleta, inventário e rankings. O dispatcher deduplica interações Discord e os helpers evitam uma segunda resposta inicial quando a API retorna 40060.
 
 ## O que mudou na v4
 
 - `InteractionCreate` deduplica por ID antes de qualquer operação assíncrona; o botão PIX abre o modal como primeira resposta e revalida autorização no submit.
 - Respostas Discord centralizadas usam `reply` uma única vez e, se o Discord indicar 40060, passam para `followUp` em vez de tentar outro ACK inicial.
-- Registro e consulta de PIX, comissão, titular, cidade e autorização continuam exclusivamente no Supabase. O envio de PIX para uma sala lê a chave do Supabase e não grava mais um snapshot em SQLite; as cópias antigas de partidas/auditoria são higienizadas.
+- Registro e consulta de PIX, comissão, titular, cidade e autorização continuam exclusivamente no Supabase. O envio de PIX para uma sala lê a chave do Supabase e não grava snapshots locais. A importação manual omite chaves antigas das cópias de partidas/auditoria enviadas à nuvem, sem modificar o backup original.
 - Ajustes de coins/giros/estatísticas, transferências, roleta e compras usam RPCs atômicas com `request_id` idempotente e ledger remoto.
 - `/perfil`, `/verp`, `/ranking` e o botão de ranking consultam perfis Supabase; resultados de partidas também atualizam os rankings remotos, com retry idempotente por ID de partida.
 - Compras que concedem coins/giros creditam o perfil; resgates PIX/físicos ficam com status `pending`.
 - Entregas de cargos da roleta/loja também ficam pendentes no Supabase até a atribuição do Discord ser confirmada; falhas não são descartadas silenciosamente.
 - As migrações v4 revogam acesso de `anon`/`authenticated`, ativam RLS nas tabelas persistentes e reservam policies/grants ao backend `service_role`; somente essa role executa as RPCs `SECURITY DEFINER`.
-- `/ajuda` é gerado a partir do registro real de comandos e os organiza por categoria; o modal valida o e-mail Pix, o botão **Copia e Cola** responde em privado e os painéis de compra expiram após cinco minutos.
-- `/configcanal1`, `/configcanal2`, `/logs`, `/boombot setlog`, `/boombot setcategoria`, canais/cargos/modo de mediadores e configurações `/conectar` são gravados em `discord_configuracoes` e espelhados no SQLite quando aplicável; configurações de mediadores são restauradas do Supabase na inicialização.
+- `/ajuda` é gerado a partir do registro real de comandos e os organiza por categoria; o modal valida o e-mail Pix, o botão **Copia e Cola** responde em privado e o painel de `/comprar` expira após cinco minutos; o comportamento pré-existente de `/painelcomprar` foi preservado.
+- `/configcanal1`, `/configcanal2`, `/logs`, `/boombot setlog`, `/boombot setcategoria`, canais/cargos/modo de mediadores e configurações `/conectar` são gravados em `discord_configuracoes` sem espelho ou fallback local; os mediadores consultam as configurações persistidas na nuvem.
 - A remoção resiliente trata mensagens inexistentes (Discord `10008`) sem interromper `/clearall`; falhas de canal inexistente (`10003`) nas boas-vindas/saídas não geram avisos repetidos.
 
 ## Instalação e atualização
@@ -27,19 +27,23 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
    - `supabase/migrations/202611150002_economy_source_of_truth.sql`
    - `supabase/migrations/202611150003_service_role_security.sql`
    - `supabase/migrations/20261116044000_royal_room_sales.sql`
-4. Faça backup do banco local atual e execute `npm run migrate:supabase` antes de iniciar o bot v4. O backfill usa uma RPC idempotente para importar valores locais em perfis ausentes/zerados, preserva dados remotos não conflitantes e **aborta sem sobrescrever** quando o mesmo perfil tem valores locais/remotos diferentes; reconcilie esses casos manualmente e execute novamente. Após todas as gravações remotas, limpa chaves PIX locais antigas e snapshots/auditoria.
+   - `supabase/migrations/20261116060000_operational_supabase.sql`
+   - `supabase/migrations/20261116060001_operational_panels.sql`
+4. Se você tem dados de uma versão SQLite, pare o bot antigo, faça um backup consistente (incluindo transações do WAL) e execute `npm run migrate:supabase -- --sqlite /caminho/backup.db --origem servidor-royal` antes de iniciar esta versão. Use Node.js 22.13+ para essa ferramenta manual. O backfill importa filas, partidas, jogadores/GO, painéis, plantão, blacklist, configurações, telagem e históricos; o arquivo original fica **somente leitura**. Dados remotos existentes nunca são sobrescritos; perfis usam uma RPC idempotente que preenche valores zerados e **aborta em conflitos**. Mantenha a mesma `--origem` para snapshots do mesmo banco. Não execute as versões antiga e nova simultaneamente. Sem backup legado, pule esta etapa; o runtime nunca cria ou abre `.db`.
 5. Execute `npm run commands:sync` ou deixe o bot sincronizar os comandos no evento `ready`.
 6. Inicie com `npm start`.
 
 `SUPABASE_SERVICE_ROLE_KEY` é segredo exclusivo do servidor. Nunca a envie ao Discord, ao cliente ou ao GitHub. Configure no Railway o `SUPABASE_URL` do projeto Apzin e a chave `service_role` emitida por esse mesmo projeto antes do deploy; uma chave antiga de outro projeto não serve. O ZIP de distribuição não deve conter `.env`, `node_modules`, bancos locais ou arquivos de credenciais.
 
-## Persistência: limites explícitos
+## Persistência exclusivamente Supabase
 
-PIX, saldo, giros, roleta, loja, inventário e estatísticas usadas nos rankings são persistidos no Supabase; não há fallback econômico em SQLite. Filas, estado operacional das partidas (canais/mensagens, pagamento, sala e sessão Nix), painéis, plantão, blacklist, telagem e alguns logs/configurações continuam em SQLite. `DATABASE_PATH` permanece necessário para esses módulos. Não remova o volume/backup SQLite até concluir uma migração de cutover específica para o fluxo operacional de partidas.
+Não existe fallback nem espelho SQLite no runtime. `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` são obrigatórios; `DATABASE_PATH` e volumes de banco local não são utilizados. A leitura de `versiculos.json` fornece apenas o catálogo estático para seed, não armazena estado operacional.
 
-As configurações de boas-vindas/saída, auditoria, categoria das filas, mediadores e integrações são armazenadas em `discord_configuracoes` como fonte remota; o SQLite é um espelho/fallback em partes do fluxo. Integrações com credenciais cadastradas em `/conectar` devem ser tratadas como segredo do servidor: a consulta é administrativa e o comando de listagem só mostra se cada valor está configurado, sem imprimir o segredo.
+As tabelas `royal_filas`, `royal_partidas`, `royal_partida_jogadores`, `royal_partida_go`, `royal_paineis`, `royal_mensagens_painel`, `royal_plantao`, `royal_blacklist`, `royal_telagem_links`, `royal_telagens` e `royal_logs_dm` preservam o estado operacional na nuvem. Operações críticas de fila, criação/confirmacão/finalização de partidas, GO e reserva de telagem usam RPCs transacionais. Economia e vendas mantêm suas tabelas e RPCs anteriores, sem redefinir preços, pacotes ou regras financeiras.
 
-O backfill é para transição. Não o use como sincronização contínua: após o corte, novas alterações econômicas são feitas somente pelas RPCs Supabase, e um arquivo SQLite antigo não deve ser tratado como autoridade para esses valores.
+Configurações de boas-vindas/saída, auditoria, categorias, mediadores e integrações usam `discord_configuracoes` como única fonte de verdade. A persistência remota precisa concluir com sucesso antes de confirmar uma configuração. Credenciais de `/conectar` continuam privadas; a listagem mostra apenas se estão configuradas.
+
+O backfill é uma transição manual, não uma sincronização contínua. Guarde os backups existentes até verificar que todas as linhas foram importadas e que não houve conflitos. A migração de código/schema não copia automaticamente arquivos de um servidor Railway ao qual esta tarefa não tem acesso.
 
 ## Configurando prêmios e loja
 
@@ -67,8 +71,8 @@ Os produtos podem conceder coins, giros, cargos, resgates físicos ou PIX. Compr
 
 ## Testes e operação
 
-- `npm test` executa testes offline, incluindo a proteção contra 40060 e verificações estáticas das rotas econômicas Supabase.
-- `npm run migrate:supabase` exporta o estado legado sem apagar o banco, reconcilia perfis sem sobrescrever conflitos e remove cópias locais de PIX somente depois de confirmar o backfill.
+- `npm test` executa as suítes offline de regressão, compras, comandos, serviços e persistência Supabase, sem gerar cobranças reais nem iniciar o bot.
+- `npm run migrate:supabase -- --sqlite /caminho/backup.db --origem servidor-royal` importa o estado legado em modo somente leitura, preservando dados remotos e abortando conflitos de perfis.
 - `npm run commands:sync` publica a lista atual e remove comandos remotos obsoletos conforme a resposta da API do Discord.
 - `npm start` abre também o health check HTTP para Railway/Render.
 
@@ -89,7 +93,7 @@ Comandos e permissões:
 
 O painel principal tem apenas os botões **Adquirir Sala** e **Ver pacotes de salas**. O menu fixo oferece 1, 5, 10, 20, 50 ou 100 salas; a tarifa-base é R$ 0,03 por sala. O formulário pede quantidade, cupom opcional e e-mail do pagador: o campo de e-mail é necessário porque a API de pagamentos do Mercado Pago exige `payer.email`, e o bot Discord não recebe o e-mail do usuário. A seleção de pacote confirma a quantidade no modal antes de gerar o Pix, permitindo informar e-mail/cupom.
 
-Após gerar o Pix, o pedido e o código de pagamento ficam persistidos no Supabase. **Copia e Cola** envia o código somente ao comprador em resposta privada (o Discord não disponibiliza uma ação de clipboard nativa em botões). A validação verifica formato, não a propriedade do e-mail. `/comprar` e `/painelcomprar` removem o painel publicado cinco minutos depois; se o processo Railway reiniciar antes do timer, a remoção poderá não ocorrer.
+Após gerar o Pix, o pedido e o código de pagamento ficam persistidos no Supabase. **Copia e Cola** envia o código somente ao comprador em resposta privada (o Discord não disponibiliza uma ação de clipboard nativa em botões). A validação verifica formato, não a propriedade do e-mail. `/comprar` remove o painel temporário cinco minutos depois; `/painelcomprar` mantém sua temporização pré-existente de cinco minutos; se o processo Railway reiniciar antes do timer, a remoção poderá não ocorrer.
 
 ### Variáveis privadas no Railway
 
@@ -107,7 +111,7 @@ Antes do modo produção, confirme no Railway todas as variáveis acima, valide 
 ### Checklist final do Railway
 
 1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22+. O deploy padrão executa `npm start`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
-2. Crie e monte um **Persistent Volume** em `/data` e defina `DATABASE_PATH=/data/royal.db`. Isso mantém filas e estado operacional após redeploys; não substitui o Supabase para dados econômicos.
+2. O runtime não necessita de volume SQLite nem de `DATABASE_PATH`. Se há um banco antigo no Railway, preserve o volume/backup até concluir o backfill manual e conferir os dados remotos; não apague o histórico antigo apenas por atualizar o código.
 3. Cadastre `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` (opcional para sincronização imediata), `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` do projeto Apzin. Não configure a chave `anon`/public.
 4. Para vendas, acrescente `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_WEBHOOK_URL`, `DEV_OWNER_ID` e `CARGOS_SUPER_ADMIN_IDS`. `NIX_API_KEY`/`NIX_API_URL` são necessários para criação automática das salas; `CATEGORIA_FILAS_ID`, `CARGO_ADMIN_ID`, `CARGO_STAFF_ID` e `CARGO_MEDIADOR_ID` definem a operação normal.
 5. Aplique todas as migrações listadas acima no Supabase antes de publicar o serviço. Depois do primeiro `ready`, confira o health check, `/ajuda`, `/logs` e os canais de boas-vindas; teste um Pix no ambiente de teste do Mercado Pago antes de mudar para credenciais reais.

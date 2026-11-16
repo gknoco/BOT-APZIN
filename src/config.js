@@ -151,7 +151,6 @@ const config = {
   TOKEN_ORIGEM: process.env.DISCORD_TOKEN ? 'process.env.DISCORD_TOKEN' : 'vazio',
   CLIENT_ID: texto(process.env.CLIENT_ID),
   GUILD_ID: texto(process.env.GUILD_ID),
-  CAMINHO_BANCO: path.resolve(texto(process.env.DATABASE_PATH, 'database/royal.db')),
   /** Credenciais server-side; nunca enviar ou registrar a service-role key. */
   SUPABASE_URL: texto(process.env.SUPABASE_URL),
   SUPABASE_SERVICE_ROLE_KEY: texto(process.env.SUPABASE_SERVICE_ROLE_KEY),
@@ -217,8 +216,8 @@ const config = {
     gelo: 0x5bc8f5,
   },
 
-  /** Nome do arquivo de banco, para mensagens de erro. */
-  NOME_BANCO: path.basename(texto(process.env.DATABASE_PATH, 'database/royal.db')),
+  /** Identificador do banco remoto, para mensagens de operação. */
+  NOME_BANCO: 'Supabase',
 
   modoPorId(id) {
     return POR_ID.get(String(id || '').toLowerCase()) || null;
@@ -251,7 +250,7 @@ config.validarToken = function validarToken() {
 
 config.validarPersistencia = function validarPersistencia() {
   if (!config.SUPABASE_URL || !config.SUPABASE_SERVICE_ROLE_KEY) {
-    return 'SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios para persistência de PIX, mediadores e economia.';
+    return 'SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios para toda a persistência do bot.';
   }
   if (!/^https:\/\/[^\s/]+\.supabase\.co(?:\/.*)?$/i.test(config.SUPABASE_URL)) {
     return 'SUPABASE_URL parece inválida. Use a URL HTTPS do projeto Supabase.';

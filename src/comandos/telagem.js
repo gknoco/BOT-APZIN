@@ -32,7 +32,7 @@ const comandos = [
       if (!interaction.guild) {
         return responderErro(interaction, 'Use esse comando dentro do servidor da ORG.');
       }
-      if (!mediadores.podeUsarSalas(db, interaction.guildId, interaction.member)) {
+      if (!(await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member))) {
         return responderErro(interaction, mediadores.AVISO_CARGO);
       }
 
@@ -50,7 +50,7 @@ const comandos = [
         );
       }
 
-      const partida = partidas.porCanal(db, interaction.guildId, interaction.channelId);
+      const partida = await partidas.porCanal(db, interaction.guildId, interaction.channelId);
 
       // Cada partida tem sua chave; fora de partida a chave é o próprio canal.
       const chave = partida ? `partida:${partida.id}` : `canal:${interaction.channelId}`;
@@ -58,8 +58,8 @@ const comandos = [
       let sala;
       try {
         sala = informado
-          ? telagem.fixar(db, interaction.guildId, chave, informado)
-          : telagem.reservar(db, interaction.guildId, chave);
+          ? await telagem.fixar(db, interaction.guildId, chave, informado)
+          : await telagem.reservar(db, interaction.guildId, chave);
       } catch (erro) {
         return responderErro(interaction, erro.message);
       }

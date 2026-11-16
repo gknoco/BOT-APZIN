@@ -29,6 +29,7 @@ function separador() {
   console.log('──────────────────────────────────────────────');
 }
 
+async function iniciar() {
 // 1) Servidor HTTP primeiro: a hospedagem vê o serviço vivo desde o primeiro segundo.
 const servidorHttp = iniciarServidor();
 
@@ -66,12 +67,11 @@ separador();
 // 3) Banco de dados.
 let db;
 try {
-  db = abrirBanco(config.CAMINHO_BANCO);
-  console.log(`🗄️  Banco pronto: ${config.CAMINHO_BANCO} (motor ${db.motor || 'sqlite'})`);
+  db = await abrirBanco();
+  console.log('🗄️  Banco pronto: Supabase (persistência exclusivamente remota)');
 } catch (erro) {
   console.error('\n❌ Não consegui abrir o banco de dados:', erro.message);
-  console.error('   Atualize o Node para 22.13+ (traz SQLite embutido) ou rode:');
-  console.error('   npm install better-sqlite3\n');
+  console.error('   Confira as credenciais Supabase e aplique as migrações antes de iniciar.\n');
   process.exit(1);
 }
 
@@ -174,3 +174,11 @@ const guardiao = setInterval(() => {
 if (typeof guardiao.unref === 'function') guardiao.unref();
 
 conectar();
+
+}
+
+iniciar().catch((erro) => {
+  console.error('[inicialização] falha:', erro.message);
+  process.exitCode = 1;
+  process.exit(1);
+});

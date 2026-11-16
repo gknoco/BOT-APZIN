@@ -31,8 +31,8 @@ const modoNix = (partida) => MAPA_NIX[String(partida?.gelo || '')] || 'ap_padrao
 const senhaAleatoria = () => String(crypto.randomInt(1000, 10000));
 
 /** Canal onde as 15 mensagens daquela fila foram publicadas. */
-function canalDaFila(db, partida) {
-  const painel = paineis.obter(db, { guildId: partida.guild_id, modo: partida.modo });
+async function canalDaFila(db, partida) {
+  const painel = await paineis.obter(db, { guildId: partida.guild_id, modo: partida.modo });
   return painel?.canal_id || null;
 }
 
@@ -77,9 +77,9 @@ function componentesSala() {
  * O canal público da fila nunca recebe ID/senha. Devolve o canal usado.
  */
 async function publicarSalaLiberada(client, db, partidaId, dados) {
-  const partida = partidas.buscar(db, partidaId);
+  const partida = await partidas.buscar(db, partidaId);
   if (!partida) return null;
-  const lista = partidas.jogadores(db, partidaId);
+  const lista = await partidas.jogadores(db, partidaId);
 
   const canalId = partida.canal_id;
   if (!canalId) return null;
@@ -101,7 +101,7 @@ async function publicarSalaLiberada(client, db, partidaId, dados) {
  * da fila. Lança Error amigável quando não pode.
  */
 async function criarSalaDaPartida(client, db, { partidaId, actorId, requestId }) {
-  const partida = partidas.buscar(db, partidaId);
+  const partida = await partidas.buscar(db, partidaId);
   if (!partida) throw new Error('Sala não encontrada.');
   if (!['pago', 'sala_liberada'].includes(partida.status)) {
     throw new Error('Confirme o pagamento antes de criar a sala do jogo.');
@@ -122,7 +122,7 @@ async function criarSalaDaPartida(client, db, { partidaId, actorId, requestId })
   });
   const dados = criacao.dados;
 
-  partidas.liberarSala(db, partidaId, {
+  await partidas.liberarSala(db, partidaId, {
     salaId: dados.room_id,
     senha: dados.password,
     sessao: dados.session_id ?? null,
@@ -132,7 +132,7 @@ async function criarSalaDaPartida(client, db, { partidaId, actorId, requestId })
     return null;
   });
 
-  return { dados, partida: partidas.buscar(db, partidaId), canalId, creditoLiquidado: criacao.creditoLiquidado };
+  return { dados, partida: await partidas.buscar(db, partidaId), canalId, creditoLiquidado: criacao.creditoLiquidado };
 }
 
 module.exports = {

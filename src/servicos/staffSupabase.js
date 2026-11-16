@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const config = require('../config');
 const { obterCliente } = require('./supabase');
+const persistencia = require('./supabase');
 function rid(value) { return String(value || crypto.randomUUID()); }
 function erro(op, error) { return new Error(`${op}: ${error?.message || 'erro sem detalhes retornado pelo Supabase'}`); }
 function normalizar({ guildId, userId, chave, titular, cidade, comissao }) {
@@ -36,9 +37,9 @@ async function definirAtivo(guildId, userId, ativo) {
 }
 async function podeAssumir(guildId, userId) { const row = await obter(guildId, userId); return Boolean(row?.ativo && row.pix_chave); }
 async function cargos(guildId) {
-  const { data, error } = await obterCliente().from('royal_guild_configs').select('value').eq('guild_id', String(guildId)).eq('key', 'cargos_mediadores').maybeSingle();
+  const { data, error } = await obterCliente().from('discord_configuracoes').select('valor').eq('guild_id', String(guildId)).eq('chave', 'cargos_mediadores').maybeSingle();
   if (error) throw erro('Não consegui consultar cargos de mediadores', error);
-  try { const parsed = JSON.parse(data?.value || '[]'); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
+  try { const parsed = JSON.parse(data?.valor || '[]'); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
 }
 async function temCargoMediador(guildId, member) {
   if (member?.permissions?.has?.('Administrator') || member?.permissions?.has?.(8n)) return true;
@@ -47,7 +48,6 @@ async function temCargoMediador(guildId, member) {
   return configurados.some((id) => member?.roles?.cache?.has?.(id));
 }
 async function definirConfig(guildId, key, value) {
-  const { error } = await obterCliente().from('royal_guild_configs').upsert({ guild_id: String(guildId), key: String(key), value: value == null ? null : String(value), updated_at: new Date().toISOString() }, { onConflict: 'guild_id,key' });
-  if (error) throw erro('Não consegui salvar configuração no Supabase', error);
+  return persistencia.definirConfig(guildId, key, value);
 }
 module.exports = { registrarPix, obter, listar, definirAtivo, podeAssumir, cargos, temCargoMediador, definirConfig };

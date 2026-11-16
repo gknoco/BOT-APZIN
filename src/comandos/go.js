@@ -39,9 +39,9 @@ const comandos = [
 
       // 1) canal privado da partida; 2) senão, procura a partida ativa do
       // próprio jogador — assim o /go também funciona no canal da fila.
-      let partida = partidas.porCanal(db, interaction.guildId, interaction.channelId);
+      let partida = await partidas.porCanal(db, interaction.guildId, interaction.channelId);
       if (!partida || String(partida.canal_id) !== String(interaction.channelId)) {
-        const minhas = partidas.ativasDoJogador(db, interaction.guildId, interaction.user.id);
+        const minhas = await partidas.ativasDoJogador(db, interaction.guildId, interaction.user.id);
         if (minhas.length === 1) {
           [partida] = minhas;
         } else if (minhas.length > 1) {
@@ -60,7 +60,7 @@ const comandos = [
 
       let resultado;
       try {
-        resultado = partidas.darGo(db, { partidaId: partida.id, userId: interaction.user.id });
+        resultado = await partidas.darGo(db, { partidaId: partida.id, userId: interaction.user.id });
       } catch (erro) {
         return responderErro(interaction, erro.message);
       }

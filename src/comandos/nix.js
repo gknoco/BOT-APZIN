@@ -28,7 +28,7 @@ const COR = config.CORES.gelo;
  * (Mediador/ADM) — sem cargo, resposta efêmera de bloqueio.
  */
 async function exigirCargoMediador(interaction, db) {
-  if (mediadores.podeUsarSalas(db, interaction.guildId, interaction.member)) return true;
+  if (await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member)) return true;
   await responderErro(interaction, mediadores.AVISO_CARGO);
   return false;
 }

@@ -3,11 +3,8 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 process.env.DISCORD_TOKEN = 'test.token.value';
-process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'royal-ap-')), 'royal.db');
-const { abrirBanco } = require('../src/db');
 const comandos = require('../src/comandos');
 const utilidades = require('../src/comandos/utilidades');
 const comunidade = require('../src/comandos/comunidade');
@@ -19,21 +16,24 @@ const modais = require('../src/interacoes/modais');
 const mercadoPago = require('../src/servicos/mercadoPago');
 const comprasSalas = require('../src/servicos/comprasSalas');
 const auditoria = require('../src/servicos/auditoria');
-const db = abrirBanco(process.env.DATABASE_PATH);
 const testes = [];
 function test(name, fn) { testes.push({ name, fn }); }
 
-test('banco cria perfis e convites sem tabelas legadas', () => {
-  const tables = db.prepare("select name from sqlite_master where type='table'").all().map((x) => x.name);
-  assert.ok(tables.includes('usuarios'));
-  assert.ok(tables.includes('convites'));
-  assert.equal(tables.some((x) => /legado-impossivel/i.test(x)), false);
+test('runtime usa exclusivamente Supabase sem abrir banco local', () => {
+  const fonte = fs.readFileSync(path.join(__dirname, '../src/db/index.js'), 'utf8');
+  const driver = fs.readFileSync(path.join(__dirname, '../src/db/driver.js'), 'utf8');
+  assert.match(fonte, /async function abrirBanco/);
+  assert.match(driver, /obterCliente/);
+  assert.match(driver, /motor: 'supabase'/);
+  assert.doesNotMatch(fonte + driver, /\.prepare\(|node:sqlite|better-sqlite3/);
+  const pacote = require('../package.json');
+  assert.equal(pacote.optionalDependencies?.['better-sqlite3'], undefined);
 });
 
-test('serviço de usuários mantém somente histórico local de partidas', () => {
+test('serviço de usuários consulta histórico de partidas no Supabase', () => {
   const servico = fs.readFileSync(path.join(__dirname, '../src/servicos/usuarios.js'), 'utf8');
   assert.match(servico, /historicoApostas/);
-  assert.doesNotMatch(servico, /adicionarCoins|adicionarGiros|registrarVitoria|registrarDerrota|UPDATE usuarios|INSERT INTO usuarios/);
+  assert.doesNotMatch(servico, /adicionarCoins|adicionarGiros|registrarVitoria|registrarDerrota|\.prepare\(/);
 });
 
 test('convites de runtime são gravados no Supabase, não no SQLite', () => {
@@ -115,7 +115,8 @@ test('e-mail Pix tem validação única e alinhada à API/SQL', () => {
     assert.equal(comprasSalas.validarEmailPix(email), mercadoPago.validarEmailPix(email), email);
   }
   const source = fs.readFileSync(path.join(__dirname, '../src/interacoes/modais.js'), 'utf8');
-  assert.match(source, /E-mail inválido\. Por favor, insira um e-mail válido para gerar o Pix\./);
+  assert.match(source, /comprasSalas\.MENSAGEM_EMAIL_INVALIDO/);
+  assert.equal(comprasSalas.MENSAGEM_EMAIL_INVALIDO, '❌ E-mail inválido. Por favor, insira um endereço de e-mail válido para continuar.');
 });
 
 test('criações Nix passam pela reserva Supabase e exigem reconciliação quando o resultado é incerto', () => {
@@ -356,23 +357,19 @@ test('configurações de canais importantes são persistidas e restauradas pelo 
   assert.match(utilSource, /definirConfig\(interaction\.guildId, 'categoria_filas'/);
   assert.match(utilSource, /persistenciaSupabase\.listarConfigs/);
   assert.match(utilSource, /persistenciaSupabase\.removerConfig/);
-  assert.match(flowSource, /persistenciaSupabase\.obterConfig\(guild\.id, chave\)/);
+  assert.match(flowSource, /await obterConfig\(db, guild\.id, chave, envId\)/);
   assert.match(mediadoresSource, /hidratarConfiguracaoRemota/);
   assert.match(supabaseSource, /\.limit\(100\)/);
 });
 
 async function main() {
   let ok = 0;
-  try {
-    for (const { name, fn } of testes) {
-      await fn();
-      ok += 1;
-      console.log(`OK ${name}`);
-    }
-    console.log(`✅ ${ok} testes offline concluídos.`);
-  } finally {
-    db.close();
+  for (const { name, fn } of testes) {
+    await fn();
+    ok += 1;
+    console.log(`OK ${name}`);
   }
+  console.log(`✅ ${ok} testes offline concluídos.`);
 }
 
 main().catch((erro) => {

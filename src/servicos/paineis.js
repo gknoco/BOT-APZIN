@@ -21,7 +21,6 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const config = require('../config');
-const { obterConfig } = require('../db');
 const { embed, reais, mencao, tituloCurto, listaUsuarios } = require('../util/embeds');
 const filasServico = require('./filas');
 
@@ -188,55 +187,62 @@ function mensagemPainel(modo, entradas) {
   return { embeds: [embedPainel(modo, entradas)], components: componentesPainel(modo) };
 }
 
-function salvar(db, { guildId, modo, canalId, mensagemId }) {
-  db.prepare(
-    `INSERT INTO paineis (guild_id, modo, canal_id, mensagem_id, criado_em) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (guild_id, modo) DO UPDATE
-       SET canal_id = excluded.canal_id, mensagem_id = excluded.mensagem_id, criado_em = excluded.criado_em`,
-  ).run(String(guildId), String(modo), String(canalId), String(mensagemId), Date.now());
+async function salvar(db, { guildId, modo, canalId, mensagemId }) {
+  const { error } = await db.client.from('royal_paineis').upsert({
+    guild_id: String(guildId),
+    modo: String(modo),
+    canal_id: String(canalId),
+    mensagem_id: String(mensagemId),
+    criado_em: Date.now(),
+  }, { onConflict: 'guild_id,modo' });
+  if (error) throw new Error(`Não consegui salvar o painel no Supabase: ${error.message}`);
 }
 
 /** Grava a fila inteira: uma linha por faixa de preço. */
-function salvarFila(db, { guildId, modo, canalId, mensagens }) {
-  const executar = db.transaction(() => {
-    db.prepare('DELETE FROM mensagens_painel WHERE guild_id = ? AND modo = ?').run(String(guildId), String(modo));
-    const inserir = db.prepare(
-      `INSERT INTO mensagens_painel (guild_id, modo, preco, canal_id, mensagem_id, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    );
-    const agora = Date.now();
-    for (const linha of mensagens) {
-      inserir.run(
-        String(guildId),
-        String(modo),
-        Math.trunc(linha.preco),
-        String(canalId),
-        String(linha.mensagemId),
-        agora,
-      );
-    }
-    salvar(db, { guildId, modo, canalId, mensagemId: String(mensagens[0]?.mensagemId ?? '') });
+async function salvarFila(db, { guildId, modo, canalId, mensagens }) {
+  const { error } = await db.client.rpc('royal_registrar_mensagens_painel', {
+    p_guild_id: String(guildId),
+    p_modo: String(modo),
+    p_canal_id: String(canalId),
+    p_mensagens: mensagens.map((linha) => ({
+      preco: Math.trunc(linha.preco),
+      mensagem_id: String(linha.mensagemId),
+    })),
+    p_atualizado_em: Date.now(),
   });
-  return executar();
+  if (error) throw new Error(`Não consegui registrar as mensagens do painel no Supabase: ${error.message}`);
 }
 
 /** Mensagens salvas, do maior preço para o menor (mesma ordem do canal). */
-function mensagensSalvas(db, { guildId, modo }) {
-  return db
-    .prepare('SELECT * FROM mensagens_painel WHERE guild_id = ? AND modo = ? ORDER BY preco DESC')
-    .all(String(guildId), String(modo));
+async function mensagensSalvas(db, { guildId, modo }) {
+  const { data, error } = await db.client.from('royal_mensagens_painel')
+    .select('guild_id,modo,preco,canal_id,mensagem_id,atualizado_em')
+    .eq('guild_id', String(guildId)).eq('modo', String(modo))
+    .order('preco', { ascending: false }).limit(config.PRECOS.length);
+  if (error) throw new Error(`Não consegui ler as mensagens do painel no Supabase: ${error.message}`);
+  return data || [];
 }
 
-function obter(db, { guildId, modo }) {
-  return (
-    db
-      .prepare('SELECT * FROM paineis WHERE guild_id = ? AND modo = ?')
-      .get(String(guildId), String(modo)) || null
-  );
+async function obter(db, { guildId, modo }) {
+  const { data, error } = await db.client.from('royal_paineis')
+    .select('guild_id,modo,canal_id,mensagem_id,criado_em')
+    .eq('guild_id', String(guildId)).eq('modo', String(modo)).maybeSingle();
+  if (error) throw new Error(`Não consegui ler o painel no Supabase: ${error.message}`);
+  return data || null;
 }
 
-function todos(db, guildId) {
-  return db.prepare('SELECT * FROM paineis WHERE guild_id = ?').all(String(guildId));
+async function todos(db, guildId) {
+  const resultado = [];
+  const tamanho = 1000;
+  for (let inicio = 0; ; inicio += tamanho) {
+    const { data, error } = await db.client.from('royal_paineis')
+      .select('guild_id,modo,canal_id,mensagem_id,criado_em')
+      .eq('guild_id', String(guildId)).order('modo', { ascending: true })
+      .range(inicio, inicio + tamanho - 1);
+    if (error) throw new Error(`Não consegui listar os painéis no Supabase: ${error.message}`);
+    resultado.push(...(data || []));
+    if (!data || data.length < tamanho) return resultado;
+  }
 }
 
 /**
@@ -270,13 +276,13 @@ async function apagarMensagens(canal, antigas = [], manter = new Set()) {
  * assim publicar o painel de novo não deixa 15 mensagens velhas no canal.
  */
 async function publicarFila(db, canal, { guildId, modo, entradas = [] }) {
-  const antigas = mensagensSalvas(db, { guildId, modo: modo.id });
+  const antigas = await mensagensSalvas(db, { guildId, modo: modo.id });
   const enviadas = [];
   for (const { preco, payload } of mensagensFila(modo, entradas)) {
     const mensagem = await canal.send(payload);
     enviadas.push({ preco, mensagemId: mensagem.id });
   }
-  salvarFila(db, { guildId, modo: modo.id, canalId: canal.id, mensagens: enviadas });
+  await salvarFila(db, { guildId, modo: modo.id, canalId: canal.id, mensagens: enviadas });
   await apagarMensagens(canal, antigas, new Set(enviadas.map((linha) => String(linha.mensagemId))));
   return enviadas;
 }
@@ -293,8 +299,8 @@ async function atualizar(client, db, { guildId, modo, preco = null }) {
   const modoInfo = config.modoPorId(modo);
   if (!modoInfo) return false;
 
-  const entradas = filasServico.listar(db, { guildId, modo: modoInfo.id });
-  const linhas = mensagensSalvas(db, { guildId, modo: modoInfo.id });
+  const entradas = await filasServico.listar(db, { guildId, modo: modoInfo.id });
+  const linhas = await mensagensSalvas(db, { guildId, modo: modoInfo.id });
 
   if (linhas.length) {
     const filtradas =
@@ -359,7 +365,7 @@ async function atualizar(client, db, { guildId, modo, preco = null }) {
   }
 
   // Compatibilidade: painel antigo, com todos os cards em uma mensagem só.
-  const painel = obter(db, { guildId, modo: modoInfo.id });
+  const painel = await obter(db, { guildId, modo: modoInfo.id });
   if (!painel) return false;
   try {
     const canal =

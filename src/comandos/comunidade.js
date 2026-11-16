@@ -5,13 +5,11 @@
 const {
   ChannelType,
   EmbedBuilder,
-  MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } = require('discord.js');
 const persistenciaSupabase = require('../servicos/supabase');
 const versiculos = require('../servicos/versiculos');
-const { embedErro } = require('../util/embeds');
 const { responderErro, responderPrivado } = require('../util/seguranca');
 
 function dataHoraBrasilia(data = new Date()) {
@@ -64,24 +62,26 @@ const comandos = [
       .setName('versiculododia')
       .setDescription('Envia um versículo bíblico ainda não usado')
       .setDefaultMemberPermissions(null),
-    defer: 'publico',
+    defer: 'privado',
 
     async executar(interaction, contexto = {}) {
+      const canal = interaction.channel;
+      if (!canal?.isTextBased?.() || typeof canal.send !== 'function') {
+        return responderErro(interaction, 'Use este comando em um canal de texto onde o bot possa enviar mensagens.');
+      }
+      let sorteio;
       try {
-        const sorteio = await versiculos.sortear({
+        sorteio = await versiculos.sortear({
           guildId: interaction.guildId,
           userId: interaction.user.id,
-          cliente: contexto.supabase,
+          cliente: contexto.db?.client || contexto.supabase,
         });
-        return interaction.editReply({ embeds: [embedVersiculo(sorteio.versiculo)] });
       } catch (erro) {
         console.error('[versiculos] falha no sorteio:', erro.message);
-        await interaction.deleteReply().catch(() => null);
-        return interaction.followUp({
-          embeds: [embedErro('A base de versículos não está disponível. A equipe precisa conferir o Supabase e carregar a lista.')],
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => null);
+        return responderErro(interaction, 'A base de versículos não está disponível. A equipe precisa conferir o Supabase e carregar a lista.');
       }
+      await canal.send({ embeds: [embedVersiculo(sorteio.versiculo)], allowedMentions: { parse: [] } });
+      return responderPrivado(interaction, { content: 'Versículo publicado neste canal.', allowedMentions: { parse: [] } });
     },
   },
   {
@@ -94,7 +94,7 @@ const comandos = [
       .setDefaultMemberPermissions(permissaoAdmin),
 
     async executar(interaction, contexto = {}) {
-      return configurarCanal(interaction, 'canal_boas_vindas', 'boas-vindas', contexto.supabase);
+      return configurarCanal(interaction, 'canal_boas_vindas', 'boas-vindas', contexto.db?.client || contexto.supabase);
     },
   },
   {
@@ -107,7 +107,7 @@ const comandos = [
       .setDefaultMemberPermissions(permissaoAdmin),
 
     async executar(interaction, contexto = {}) {
-      return configurarCanal(interaction, 'canal_saida', 'saída', contexto.supabase);
+      return configurarCanal(interaction, 'canal_saida', 'saída', contexto.db?.client || contexto.supabase);
     },
   },
 ];

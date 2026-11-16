@@ -14,7 +14,7 @@ const convites = require('../servicos/convites');
 const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
 const { registrarComandos } = require('../servicos/registroComandos');
-const miembros = require('./membros');
+const membros = require('./membros');
 const mediadores = require('../servicos/mediadores');
 const { embedErro } = require('../util/embeds');
 const { responderPrivado } = require('../util/seguranca');
@@ -22,6 +22,7 @@ const { responderPrivado } = require('../util/seguranca');
 // Compartilhado entre chamadas repetidas de montar(client, db): uma mesma
 // interação nunca pode iniciar dois handlers concorrentes (p.ex. dois modais).
 const interacoesVistasPorCliente = new WeakMap();
+const contextosPorCliente = new WeakMap();
 
 function primeiraEntrega(client, interaction) {
   let vistas = interacoesVistasPorCliente.get(client);
@@ -43,12 +44,51 @@ function primeiraEntrega(client, interaction) {
 }
 
 function montar(client, db) {
+  if (contextosPorCliente.has(client)) return contextosPorCliente.get(client);
   const ctx = { db, client };
-  membros.registrar(client);
+  contextosPorCliente.set(client, ctx);
+  let preparado = false;
+  membros.registrar(client, db);
 
-  client.once(Events.ClientReady, async (conectado) => {
+  let tarefaReady;
+  client.once(Events.ClientReady, (conectado) => {
+    tarefaReady ||= preparar(conectado);
+    return tarefaReady;
+  });
+
+  async function preparar(conectado) {
     console.log(`\n✅ Conectado como ${conectado.user.tag}`);
     console.log(`   Servidores: ${conectado.guilds.cache.size}`);
+    let filasPublicadas;
+    for (let tentativa = 1; tentativa <= 6; tentativa++) {
+      try {
+        // Não libera handlers sem validar a fonte de verdade, inclusive após falhas de rede.
+        for (const guild of conectado.guilds.cache.values()) {
+          await mediadores.hidratarConfiguracaoRemota(db, guild.id);
+        }
+        const { count, error } = await db.client.from('royal_paineis')
+          .select('modo', { count: 'exact', head: true });
+        if (error) throw new Error(`Não consegui contar os painéis no Supabase: ${error.message}`);
+        filasPublicadas = count || 0;
+        preparado = true;
+        break;
+      } catch (erro) {
+        console.error(`[ready] preparação Supabase falhou (tentativa ${tentativa}/6):`, erro.message);
+        if (tentativa === 6) {
+          console.error('[ready] tentativas esgotadas; encerrando para reinício pelo supervisor.');
+          const encerramentos = await Promise.allSettled([
+            Promise.resolve().then(() => client.destroy()),
+            Promise.resolve().then(() => db.close()),
+          ]);
+          for (const resultado of encerramentos) {
+            if (resultado.status === 'rejected') console.error('[ready] falha no encerramento:', resultado.reason);
+          }
+          process.exit(1);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (tentativa - 1)));
+      }
+    }
     try {
       conectado.user.setActivity('AP da ORG Royal AP', { type: 3 });
     } catch {
@@ -70,7 +110,6 @@ function montar(client, db) {
         console.log(`✅ ${lista.length} comandos registrados globalmente (pode levar até 1 hora).`);
         console.log('   Dica: defina GUILD_ID nas variáveis de ambiente para aparecer na hora.');
       }
-      const filasPublicadas = db.prepare('SELECT COUNT(*) AS total FROM paineis').get().total;
       console.log(`   Painéis de AP já publicados: ${filasPublicadas}/15\n`);
     } catch (erro) {
       const detalhes = [erro.code && `código ${erro.code}`, erro.status && `HTTP ${erro.status}`, erro.message]
@@ -85,24 +124,29 @@ function montar(client, db) {
 
     for (const guild of conectado.guilds.cache.values()) {
       await convites.atualizarCache(guild).catch(() => {});
-      await mediadores.hidratarConfiguracaoRemota(db, guild.id).catch((erro) => {
-        console.warn(`[mediadores] não consegui restaurar configurações do servidor ${guild.id}:`, erro.message);
-      });
     }
-  });
+  }
 
   client.on(Events.InteractionCreate, async (interaction) => {
     // Precisa acontecer de forma síncrona, antes de qualquer await de cargo,
-    // Supabase ou banco SQLite.
+    // Supabase ou outro serviço.
     if (!primeiraEntrega(client, interaction)) {
       console.warn(`[interacao] evento duplicado ignorado: ${interaction.id}`);
       return;
     }
     try {
+      if (!preparado) {
+        await responderPrivado(interaction, {
+          embeds: [embedErro('O bot está preparando a persistência na nuvem. Tente de novo em alguns segundos.')],
+        });
+        return;
+      }
       if (interaction.isChatInputCommand()) {
         await comandos.executar(interaction, ctx);
         return;
       }
+      // /ajuda possui seu próprio coletor local para paginação.
+      if (String(interaction.customId || '').startsWith('ajuda:')) return;
       if (interaction.isButton()) {
         const tratado = await handleBotao(interaction, ctx);
         if (!tratado) {
@@ -197,17 +241,20 @@ function ligarProcesso(db) {
     console.error('[processo] exceção não capturada:', erro);
   });
 
-  const desligar = (sinal) => {
+  let desligando = false;
+  const desligar = async (sinal) => {
+    if (desligando) return;
+    desligando = true;
     console.log(`\n👋 Recebi ${sinal}, fechando o banco com segurança...`);
     try {
-      db.close();
-    } catch {
-      /* já fechado */
+      await db.close();
+    } catch (erro) {
+      console.error('[processo] falha ao fechar o banco:', erro.message);
     }
     process.exit(0);
   };
-  process.on('SIGINT', () => desligar('SIGINT'));
-  process.on('SIGTERM', () => desligar('SIGTERM'));
+  process.on('SIGINT', () => { void desligar('SIGINT').catch((erro) => console.error('[processo] desligamento:', erro)); });
+  process.on('SIGTERM', () => { void desligar('SIGTERM').catch((erro) => console.error('[processo] desligamento:', erro)); });
 }
 
 module.exports = { montar, ligarProcesso };

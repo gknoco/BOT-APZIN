@@ -12,44 +12,63 @@ const { embed, mencao } = require('../util/embeds');
 
 const agora = () => Date.now();
 
-function entrar(db, { guildId, userId }) {
-  const info = db
-    .prepare('INSERT OR IGNORE INTO plantao (guild_id, user_id, entrou_em) VALUES (?, ?, ?)')
-    .run(String(guildId), String(userId), agora());
-  return info.changes === 1;
+async function entrar(db, { guildId, userId }) {
+  const { data, error } = await db.client.from('royal_plantao').upsert({
+    guild_id: String(guildId), user_id: String(userId), entrou_em: agora(),
+  }, { onConflict: 'guild_id,user_id', ignoreDuplicates: true }).select('user_id');
+  if (error) throw new Error(`Não consegui entrar no plantão no Supabase: ${error.message}`);
+  return Boolean(data?.length);
 }
 
-function sair(db, { guildId, userId }) {
-  return db
-    .prepare('DELETE FROM plantao WHERE guild_id = ? AND user_id = ?')
-    .run(String(guildId), String(userId)).changes;
+async function sair(db, { guildId, userId }) {
+  const { count, error } = await db.client.from('royal_plantao').delete({ count: 'exact' })
+    .eq('guild_id', String(guildId)).eq('user_id', String(userId));
+  if (error) throw new Error(`Não consegui sair do plantão no Supabase: ${error.message}`);
+  return count || 0;
 }
 
-function listar(db, guildId) {
-  return db
-    .prepare('SELECT * FROM plantao WHERE guild_id = ? ORDER BY entrou_em ASC, rowid ASC')
-    .all(String(guildId));
+async function listar(db, guildId) {
+  const fila = [];
+  const tamanho = 1000;
+  for (let inicio = 0; ; inicio += tamanho) {
+    const { data, error } = await db.client.from('royal_plantao')
+      .select('guild_id,user_id,entrou_em')
+      .eq('guild_id', String(guildId))
+      .order('entrou_em', { ascending: true }).order('id', { ascending: true })
+      .range(inicio, inicio + tamanho - 1);
+    if (error) throw new Error(`Não consegui listar o plantão no Supabase: ${error.message}`);
+    fila.push(...(data || []));
+    if (!data || data.length < tamanho) return fila;
+  }
 }
 
-function total(db, guildId) {
-  const linha = db.prepare('SELECT COUNT(*) AS total FROM plantao WHERE guild_id = ?').get(String(guildId));
-  return linha ? linha.total : 0;
+async function total(db, guildId) {
+  const { count, error } = await db.client.from('royal_plantao')
+    .select('user_id', { count: 'exact', head: true }).eq('guild_id', String(guildId));
+  if (error) throw new Error(`Não consegui contar o plantão no Supabase: ${error.message}`);
+  return count || 0;
 }
 
-function posicao(db, { guildId, userId }) {
-  const fila = listar(db, guildId);
+async function posicao(db, { guildId, userId }) {
+  const fila = await listar(db, guildId);
   const indice = fila.findIndex((linha) => linha.user_id === String(userId));
   return indice === -1 ? null : indice + 1;
 }
 
-function limpar(db, guildId) {
-  return db.prepare('DELETE FROM plantao WHERE guild_id = ?').run(String(guildId)).changes;
+async function limpar(db, guildId) {
+  const { count, error } = await db.client.from('royal_plantao').delete({ count: 'exact' })
+    .eq('guild_id', String(guildId));
+  if (error) throw new Error(`Não consegui limpar o plantão no Supabase: ${error.message}`);
+  return count || 0;
 }
 
 /** Próximo da fila (rodízio) — usado quando uma sala precisa de mediador. */
-function proximo(db, guildId) {
-  const fila = listar(db, guildId);
-  return fila.length ? fila[0].user_id : null;
+async function proximo(db, guildId) {
+  const { data, error } = await db.client.from('royal_plantao').select('user_id')
+    .eq('guild_id', String(guildId))
+    .order('entrou_em', { ascending: true }).order('id', { ascending: true }).limit(1);
+  if (error) throw new Error(`Não consegui ler o próximo mediador no Supabase: ${error.message}`);
+  return data?.[0]?.user_id ?? null;
 }
 
 function componentes() {
@@ -62,8 +81,8 @@ function componentes() {
   ];
 }
 
-function embedFila(db, guildId) {
-  const fila = listar(db, guildId);
+async function embedFila(db, guildId) {
+  const fila = await listar(db, guildId);
   const corpo = [
     '**Seja bem-vindo(a) ao painel de mediação ORG ⚡ Royal AP!**',
     '',
@@ -81,7 +100,7 @@ function embedFila(db, guildId) {
   return embed('👤 Fila de Mediadores', corpo, { cor: config.CORES.principal, rodape: 'ORG Royal AP · mediação' });
 }
 
-const painel = (db, guildId) => ({ embeds: [embedFila(db, guildId)], components: componentes() });
+const painel = async (db, guildId) => ({ embeds: [await embedFila(db, guildId)], components: componentes() });
 
 /** Central de Pagamentos: Mediadores (registro individual de PIX). */
 function painelRegistroPix() {

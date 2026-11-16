@@ -23,8 +23,6 @@ const mediadores = require('./mediadores');
 const blacklist = require('./blacklist');
 const auditoria = require('./auditoria');
 const royalSupabase = require('./royalSupabase');
-const persistenciaSupabase = require('./supabase');
-const avisosCategoriaSupabase = new Set();
 
 const { STATUS } = partidas;
 
@@ -245,16 +243,7 @@ function componentesPartida(partida) {
 
 /** Categoria onde as salas são criadas (env -> banco -> nome "filas aqui"). */
 async function resolverCategoria(guild, db, chave, envId) {
-  let salvo = null;
-  try {
-    salvo = await persistenciaSupabase.obterConfig(guild.id, chave);
-  } catch (erro) {
-    if (!avisosCategoriaSupabase.has(String(guild.id))) {
-      avisosCategoriaSupabase.add(String(guild.id));
-      console.warn(`[salas] categoria remota indisponível no servidor ${guild.id}; usando fallback local/.env.`);
-    }
-  }
-  salvo = salvo || obterConfig(db, guild.id, chave, envId);
+  const salvo = await obterConfig(db, guild.id, chave, envId);
   if (salvo) {
     const porId =
       guild.channels.cache.get(salvo) || (await guild.channels.fetch(salvo).catch(() => null));
@@ -286,7 +275,7 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
     })),
   ];
   // Só mediadores e ADM veem a sala de aposta.
-  for (const cargo of mediadores.mencoes(db, guild.id)) {
+  for (const cargo of await mediadores.mencoes(db, guild.id)) {
     permissoes.push({
       id: cargo,
       allow: [A.ViewChannel, A.SendMessages, A.ReadMessageHistory, A.EmbedLinks],
@@ -311,14 +300,14 @@ async function publicarSala(client, db, partida) {
   try {
     const canal = client.channels.cache.get(partida.canal_id) || (await client.channels.fetch(partida.canal_id));
     if (!canal) return false;
-    const lista = partidas.jogadores(db, partida.id);
+    const lista = await partidas.jogadores(db, partida.id);
     const mensagem = await canal.send({
       content: `${lista.map((linha) => mencao(linha.user_id)).join(' ')} — sala de AP criada.`,
       embeds: [embedPartida(partida, lista)],
       components: componentesPartida(partida),
       allowedMentions: { parse: ['users'] },
     });
-    partidas.definirMensagem(db, partida.id, mensagem.id);
+    await partidas.definirMensagem(db, partida.id, mensagem.id);
     // Nada de "mandem o ID e a senha": o mediador cria a sala pelo bot.
     return true;
   } catch (erro) {
@@ -328,12 +317,12 @@ async function publicarSala(client, db, partida) {
 }
 
 async function atualizarPartida(client, db, partidaId) {
-  const partida = partidas.buscar(db, partidaId);
+  const partida = await partidas.buscar(db, partidaId);
   if (!partida) return false;
   try {
     const canal = client.channels.cache.get(partida.canal_id) || (await client.channels.fetch(partida.canal_id));
     if (!canal) return false;
-    const lista = partidas.jogadores(db, partidaId);
+    const lista = await partidas.jogadores(db, partidaId);
     const payload = { embeds: [embedPartida(partida, lista)], components: componentesPartida(partida) };
 
     if (partida.mensagem_id) {
@@ -344,7 +333,7 @@ async function atualizarPartida(client, db, partidaId) {
       }
     }
     const nova = await canal.send({ ...payload, allowedMentions: { parse: ['users'] } });
-    partidas.definirMensagem(db, partidaId, nova.id);
+    await partidas.definirMensagem(db, partidaId, nova.id);
     return true;
   } catch (erro) {
     console.error('[fluxo] não consegui atualizar a sala:', erro.message);
@@ -357,12 +346,12 @@ async function atualizarPartida(client, db, partidaId) {
  * Usado pelo botão "Enviar PIX" e pelo comando /pix.
  */
 async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }) {
-  // A chave vem do Supabase e nunca é persistida no SQLite da partida.
-  const partida = partidas.buscar(db, partidaId);
+  // A chave vem do Supabase e não é duplicada no registro operacional da partida.
+  const partida = await partidas.buscar(db, partidaId);
   if (!partida) throw new Error('Partida não encontrada.');
   await atualizarPartida(client, db, partidaId);
 
-  const jogadores = partidas.jogadores(db, partidaId);
+  const jogadores = await partidas.jogadores(db, partidaId);
   const aviso = jogadores.map((linha) => mencao(linha.user_id)).join(' ');
   const texto = [
     `💸 **PIX do mediador** — ${mencao(mediadorId)}`,
@@ -404,10 +393,10 @@ async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
     throw new Error('Escolha uma opção de entrada válida para esse modo.');
   }
 
-  const bloqueio = blacklist.obter(db, guild.id, userId);
+  const bloqueio = await blacklist.obter(db, guild.id, userId);
   if (bloqueio) throw new Error(`Você está na lista negra da ORG: **${bloqueio.motivo}**.`);
 
-  const resultado = filas.entrar(db, {
+  const resultado = await filas.entrar(db, {
     guildId: guild.id,
     modo: modoInfo.id,
     preco: valor,
@@ -431,7 +420,7 @@ async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
     );
   }
 
-  const naFila = filas.contar(db, { guildId: guild.id, modo: modoInfo.id, preco: valor, gelo });
+  const naFila = await filas.contar(db, { guildId: guild.id, modo: modoInfo.id, preco: valor, gelo });
   // TODA fila abre com 2 capitães (1 por time). Em 3x3/4x4 o capitão leva o
   // time dele para a sala personalizada com o ID/senha — não espera 6 ou 8.
   if (naFila < config.CAPITAES_POR_PARTIDA) {
@@ -444,7 +433,7 @@ async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
     };
   }
 
-  const ids = filas.reservar(db, {
+  const ids = await filas.reservar(db, {
     guildId: guild.id,
     modo: modoInfo.id,
     preco: valor,
@@ -461,33 +450,53 @@ async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
   }));
 
   let canal = null;
+  let partida;
   try {
     canal = await criarCanalPartida(client, db, guild, { modo: modoInfo, preco: valor, gelo, jogadores: ids });
+    partida = await partidas.criar(db, {
+      guildId: guild.id,
+      modo: modoInfo.id,
+      preco: valor,
+      gelo,
+      canalId: canal.id,
+      jogadores,
+    });
   } catch (erro) {
-    console.error('[fluxo] não consegui criar a sala privada:', erro.message);
-    for (const jogador of jogadores) {
-      filas.entrar(db, {
-        guildId: guild.id,
-        modo: modoInfo.id,
-        preco: valor,
-        gelo,
-        userId: jogador.userId,
-      });
+    console.error('[fluxo] falha ao criar sala/partida:', erro.message);
+    if (canal) {
+      try {
+        // A RPC pode ter feito commit antes de perder a resposta HTTP.
+        partida = await partidas.porCanal(db, guild.id, canal.id);
+        if (partida && (String(partida.guild_id) !== String(guild.id) || String(partida.canal_id) !== String(canal.id))) {
+          throw new Error('A consulta retornou uma partida de outro servidor/canal.');
+        }
+      } catch (consultaErro) {
+        console.error(`[fluxo] criação incerta; guild ${guild.id}, canal ${canal.id}, capitães ${ids.join(', ')}:`, consultaErro.message);
+        throw new Error(
+          `Não foi possível confirmar a criação da partida no Supabase. Peça a um ADM verificar o canal ${canal.id} antes de tentar novamente. Os capitães não foram recolocados na fila para evitar uma partida duplicada.`,
+          { cause: consultaErro },
+        );
+      }
     }
-    await paineis.atualizar(client, db, { guildId: guild.id, modo: modoInfo.id });
-    throw new Error(
-      'Os dois capitães entraram, mas não consegui criar a sala privada. Peça para um ADM verificar se o bot tem **Gerenciar Canais** e se a categoria de filas existe.',
-    );
+    if (!partida) {
+      // Só compensa após ausência confirmada (ou antes de existir um canal).
+      const compensacoes = await Promise.allSettled(jogadores.map((jogador) => filas.entrar(db, {
+        guildId: guild.id, modo: modoInfo.id, preco: valor, gelo, userId: jogador.userId,
+      })));
+      if (canal) compensacoes.push(...await Promise.allSettled([
+        Promise.resolve().then(() => canal.delete('Criação da partida não persistida no Supabase')),
+      ]));
+      compensacoes.push(...await Promise.allSettled([
+        paineis.atualizar(client, db, { guildId: guild.id, modo: modoInfo.id, preco: valor }),
+      ]));
+      for (const resultado of compensacoes) {
+        if (resultado.status === 'rejected') console.error('[fluxo] falha ao compensar criação da partida:', resultado.reason);
+      }
+      throw new Error(canal
+        ? 'Não consegui salvar a partida no Supabase. Peça a um ADM verificar a fila e os canais antes de tentar novamente.'
+        : 'Os dois capitães entraram, mas não consegui criar a sala privada. Peça para um ADM verificar se o bot tem **Gerenciar Canais** e se a categoria de filas existe.');
+    }
   }
-
-  const partida = partidas.criar(db, {
-    guildId: guild.id,
-    modo: modoInfo.id,
-    preco: valor,
-    gelo,
-    canalId: canal.id,
-    jogadores,
-  });
 
   await publicarSala(client, db, partida);
   await paineis.atualizar(client, db, { guildId: guild.id, modo: modoInfo.id, preco: valor });
@@ -502,17 +511,17 @@ async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
 
 /** Finaliza e avisa na sala. */
 async function finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo }) {
-  const existente = partidas.buscar(db, partidaId);
+  const existente = await partidas.buscar(db, partidaId);
   let resultado;
   if (existente?.status === STATUS.FINALIZADA) {
-    // Se a RPC remota falhou depois do commit SQLite, o mesmo botão pode
-    // repetir a sincronização. A RPC usa o ID da partida como chave idempotente.
+    // Se a RPC de resultado falhou após finalizar o estado na nuvem, o mesmo
+    // botão pode repetir a sincronização com o ID da partida como chave idempotente.
     if (Number(existente.vencedor_time) !== Number(vencedorTime) || existente.motivo_fim !== motivo) {
       throw new Error('Essa partida já foi encerrada com outro resultado.');
     }
-    resultado = { partida: existente, jogadores: partidas.jogadores(db, partidaId) };
+    resultado = { partida: existente, jogadores: await partidas.jogadores(db, partidaId) };
   } else {
-    resultado = partidas.finalizar(db, { partidaId, vencedorTime, autorId, motivo });
+    resultado = await partidas.finalizar(db, { partidaId, vencedorTime, autorId, motivo });
   }
 
   await royalSupabase.registrarResultadoPartida({
@@ -558,7 +567,7 @@ async function aplicarWO(client, db, { partidaId, timeAusente, autorId }) {
 }
 
 async function cancelarPartida(client, db, { partidaId, autorId, motivo }) {
-  const partida = partidas.cancelar(db, { partidaId, autorId, motivo });
+  const partida = await partidas.cancelar(db, { partidaId, autorId, motivo });
   await atualizarPartida(client, db, partidaId);
   await auditoria.registrar(db, client, {
     guildId: partida.guild_id,

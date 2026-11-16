@@ -24,7 +24,7 @@ const comandos = [
     async executar(interaction, { db }) {
       if (!(await exigirAdmin(interaction, 'Só ADM pode configurar o módulo de mediadores.'))) return;
       await mediadores.hidratarConfiguracaoRemota(db, interaction.guildId);
-      return responderPrivado(interaction, mediadores.painelConfig(db, interaction.guildId));
+      return responderPrivado(interaction, await mediadores.painelConfig(db, interaction.guildId));
     },
   },
 
@@ -54,7 +54,7 @@ const comandos = [
 
       const chaveCanal = tipo === 'registro' ? 'canal_configpix' : 'canal_bateponto';
       await persistenciaSupabase.definirConfig(interaction.guildId, chaveCanal, canal.id);
-      const painel = tipo === 'registro' ? plantao.painelRegistroPix() : plantao.painel(db, interaction.guildId);
+      const painel = tipo === 'registro' ? plantao.painelRegistroPix() : await plantao.painel(db, interaction.guildId);
       const mensagem = await canal.send(painel).catch((erro) => {
         console.error('[mediadores] não consegui publicar o painel:', erro.message);
         return null;
@@ -63,8 +63,8 @@ const comandos = [
 
       if (typeof mensagem.pin === 'function') await mensagem.pin().catch(() => {});
 
-      if (tipo === 'fila') mediadores.definirCanalBatePonto(db, interaction.guildId, canal.id);
-      else mediadores.definirCanalConfigPix(db, interaction.guildId, canal.id);
+      if (tipo === 'fila') await mediadores.definirCanalBatePonto(db, interaction.guildId, canal.id);
+      else await mediadores.definirCanalConfigPix(db, interaction.guildId, canal.id);
 
       return responderPrivado(interaction, {
         embeds: [

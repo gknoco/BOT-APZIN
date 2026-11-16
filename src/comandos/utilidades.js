@@ -7,16 +7,15 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  StringSelectMenuBuilder,
   SlashCommandBuilder,
 } = require('discord.js');
 const config = require('../config');
-const { definirConfig } = require('../db');
 const persistenciaSupabase = require('../servicos/supabase');
-const filas = require('../servicos/filas');
 const partidas = require('../servicos/partidas');
 const paineis = require('../servicos/paineis');
-const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
-const { embed, embedSucesso, dataBR } = require('../util/embeds');
+const { exigirStaff, exigirAdmin, responderPrivado } = require('../util/seguranca');
+const { embed, embedSucesso } = require('../util/embeds');
 
 const CATEGORIAS_AJUDA = [
   { titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
@@ -43,10 +42,39 @@ function formatarComandoAjuda(comando) {
   return linhas.join('\n');
 }
 
+// Uma descrição nunca ultrapassa 3.800 caracteres; cada resposta da ajuda
+// contém apenas uma página, abaixo dos 6.000 caracteres totais do Discord.
+function dividirAjuda(linhas, limite = 3800) {
+  const paginas = [];
+  let atual = '';
+  for (const bloco of linhas) {
+    for (const linha of String(bloco).split('\n')) {
+      for (let inicio = 0; inicio < linha.length || inicio === 0; inicio += limite) {
+        const parte = linha.slice(inicio, inicio + limite);
+        if (atual && atual.length + parte.length + 1 > limite) {
+          paginas.push(atual);
+          atual = '';
+        }
+        atual += `${atual ? '\n' : ''}${parte}`;
+      }
+    }
+    if (atual.length < limite) atual += '\n';
+  }
+  if (atual.trim()) paginas.push(atual.trim());
+  return paginas;
+}
+
 function ajudaEmbeds(listaComandos = require('./index').comandos) {
   const porNome = new Map(listaComandos.map((comando) => [comando.data.name, comando]));
   const usados = new Set();
   const saida = [];
+  const adicionarCategoria = (titulo, linhas, cor) => {
+    const paginas = dividirAjuda(linhas);
+    paginas.forEach((descricao, indice) => {
+      const parte = paginas.length > 1 ? ` · ${indice + 1}/${paginas.length}` : '';
+      saida.push(embed(`${titulo}${parte}`, descricao, { cor }));
+    });
+  };
   for (const categoria of CATEGORIAS_AJUDA) {
     const linhas = categoria.nomes
       .map((nome) => porNome.get(nome))
@@ -56,13 +84,79 @@ function ajudaEmbeds(listaComandos = require('./index').comandos) {
         return true;
       })
       .map(formatarComandoAjuda);
-    if (linhas.length) saida.push(embed(categoria.titulo, linhas.join('\n\n'), { cor: config.CORES.principal }));
+    if (linhas.length) adicionarCategoria(categoria.titulo, linhas, config.CORES.principal);
   }
   const restantes = listaComandos.filter((comando) => !usados.has(comando.data.name));
   if (restantes.length) {
-    saida.push(embed('📚 Outros comandos', restantes.map(formatarComandoAjuda).join('\n\n'), { cor: config.CORES.neutro }));
+    adicionarCategoria('📚 Outros comandos', restantes.map(formatarComandoAjuda), config.CORES.neutro);
   }
   return saida;
+}
+
+function ajudaPagina(paginas, indice = 0, desativado = false) {
+  const pagina = Math.max(0, Math.min(paginas.length - 1, indice));
+  const inicioMenu = Math.floor(pagina / 25) * 25;
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('ajuda:categoria')
+    .setPlaceholder('Selecione uma categoria')
+    .setDisabled(desativado)
+    .addOptions(paginas.slice(inicioMenu, inicioMenu + 25).map((item, deslocamento) => ({
+      label: item.toJSON().title.slice(0, 100),
+      value: String(inicioMenu + deslocamento),
+      default: inicioMenu + deslocamento === pagina,
+    })));
+  const botoes = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('ajuda:anterior').setLabel('Anterior').setStyle(ButtonStyle.Secondary)
+      .setDisabled(desativado || pagina === 0),
+    new ButtonBuilder().setCustomId('ajuda:proxima').setLabel('Próxima').setStyle(ButtonStyle.Secondary)
+      .setDisabled(desativado || pagina === paginas.length - 1),
+  );
+  return {
+    content: `**Central de ajuda · ORG Royal AP**\nPágina ${pagina + 1} de ${paginas.length}. Selecione uma categoria ou navegue pelos botões.\nComandos administrativos continuam sujeitos às permissões da equipe.`,
+    embeds: [paginas[pagina]],
+    components: [new ActionRowBuilder().addComponents(menu), botoes],
+    allowedMentions: { parse: [] },
+  };
+}
+
+async function mostrarAjuda(interaction) {
+  const paginas = ajudaEmbeds();
+  let pagina = 0;
+  const mensagem = await responderPrivado(interaction, ajudaPagina(paginas, pagina));
+  if (typeof mensagem?.createMessageComponentCollector !== 'function') return mensagem;
+  const coletor = mensagem.createMessageComponentCollector({
+    time: 10 * 60 * 1000,
+    filter: (clique) => String(clique.user.id) === String(interaction.user.id) &&
+      ['ajuda:categoria', 'ajuda:anterior', 'ajuda:proxima'].includes(clique.customId),
+  });
+  coletor.on('collect', async (clique) => {
+    try {
+      if (clique.customId === 'ajuda:categoria') {
+        const escolhida = Number(clique.values?.[0]);
+        if (Number.isInteger(escolhida) && escolhida >= 0 && escolhida < paginas.length) pagina = escolhida;
+      } else {
+        pagina = Math.max(0, Math.min(paginas.length - 1, pagina + (clique.customId === 'ajuda:proxima' ? 1 : -1)));
+      }
+      await clique.update(ajudaPagina(paginas, pagina));
+    } catch (erro) {
+      if (![10008, 10062].includes(Number(erro?.code))) console.error('[ajuda] falha ao navegar:', erro);
+    }
+  });
+  coletor.on('end', () => {
+    interaction.editReply(ajudaPagina(paginas, pagina, true)).catch((erro) => {
+      if (![10008, 10062, 50027].includes(Number(erro?.code))) console.error('[ajuda] falha ao encerrar navegação:', erro);
+    });
+  });
+  return mensagem;
+}
+
+async function contarTabela(db, tabela, guildId) {
+  const colunas = { royal_profiles: 'user_id', royal_partidas: 'id', royal_paineis: 'modo', royal_filas: 'id', royal_audit_events: 'id' };
+  if (!colunas[tabela]) throw new Error('Tabela de status inválida.');
+  const { count, error } = await db.client.from(tabela).select(colunas[tabela], { count: 'exact', head: true })
+    .eq('guild_id', String(guildId));
+  if (error) throw new Error(`Não consegui consultar ${tabela} no Supabase: ${error.message}`);
+  return count ?? 0;
 }
 
 const comandos = [
@@ -70,9 +164,7 @@ const comandos = [
     data: new SlashCommandBuilder().setName('ajuda').setDescription('Explica como o bot funciona e todos os comandos'),
 
     async executar(interaction) {
-      return responderPrivado(interaction, {
-        embeds: ajudaEmbeds(),
-      });
+      return mostrarAjuda(interaction);
     },
   },
 
@@ -82,9 +174,11 @@ const comandos = [
     async executar(interaction, { db }) {
       if (!(await exigirStaff(interaction))) return;
       const guildId = interaction.guildId;
-      const emAndamento = partidas.ativas(db, guildId).length;
-      const paineisPublicados = paineis.todos(db, guildId).length;
-      const naFila = db.prepare('SELECT COUNT(*) AS total FROM filas WHERE guild_id = ?').get(String(guildId)).total;
+      const [ativas, publicados, naFila] = await Promise.all([
+        partidas.ativas(db, guildId), paineis.todos(db, guildId), contarTabela(db, 'royal_filas', guildId),
+      ]);
+      const emAndamento = ativas.length;
+      const paineisPublicados = publicados.length;
 
       const botoes = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ap:minhasalas').setLabel('Salas ativas').setEmoji('📋').setStyle(ButtonStyle.Primary),
@@ -139,8 +233,10 @@ const comandos = [
 
       if (sub === 'status') {
         const guildId = interaction.guildId;
-        const contar = (tabela) =>
-          db.prepare(`SELECT COUNT(*) AS total FROM ${tabela} WHERE guild_id = ?`).get(String(guildId)).total;
+        const [totalUsuarios, totalPartidas, totalPaineis, totalAuditoria] = await Promise.all([
+          contarTabela(db, 'royal_profiles', guildId), contarTabela(db, 'royal_partidas', guildId),
+          contarTabela(db, 'royal_paineis', guildId), contarTabela(db, 'royal_audit_events', guildId),
+        ]);
         const memoria = Math.round(process.memoryUsage().rss / 1024 / 1024);
         const horas = (process.uptime() / 3600).toFixed(1);
 
@@ -152,10 +248,11 @@ const comandos = [
                 { name: 'Latência', value: `${Math.round(client.ws.ping)} ms`, inline: true },
                 { name: 'Online há', value: `${horas}h`, inline: true },
                 { name: 'Memória', value: `${memoria} MB`, inline: true },
-                { name: 'Usuários', value: String(contar('usuarios')), inline: true },
-                { name: 'Partidas', value: String(contar('partidas')), inline: true },
-                { name: 'Painéis', value: `${contar('paineis')}/15`, inline: true },
-                { name: 'Banco', value: `\`${config.NOME_BANCO}\``, inline: true },
+                { name: 'Usuários', value: String(totalUsuarios), inline: true },
+                { name: 'Partidas', value: String(totalPartidas), inline: true },
+                { name: 'Painéis', value: `${totalPaineis}/15`, inline: true },
+                { name: 'Auditoria', value: String(totalAuditoria), inline: true },
+                { name: 'Banco', value: 'Supabase · PostgreSQL', inline: true },
                 { name: 'Node.js', value: process.version, inline: true },
                 { name: 'Servidores', value: String(client.guilds.cache.size), inline: true },
               ],
@@ -169,15 +266,13 @@ const comandos = [
 
       if (sub === 'setlog') {
         const canal = interaction.options.getChannel('canal');
-        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id);
-        definirConfig(db, interaction.guildId, 'canal_logs', canal.id);
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id, db.client);
         return responderPrivado(interaction, { content: `✅ Canal de logs: ${canal}.` });
       }
 
 
       const categoria = interaction.options.getChannel('categoria');
-      await persistenciaSupabase.definirConfig(interaction.guildId, 'categoria_filas', categoria.id);
-      definirConfig(db, interaction.guildId, 'categoria_filas', categoria.id);
+      await persistenciaSupabase.definirConfig(interaction.guildId, 'categoria_filas', categoria.id, db.client);
       return responderPrivado(interaction, { content: `✅ Salas de AP serão criadas em **${categoria.name}**.` });
     },
   },
@@ -195,7 +290,7 @@ const comandos = [
       const url = interaction.options.getString('url');
 
       if (!nome) {
-        const linhas = await persistenciaSupabase.listarConfigs(interaction.guildId, 'integracao:');
+        const linhas = await persistenciaSupabase.listarConfigs(interaction.guildId, 'integracao:', db.client);
         const corpo = linhas.length
           ? linhas
               .map((linha) => `• **${linha.chave.replace('integracao:', '')}** → \`${linha.valor ? 'configurada' : 'vazia'}\``)
@@ -205,14 +300,13 @@ const comandos = [
       }
 
       if (!url) {
-        const atual = await persistenciaSupabase.obterConfig(interaction.guildId, `integracao:${nome}`);
+        const atual = await persistenciaSupabase.obterConfig(interaction.guildId, `integracao:${nome}`, db.client);
         return responderPrivado(interaction, {
           content: `**${nome}**: ${atual ? 'configurada' : 'não configurada'}. O valor privado não é exibido no Discord.`,
         });
       }
 
-      await persistenciaSupabase.definirConfig(interaction.guildId, `integracao:${nome}`, url);
-      definirConfig(db, interaction.guildId, `integracao:${nome}`, url);
+      await persistenciaSupabase.definirConfig(interaction.guildId, `integracao:${nome}`, url, db.client);
       return responderPrivado(interaction, { embeds: [embedSucesso(`Integração **${nome}** salva.`)] });
     },
   },
@@ -226,16 +320,13 @@ const comandos = [
     async executar(interaction, { db }) {
       if (!(await exigirAdmin(interaction))) return;
       const nome = interaction.options.getString('nome');
-      const atual = await persistenciaSupabase.obterConfig(interaction.guildId, `integracao:${nome}`);
+      const atual = await persistenciaSupabase.obterConfig(interaction.guildId, `integracao:${nome}`, db.client);
       if (!atual) {
         return responderPrivado(interaction, { content: `Não achei a integração **${nome}**.` });
       }
-      await persistenciaSupabase.removerConfig(interaction.guildId, `integracao:${nome}`);
-      const info = db
-        .prepare('DELETE FROM configuracoes WHERE guild_id = ? AND chave = ?')
-        .run(interaction.guildId, `integracao:${nome}`);
+      await persistenciaSupabase.removerConfig(interaction.guildId, `integracao:${nome}`, db.client);
       return responderPrivado(interaction, {
-        content: info.changes ? `🔌 Integração **${nome}** removida.` : `Não achei a integração **${nome}**.`,
+        content: `🔌 Integração **${nome}** removida.`,
       });
     },
   },
@@ -318,4 +409,4 @@ const comandos = [
   },
 ];
 
-module.exports = { comandos, ajudaEmbeds, formatarComandoAjuda };
+module.exports = { comandos, ajudaEmbeds, formatarComandoAjuda, ajudaPagina, mostrarAjuda, dividirAjuda, contarTabela };

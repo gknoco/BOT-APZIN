@@ -67,8 +67,8 @@ const comandos = [
 
       if (sub === 'adicionar') {
         try {
-          const url = telagem.adicionarLink(db, interaction.guildId, interaction.options.getString('link'));
-          const total = telagem.pool(db, interaction.guildId).length;
+          const url = await telagem.adicionarLink(db, interaction.guildId, interaction.options.getString('link'));
+          const total = (await telagem.pool(db, interaction.guildId)).length;
           return responderPrivado(interaction, {
             embeds: [embedSucesso(`Link do Meet adicionado ao pool:\n${url}\n\n**Total no pool:** ${total}`)],
           });
@@ -78,7 +78,7 @@ const comandos = [
       }
 
       if (sub === 'remover') {
-        const removidos = telagem.removerLink(db, interaction.guildId, interaction.options.getString('link'));
+        const removidos = await telagem.removerLink(db, interaction.guildId, interaction.options.getString('link'));
         if (!removidos) {
           return responderErro(
             interaction,
@@ -89,7 +89,7 @@ const comandos = [
       }
 
       if (sub === 'limpar') {
-        const resultado = telagem.limparLinks(db, interaction.guildId);
+        const resultado = await telagem.limparLinks(db, interaction.guildId);
         return responderPrivado(interaction, {
           embeds: [
             embedSucesso(
@@ -104,8 +104,8 @@ const comandos = [
 
       // listar
       const doEnv = telagem.linksDoAmbiente();
-      const pool = telagem.pool(db, interaction.guildId);
-      const reservas = telagem.atribuicoes(db, interaction.guildId);
+      const pool = await telagem.pool(db, interaction.guildId);
+      const reservas = await telagem.atribuicoes(db, interaction.guildId);
       const livres = pool.filter((url) => !reservas.some((linha) => linha.url === url));
 
       const campos = [

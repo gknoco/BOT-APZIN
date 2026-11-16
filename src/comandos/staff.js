@@ -12,7 +12,6 @@ const config = require('../config');
 const staff = require('../servicos/staff');
 const staffSupabase = require('../servicos/staffSupabase');
 const partidas = require('../servicos/partidas');
-const usuarios = require('../servicos/usuarios');
 const auditoria = require('../servicos/auditoria');
 const fluxo = require('../servicos/fluxo');
 const {
@@ -26,6 +25,31 @@ const {
 const { embed, embedSucesso, reais, numeroBR, mencao, dataBR } = require('../util/embeds');
 
 const DIA = 24 * 60 * 60 * 1000;
+
+async function lerPaginado(db, tabela, colunas, filtrar) {
+  const registros = [];
+  const tamanhoPagina = 500;
+  for (let inicio = 0; ; inicio += tamanhoPagina) {
+    const consulta = filtrar(db.client.from(tabela).select(colunas));
+    const { data, error } = await consulta.range(inicio, inicio + tamanhoPagina - 1);
+    if (error) throw new Error(`Não consegui consultar ${tabela} no Supabase: ${error.message}`);
+    registros.push(...(data || []));
+    if (!data || data.length < tamanhoPagina) return registros;
+  }
+}
+
+async function contarJogadores(db, idsPartidas) {
+  const contagens = new Map();
+  for (let inicio = 0; inicio < idsPartidas.length; inicio += 100) {
+    const grupo = idsPartidas.slice(inicio, inicio + 100);
+    const jogadores = await lerPaginado(db, 'royal_partida_jogadores', 'partida_id,user_id', (consulta) =>
+      consulta.in('partida_id', grupo).order('partida_id').order('user_id'));
+    for (const jogador of jogadores) {
+      contagens.set(jogador.partida_id, (contagens.get(jogador.partida_id) || 0) + 1);
+    }
+  }
+  return contagens;
+}
 
 const comandos = [
   {
@@ -89,13 +113,9 @@ const comandos = [
       }
 
       // Pode ser usado em QUALQUER canal: procura a sala do mediador.
-      const abertas = db
-        .prepare(
-          `SELECT * FROM partidas
-            WHERE guild_id = ? AND status IN ('aguardando_pagamento', 'pago')
-            ORDER BY id DESC`,
-        )
-        .all(String(interaction.guildId));
+      const abertas = await lerPaginado(db, 'royal_partidas', 'id,canal_id,mediador_id,status', (consulta) =>
+        consulta.eq('guild_id', String(interaction.guildId)).in('status', ['aguardando_pagamento', 'pago'])
+          .order('id', { ascending: false }));
 
       let partida = abertas.find((linha) => String(linha.canal_id) === String(interaction.channelId)) || null;
 
@@ -167,7 +187,7 @@ const comandos = [
       if (!(await exigirStaff(interaction))) return;
       const dias = interaction.options.getInteger('dias') ?? 30;
       const desde = Date.now() - dias * DIA;
-      const linhas = staff.receita(db, interaction.guildId, desde);
+      const linhas = await staff.receita(db, interaction.guildId, desde);
 
       const corpo = linhas.length
         ? linhas
@@ -199,7 +219,7 @@ const comandos = [
 
     async executar(interaction, { db, client }) {
       if (!(await exigirMediador(interaction))) return;
-      const ativas = partidas.ativas(db, interaction.guildId);
+      const ativas = await partidas.ativas(db, interaction.guildId);
       const pendentes = ativas.filter((partida) => partida.status !== 'confirmando').length;
       const registroPix = await staffSupabase.obter(interaction.guildId, interaction.user.id);
 
@@ -248,15 +268,14 @@ const comandos = [
     async executar(interaction, { db }) {
       if (!(await exigirStaff(interaction))) return;
       const guildId = interaction.guildId;
-      const todas = db
-        .prepare('SELECT * FROM partidas WHERE guild_id = ?')
-        .all(String(guildId));
+      const todas = await lerPaginado(db, 'royal_partidas', 'id,modo,preco,status,regras', (consulta) =>
+        consulta.eq('guild_id', String(guildId)).order('id'));
       const finalizadas = todas.filter((partida) => partida.status === 'finalizada');
       const canceladas = todas.filter((partida) => partida.status === 'cancelada');
       const emAndamento = todas.filter((partida) => !['finalizada', 'cancelada'].includes(partida.status));
-      const contarJogadores = db.prepare('SELECT COUNT(*) AS total FROM partida_jogadores WHERE partida_id = ?');
+      const jogadoresPorPartida = await contarJogadores(db, finalizadas.map((partida) => partida.id));
       const movimentado = finalizadas.reduce(
-        (soma, partida) => soma + partida.preco * (contarJogadores.get(partida.id).total || 2),
+        (soma, partida) => soma + partida.preco * (jogadoresPorPartida.get(partida.id) || 2),
         0,
       );
       const porModo = new Map();
@@ -287,4 +306,4 @@ const comandos = [
   },
 ];
 
-module.exports = { comandos };
+module.exports = { comandos, lerPaginado, contarJogadores };

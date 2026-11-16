@@ -23,9 +23,9 @@ const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = requir
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
 async function abrirModalRegras(interaction, db, partidaId) {
-  const partida = partidas.buscar(db, partidaId);
+  const partida = await partidas.buscar(db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
-  const jogadores = partidas.jogadores(db, partidaId);
+  const jogadores = await partidas.jogadores(db, partidaId);
   if (!jogadores.some((linha) => linha.user_id === interaction.user.id)) {
     return responderErro(interaction, 'Só quem está jogando essa sala pode enviar a regra.');
   }
@@ -53,7 +53,7 @@ async function abrirModalSala(interaction, db, partidaId) {
   if (!ehMediador(interaction.member)) {
     return responderErro(interaction, 'Só o mediador pode liberar a criação da sala.');
   }
-  const partida = partidas.buscar(db, partidaId);
+  const partida = await partidas.buscar(db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
 
   const modal = new ModalBuilder()
@@ -304,7 +304,7 @@ async function aplicarCompraSalas(interaction, partes) {
   const email = String(interaction.fields.getTextInputValue('email') || '').trim();
   const cupom = String(interaction.fields.getTextInputValue('cupom') || '').trim();
   if (!comprasSalas.validarEmailPix(email)) {
-    await responderPrivado(interaction, { content: 'E-mail inválido. Por favor, insira um e-mail válido para gerar o Pix.' });
+    await responderPrivado(interaction, { content: comprasSalas.MENSAGEM_EMAIL_INVALIDO });
     return true;
   }
 
@@ -317,13 +317,17 @@ async function aplicarCompraSalas(interaction, partes) {
     payerEmail: email,
   });
 
+  if (order.status === 'approved') {
+    return responderPrivado(interaction, { content: comprasSalas.textoPagamentoAprovado(order.rooms_quantity) });
+  }
+
   const expiracao = payment.expiresAt || order.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const expiracaoTexto = dataBR(Date.parse(expiracao));
   const detalheCupom = Number(order.discount_cents) > 0 ? `**Desconto aplicado:** ${reais(order.discount_cents)}` : null;
   const card = embed(
     'PIX GERADO',
     [
-      `**Pacote selecionado:** ${Number(order.rooms_quantity || quantidade)} salas`,
+      `**Pacote selecionado:** ${Number(order.rooms_quantity || quantidade)} ${Number(order.rooms_quantity || quantidade) === 1 ? 'sala' : 'salas'}`,
       `**Valor exato:** ${reais(order.amount_cents)}`,
       detalheCupom,
       `**Expiração:** ${expiracaoTexto}`,
@@ -345,10 +349,6 @@ async function aplicarCompraSalas(interaction, partes) {
   if (!arquivos.length) throw new Error('O Mercado Pago não retornou a imagem do QR Code. O pedido ficou registrado; não gere outro Pix e procure a administração.');
 
   const botoes = [new ButtonBuilder()
-    .setCustomId(`ap:verificarcompra:${order.id}`)
-    .setLabel('Verificar pagamento')
-    .setStyle(ButtonStyle.Primary),
-  new ButtonBuilder()
     .setCustomId(`ap:copiarpix:${order.id}`)
     .setLabel('Copia e Cola')
     .setEmoji('📋')
@@ -413,6 +413,17 @@ async function handleModal(interaction, { db, client }) {
     ['modalpix', 'modalregras', 'modalsala', 'modalcompra'].includes(tipo);
   if (!reconhecido) return false;
 
+  // E-mail inválido é rejeitado localmente antes do defer e de qualquer
+  // autorização/consulta remota ou criação de cobrança. O serviço repete a
+  // mesma validação para proteger também chamadas fora deste handler.
+  if (tipo === 'modalcompra') {
+    const email = String(interaction.fields.getTextInputValue('email') || '').trim();
+    if (!comprasSalas.validarEmailPix(email)) {
+      await responderPrivado(interaction, { content: comprasSalas.MENSAGEM_EMAIL_INVALIDO });
+      return true;
+    }
+  }
+
   // Submit de modal é uma interação nova. Confirmar imediatamente e depois
   // editar a resposta deferida após as validações/gravações remotas.
   if (!interaction.deferred && !interaction.replied) {
@@ -435,7 +446,7 @@ async function handleModal(interaction, { db, client }) {
 
     if (tipo === 'modalregras') {
       const texto = interaction.fields.getTextInputValue('regra');
-      partidas.definirRegras(db, partidaId, texto, interaction.user.id);
+      await partidas.definirRegras(db, partidaId, texto, interaction.user.id);
       await fluxo.atualizarPartida(client, db, partidaId);
       await responderPrivado(interaction, {
         embeds: [embedSucesso('Regra registrada na sala! Agora todos clicam em **Confirmar Partida**.')],
@@ -450,7 +461,7 @@ async function handleModal(interaction, { db, client }) {
       }
       const salaId = interaction.fields.getTextInputValue('sala_id');
       const senha = interaction.fields.getTextInputValue('sala_senha');
-      partidas.liberarSala(db, partidaId, { salaId, senha });
+      await partidas.liberarSala(db, partidaId, { salaId, senha });
       await fluxo.atualizarPartida(client, db, partidaId);
       await responderPrivado(interaction, {
         embeds: [embedSucesso(`Sala liberada para os jogadores: ID \`${salaId}\`${senha ? ` · Senha \`${senha}\`` : ''}.`)],

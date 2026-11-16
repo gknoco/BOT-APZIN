@@ -22,9 +22,10 @@ const crypto = require('crypto');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../config');
 const { embed } = require('../util/embeds');
+const { TABELAS } = require('../db/esquema');
+const { cliente, executar, excluir, listarPaginado, rpc } = require('../db/consultas');
 
 const ALFABETO = 'abcdefghijkmnopqrstuvwxyz';
-const ATIVAS = new Set(['confirmando', 'aguardando_mediador', 'aguardando_pagamento', 'pago', 'sala_liberada']);
 
 const PROVEDORES = {
   jitsi: { nome: 'Jitsi Meet', base: 'https://meet.jit.si', prefixo: 'royal-ap-' },
@@ -117,79 +118,48 @@ function linksDoAmbiente() {
 }
 
 /** Links cadastrados no painel (/telagem_links) para este servidor. */
-function linksDoBanco(db, guildId) {
-  if (!db?.prepare) return [];
-  try {
-    return db
-      .prepare('SELECT url FROM telagem_links WHERE guild_id = ? ORDER BY criado_em ASC, url ASC')
-      .all(String(guildId))
-      .map((linha) => linha.url);
-  } catch (erro) {
-    console.error('[telagem] não consegui ler o pool do banco:', erro.message);
-    return [];
-  }
+async function linksDoBanco(db, guildId) {
+  const linhas = await listarPaginado(() => cliente(db).from(TABELAS.telagem_links).select('url')
+    .eq('guild_id', String(guildId)).order('criado_em').order('url'), 'ler pool de telagem');
+  return linhas.map((linha) => linha.url);
 }
 
 /** Pool completo (env + banco), sem repetição e só com links válidos. */
-function pool(db, guildId) {
-  return [...new Set([...linksDoAmbiente(), ...linksDoBanco(db, guildId)])];
+async function pool(db, guildId) {
+  return [...new Set([...linksDoAmbiente(), ...await linksDoBanco(db, guildId)])].filter(linkValido);
 }
 
-function adicionarLink(db, guildId, url) {
+async function adicionarLink(db, guildId, url) {
   const limpo = linkValido(url);
   if (!limpo) {
     throw new Error('Link inválido. Use um link real do Meet, ex: `https://meet.google.com/abc-defg-hij`.');
   }
-  db.prepare('INSERT OR IGNORE INTO telagem_links (guild_id, url, criado_em) VALUES (?, ?, ?)').run(
-    String(guildId),
-    limpo,
-    Date.now(),
-  );
+  await executar(cliente(db).from(TABELAS.telagem_links).upsert({
+    guild_id: String(guildId), url: limpo, criado_em: Date.now(),
+  }, { onConflict: 'guild_id,url', ignoreDuplicates: true }), 'adicionar link de telagem');
   return limpo;
 }
 
-function removerLink(db, guildId, url) {
+async function removerLink(db, guildId, url) {
   const limpo = linkValido(url) || String(url || '').trim();
-  return db.prepare('DELETE FROM telagem_links WHERE guild_id = ? AND url = ?').run(String(guildId), limpo).changes;
+  return excluir(cliente(db).from(TABELAS.telagem_links).delete({ count: 'exact' })
+    .eq('guild_id', String(guildId)).eq('url', limpo), 'remover link de telagem');
 }
 
 /** Limpa o pool do banco e devolve as salas reservadas. */
-function limparLinks(db, guildId) {
-  const removidos = db.prepare('DELETE FROM telagem_links WHERE guild_id = ?').run(String(guildId)).changes;
-  const atribuicoesRemovidas = db.prepare('DELETE FROM telagens WHERE guild_id = ?').run(String(guildId)).changes;
-  return { removidos, atribuicoes: atribuicoesRemovidas };
+async function limparLinks(db, guildId) {
+  return rpc(db, 'royal_operacional_limpar_telagem', { p_guild_id: String(guildId) });
 }
 
 /** Salas com link reservado (mostra no /telagem_links listar). */
-function atribuicoes(db, guildId) {
-  if (!db?.prepare) return [];
-  return db
-    .prepare('SELECT chave, codigo, url, criado_em FROM telagens WHERE guild_id = ? ORDER BY criado_em ASC')
-    .all(String(guildId));
+async function atribuicoes(db, guildId) {
+  return listarPaginado(() => cliente(db).from(TABELAS.telagens).select('chave,codigo,url,criado_em')
+    .eq('guild_id', String(guildId)).order('criado_em').order('chave'), 'listar atribuições de telagem');
 }
 
-function atribuicaoDoCanal(db, guildId, chave) {
-  const linha = db
-    .prepare('SELECT * FROM telagens WHERE guild_id = ? AND chave = ?')
-    .get(String(guildId), String(chave));
-  return linha || null;
-}
-
-/** A chave é uma partida ainda em andamento? (link não pode ser reaproveitado) */
-function partidaAtiva(db, guildId, chave) {
-  const texto = String(chave || '');
-  if (!texto.startsWith('partida:')) return false;
-  const id = texto.slice('partida:'.length);
-  const linha = db.prepare('SELECT status FROM partidas WHERE guild_id = ? AND id = ?').get(String(guildId), id);
-  return Boolean(linha && ATIVAS.has(String(linha.status)));
-}
-
-function guardarAtribuicao(db, guildId, chave, url, codigo) {
-  db.prepare(
-    `INSERT INTO telagens (guild_id, chave, codigo, url, criado_em) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (guild_id, chave)
-     DO UPDATE SET codigo = excluded.codigo, url = excluded.url, criado_em = excluded.criado_em`,
-  ).run(String(guildId), String(chave), codigo, url, Date.now());
+async function atribuicaoDoCanal(db, guildId, chave) {
+  return await executar(cliente(db).from(TABELAS.telagens).select('guild_id,chave,codigo,url,criado_em')
+    .eq('guild_id', String(guildId)).eq('chave', String(chave)).maybeSingle(), 'consultar telagem do canal') || null;
 }
 
 /**
@@ -200,44 +170,23 @@ function guardarAtribuicao(db, guildId, chave, url, codigo) {
  *   ativas, lança erro amigável.
  * • Pool vazio → devolve null (o comando cai no provedor padrão).
  */
-function reservar(db, guildId, chave) {
-  const existente = atribuicaoDoCanal(db, guildId, chave);
-  if (existente) {
-    return { chave: existente.chave, url: existente.url, codigo: existente.codigo, origem: 'reservado' };
-  }
-
-  const links = pool(db, guildId);
-  if (!links.length) return null;
-
-  const usadas = atribuicoes(db, guildId);
-  const ocupados = new Set(usadas.map((linha) => linha.url));
-  let escolhido = links.find((url) => !ocupados.has(url));
-
-  if (!escolhido) {
-    // Todas em uso: só reaproveita o link de uma partida que já terminou.
-    const liberavel = usadas.find((linha) => !partidaAtiva(db, guildId, linha.chave));
-    if (liberavel) {
-      db.prepare('DELETE FROM telagens WHERE guild_id = ? AND chave = ?').run(String(guildId), liberavel.chave);
-      escolhido = liberavel.url;
-    }
-  }
-
-  if (!escolhido) throw new Error(MENSAGEM_POOL);
-
-  const codigo = codigoDoCanal(guildId, chave);
-  guardarAtribuicao(db, guildId, chave, escolhido, codigo);
-  return { chave: String(chave), url: escolhido, codigo, origem: 'pool' };
+async function reservar(db, guildId, chave) {
+  return rpc(db, 'royal_operacional_reservar_telagem', {
+    p_guild_id: String(guildId), p_chave: String(chave),
+    p_codigo: codigoDoCanal(guildId, chave), p_links_ambiente: linksDoAmbiente(),
+  });
 }
 
 /** Fixa um link informado no comando (também fica gravado para a partida). */
-function fixar(db, guildId, chave, url) {
+async function fixar(db, guildId, chave, url) {
   const limpo = linkValido(url);
   if (!limpo) {
     throw new Error('Link inválido. Use um link real do Meet, ex: `https://meet.google.com/abc-defg-hij`.');
   }
-  const codigo = codigoDoCanal(guildId, chave);
-  guardarAtribuicao(db, guildId, chave, limpo, codigo);
-  return { chave: String(chave), url: limpo, codigo, origem: 'manual' };
+  return rpc(db, 'royal_operacional_fixar_telagem', {
+    p_guild_id: String(guildId), p_chave: String(chave), p_url: limpo,
+    p_codigo: codigoDoCanal(guildId, chave),
+  });
 }
 
 /* ─────────────────────────────── Painel ──────────────────────────────────── */

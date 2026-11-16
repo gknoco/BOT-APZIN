@@ -23,7 +23,7 @@ const comandos = [
       const resumo = await royalSupabase.resumo(interaction.guildId, alvo.id);
       const posicao = await royalSupabase.posicaoRanking(interaction.guildId, alvo.id, 'vitorias');
       const registroStaff = await staffSupabase.obter(interaction.guildId, alvo.id);
-      const ultimas = usuarios.historicoApostas(db, interaction.guildId, alvo.id, 3);
+      const ultimas = await usuarios.historicoApostas(db, interaction.guildId, alvo.id, 3);
 
       const campos = [
         { name: 'Vitórias', value: resumo.vitorias.toString(), inline: true },
@@ -121,7 +121,7 @@ const comandos = [
 
     async executar(interaction, { db }) {
       const alvo = interaction.options.getUser('usuario') ?? interaction.user;
-      const lista = usuarios.historicoApostas(db, interaction.guildId, alvo.id, config.LIMITES.HISTORICO);
+      const lista = await usuarios.historicoApostas(db, interaction.guildId, alvo.id, config.LIMITES.HISTORICO);
 
       const corpo = lista.length
         ? lista

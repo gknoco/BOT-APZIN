@@ -2,7 +2,7 @@
 
 /**
  * Módulo de mediadores: cargos permitidos, canais do painel e modo de trabalho.
- * Tudo fica na tabela `configuracoes` (por servidor), com fallback no .env.
+ * Tudo fica na tabela `discord_configuracoes` (por servidor), com padrões no .env.
  */
 
 const {
@@ -16,7 +16,6 @@ const {
 } = require('discord.js');
 const config = require('../config');
 const { obterConfig, definirConfig } = require('../db');
-const persistenciaSupabase = require('./supabase');
 const { embed, mencaoCargo } = require('../util/embeds');
 
 const LIMITE_CARGOS = 10;
@@ -37,50 +36,43 @@ const lerJson = (valor) => {
 };
 
 /** Cargos que atuam como mediador/ADM nas filas (banco → .env). */
-function cargos(db, guildId) {
-  const doBanco = db ? lerJson(obterConfig(db, guildId, 'cargos_mediadores', null)) : null;
+async function cargos(db, guildId) {
+  const doBanco = db ? lerJson(await obterConfig(db, guildId, 'cargos_mediadores', null)) : null;
   const lista = doBanco && doBanco.length ? doBanco : padrao();
   return [...new Set(lista)].slice(0, LIMITE_CARGOS);
 }
 
-function definirCargos(db, guildId, ids) {
+async function definirCargos(db, guildId, ids) {
   const lista = [...new Set((ids || []).map(String).filter(Boolean))].slice(0, LIMITE_CARGOS);
-  definirConfig(db, guildId, 'cargos_mediadores', JSON.stringify(lista));
+  await definirConfig(db, guildId, 'cargos_mediadores', JSON.stringify(lista));
   return lista;
 }
 
-const canalBatePonto = (db, guildId) => obterConfig(db, guildId, 'canal_bateponto', null);
-const canalConfigPix = (db, guildId) => obterConfig(db, guildId, 'canal_configpix', null);
-const definirCanalBatePonto = (db, guildId, id) => definirConfig(db, guildId, 'canal_bateponto', id);
-const definirCanalConfigPix = (db, guildId, id) => definirConfig(db, guildId, 'canal_configpix', id);
+const canalBatePonto = async (db, guildId) => obterConfig(db, guildId, 'canal_bateponto', null);
+const canalConfigPix = async (db, guildId) => obterConfig(db, guildId, 'canal_configpix', null);
+const definirCanalBatePonto = async (db, guildId, id) => definirConfig(db, guildId, 'canal_bateponto', id);
+const definirCanalConfigPix = async (db, guildId, id) => definirConfig(db, guildId, 'canal_configpix', id);
 
-const modo = (db, guildId) => {
-  const salvo = String(obterConfig(db, guildId, 'modo_mediadores', 'rodizio') || 'rodizio').toLowerCase();
+const modo = async (db, guildId) => {
+  const salvo = String(await obterConfig(db, guildId, 'modo_mediadores', 'rodizio') || 'rodizio').toLowerCase();
   return MODOS[salvo] ? salvo : 'rodizio';
 };
-const definirModo = (db, guildId, valor) => {
+const definirModo = async (db, guildId, valor) => {
   const escolhido = MODOS[String(valor || '').toLowerCase()] ? String(valor).toLowerCase() : 'rodizio';
-  definirConfig(db, guildId, 'modo_mediadores', escolhido);
+  await definirConfig(db, guildId, 'modo_mediadores', escolhido);
   return escolhido;
 };
 
-const limparFilaAuto = (db, guildId) => obterConfig(db, guildId, 'limpar_fila_auto', '0') === '1';
-const definirLimparFilaAuto = (db, guildId, ativo) =>
+const limparFilaAuto = async (db, guildId) => await obterConfig(db, guildId, 'limpar_fila_auto', '0') === '1';
+const definirLimparFilaAuto = async (db, guildId, ativo) =>
   definirConfig(db, guildId, 'limpar_fila_auto', ativo ? '1' : '0');
 
-/** Restaura no SQLite as preferências remotas de mediadores antes de usá-las. */
+/** Compatibilidade: valida e lê a nuvem, sem copiar configurações ou criar cache. */
 async function hidratarConfiguracaoRemota(db, guildId) {
-  const resultados = await Promise.all(CHAVES_REMOTAS.map(async (chave) => {
-    try {
-      return [chave, await persistenciaSupabase.obterConfig(guildId, chave)];
-    } catch (erro) {
-      console.warn(`[mediadores] não consegui restaurar ${chave} do Supabase: ${erro.message}`);
-      return [chave, null];
-    }
-  }));
-  for (const [chave, valor] of resultados) {
-    if (valor !== null && valor !== undefined) definirConfig(db, guildId, chave, valor);
-  }
+  const { data, error } = await db.client.from('discord_configuracoes').select('chave,valor')
+    .eq('guild_id', String(guildId)).in('chave', CHAVES_REMOTAS).limit(CHAVES_REMOTAS.length);
+  if (error) throw new Error(`Não consegui ler as configurações de mediadores no Supabase: ${error.message}`);
+  return Object.fromEntries((data || []).map(({ chave, valor }) => [chave, valor]));
 }
 
 
@@ -89,10 +81,10 @@ async function hidratarConfiguracaoRemota(db, guildId) {
  * Sem bypass de permissão: serve para o botão "Entrar" do plantão, onde o
  * requisito é ter o cargo de Mediador ou de ADM configurado no módulo.
  */
-function temCargoMediador(db, guildId, member) {
+async function temCargoMediador(db, guildId, member) {
   const cache = member?.roles?.cache;
   if (!cache?.has) return false;
-  return cargos(db, guildId).some((id) => cache.has(id));
+  return (await cargos(db, guildId)).some((id) => cache.has(id));
 }
 
 /** Aviso padrão quando falta o cargo configurado. */
@@ -104,31 +96,32 @@ const AVISO_CARGO =
  * Exige um dos cargos configurados; a permissão de Administrador só vale como
  * reserva enquanto nenhum cargo foi configurado no módulo.
  */
-function podeUsarSalas(db, guildId, member) {
-  if (temCargoMediador(db, guildId, member)) return true;
-  return cargos(db, guildId).length === 0 && Boolean(member?.permissions?.has?.(PermissionFlagsBits.Administrator));
+async function podeUsarSalas(db, guildId, member) {
+  const ids = await cargos(db, guildId);
+  if (ids.some((id) => member?.roles?.cache?.has?.(id))) return true;
+  return ids.length === 0 && Boolean(member?.permissions?.has?.(PermissionFlagsBits.Administrator));
 }
 
 /** O membro pode atuar como mediador/ADM nas filas? */
-function ehMediador(db, guildId, member) {
+async function ehMediador(db, guildId, member) {
   if (!member) return false;
   if (member.permissions?.has?.(PermissionFlagsBits.Administrator)) return true;
   const cache = member.roles?.cache;
   if (!cache?.has) return false;
-  return cargos(db, guildId).some((id) => cache.has(id));
+  return (await cargos(db, guildId)).some((id) => cache.has(id));
 }
 
 /** Menções usadas nos avisos de partida (só mediadores e ADM). */
-function mencoes(db, guildId) {
-  return [...new Set([...cargos(db, guildId), config.CARGO_ADMIN_ID].filter(Boolean))];
+async function mencoes(db, guildId) {
+  return [...new Set([...await cargos(db, guildId), config.CARGO_ADMIN_ID].filter(Boolean))];
 }
 
 /** Painel de configuração (/mediadores) — usado também pelos selects. */
-function painelConfig(db, guildId) {
-  const ids = cargos(db, guildId);
-  const fila = canalBatePonto(db, guildId);
-  const pix = canalConfigPix(db, guildId);
-  const atual = modo(db, guildId);
+async function painelConfig(db, guildId) {
+  const [ids, fila, pix, atual, limparAuto] = await Promise.all([
+    cargos(db, guildId), canalBatePonto(db, guildId), canalConfigPix(db, guildId),
+    modo(db, guildId), limparFilaAuto(db, guildId),
+  ]);
 
   const corpo = [
     'Configure como os mediadores interagem com o sistema.',
@@ -136,7 +129,7 @@ function painelConfig(db, guildId) {
     `**Cargos de Mediador:** ${ids.length ? ids.map((id) => mencaoCargo(id)).join(', ') : '`nenhum`'}`,
     `**Painel de Fila:** ${fila ? `<#${fila}>` : '`não definido`'}`,
     `**Painel de Cadastro:** ${pix ? `<#${pix}>` : '`não definido`'}`,
-    `**Limpar Fila Auto:** ${limparFilaAuto(db, guildId) ? 'Ativado' : 'Desativado'}`,
+    `**Limpar Fila Auto:** ${limparAuto ? 'Ativado' : 'Desativado'}`,
     `**Modo Atual:** ${MODOS[atual]}`,
     '',
     `╰ \`${MODOS[atual]}:\` o mediador entra em uma fila e é chamado na ordem.`,

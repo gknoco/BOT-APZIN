@@ -5,9 +5,15 @@ const mp = require('./mercadoPago');
 const vendas = require('./roomSalesSupabase');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MENSAGEM_EMAIL_INVALIDO = '❌ E-mail inválido. Por favor, insira um endereço de e-mail válido para continuar.';
 
 function validarEmailPix(valor) {
   return mp.validarEmailPix(valor);
+}
+
+function textoPagamentoAprovado(quantidade) {
+  const total = Math.max(0, Math.trunc(Number(quantidade) || 0));
+  return `✅ Pagamento aprovado! O saldo de ${total} ${total === 1 ? 'sala' : 'salas'} já caiu na sua conta para criar salas.`;
 }
 
 function resumoErro(error) {
@@ -15,9 +21,9 @@ function resumoErro(error) {
 }
 
 async function criarPedidoPix({ guildId, userId, requestId, quantity, couponCode, payerEmail }) {
-  mp.exigirAmbiente();
   const email = String(payerEmail || '').trim().toLowerCase();
-  if (!validarEmailPix(email)) throw new Error('E-mail inválido. Por favor, insira um e-mail válido para gerar o Pix.');
+  if (!validarEmailPix(email)) throw new Error(MENSAGEM_EMAIL_INVALIDO);
+  mp.exigirAmbiente();
   const qtd = Number(quantity);
   if (!Number.isInteger(qtd) || qtd < 1 || qtd > 1000) throw new Error('A quantidade precisa ser um número inteiro entre 1 e 1.000 salas.');
 
@@ -122,7 +128,9 @@ function chaveEvento(body, paymentId) {
 
 module.exports = {
   UUID,
+  MENSAGEM_EMAIL_INVALIDO,
   validarEmailPix,
+  textoPagamentoAprovado,
   resumoErro,
   criarPedidoPix,
   aplicarPagamentoVerificado,

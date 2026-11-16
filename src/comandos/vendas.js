@@ -157,8 +157,8 @@ async function exigirCargoCompra(interaction) {
   return false;
 }
 
-function exigirStaffSalas(interaction, db) {
-  return mediadores.podeUsarSalas(db, interaction.guildId, interaction.member) || ehAdmin(interaction.member);
+async function exigirStaffSalas(interaction, db) {
+  return (await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member)) || ehAdmin(interaction.member);
 }
 
 const comandos = [
@@ -223,7 +223,7 @@ const comandos = [
     data: new SlashCommandBuilder().setName('minhassalas').setDescription('Mostra saldo e histórico das salas da sua conta'),
     async executar(interaction, { db }) {
       if (!interaction.guildId) return responderErro(interaction, 'Use /minhassalas dentro do servidor.');
-      if (!exigirStaffSalas(interaction, db)) return responderErro(interaction, mediadores.AVISO_CARGO);
+      if (!(await exigirStaffSalas(interaction, db))) return responderErro(interaction, mediadores.AVISO_CARGO);
       const dados = await vendasDb.estatisticasSalas(interaction.guildId, interaction.user.id);
       const pendentes = Array.isArray(dados.pending_usages) ? dados.pending_usages : [];
       const listaPendentes = pendentes.slice(0, 5).map((item) => `• \`${item.request_id}\` — ${item.status}`).join('\n');

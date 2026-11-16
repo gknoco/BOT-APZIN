@@ -29,10 +29,7 @@ const {
 
 const varianteNome = (modo, id) => config.varianteDoModo(modo, id)?.nome ?? String(id);
 
-function textoPagamentoAprovado(quantidade) {
-  const total = Math.max(0, Math.trunc(Number(quantidade) || 0));
-  return `✅ Pagamento aprovado! O saldo de ${total} ${total === 1 ? 'sala' : 'salas'} já caiu na sua conta para criar salas.`;
-}
+const { textoPagamentoAprovado } = comprasSalas;
 
 /** O botão já pode ter sido reconhecido por deferUpdate antes da consulta PIX. */
 async function responderVerificacaoPix(interaction, payload) {
@@ -55,7 +52,7 @@ async function avisarConfirmacao(client, db, { partida, userId, completo, faltan
     if (!canal?.send) return;
 
     // Só mediadores e ADM são marcados nas partidas (suporte fica no atendimento externo).
-    const cargos = mediadores.mencoes(db, partida.guild_id);
+    const cargos = await mediadores.mencoes(db, partida.guild_id);
     const marcaStaff = cargos.length ? `\n${cargos.map((id) => mencaoCargo(id)).join(' ')}` : '';
     const restantes =
       faltando.length > 1
@@ -81,8 +78,8 @@ async function atualizarCardDoClique(interaction, db, modo, preco) {
   const valor = Number(preco);
   if (!config.PRECOS.includes(valor)) return false;
   try {
-    const entradas = filas.listar(db, { guildId: interaction.guildId, modo: modo.id });
-    const card = paineis.mensagemPreco(modo, valor, entradas);
+    const entradas = await filas.listar(db, { guildId: interaction.guildId, modo: modo.id });
+    const card = await paineis.mensagemPreco(modo, valor, entradas);
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(card);
     } else if (typeof interaction.update === 'function') {
@@ -127,7 +124,7 @@ async function sairDaFila(interaction, { db, client }, modoId, alvo) {
   if (!modo) return responderErro(interaction, 'Painel inválido.');
   const preco = alvo === 'todos' ? null : Number(alvo);
 
-  const removidas = filas.sair(db, {
+  const removidas = await filas.sair(db, {
     guildId: interaction.guildId,
     modo: modo.id,
     userId: interaction.user.id,
@@ -142,11 +139,10 @@ async function sairDaFila(interaction, { db, client }, modoId, alvo) {
 
 async function confirmarRegras(interaction, { db, client }, partidaId) {
   try {
-    const resultado = partidas.confirmar(db, partidaId, interaction.user.id);
+    const resultado = await partidas.confirmar(db, partidaId, interaction.user.id);
     await fluxo.atualizarPartida(client, db, partidaId);
 
-    const faltando = partidas
-      .jogadores(db, partidaId)
+    const faltando = (await partidas.jogadores(db, partidaId))
       .filter((linha) => linha.confirmou !== 1)
       .map((linha) => linha.user_id);
     await avisarConfirmacao(client, db, {
@@ -189,7 +185,7 @@ async function assumirSala(interaction, { db, client }, partidaId) {
   }
 
   try {
-    const partida = partidas.assumir(db, partidaId, interaction.user.id, registro.comissao);
+    const partida = await partidas.assumir(db, partidaId, interaction.user.id, registro.comissao);
     await fluxo.atualizarPartida(client, db, partidaId);
     await auditoria.registrar(db, client, {
       guildId: interaction.guildId,
@@ -207,7 +203,7 @@ async function assumirSala(interaction, { db, client }, partidaId) {
 
 async function enviarPix(interaction, { db, client }, partidaId) {
   if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) return responderErro(interaction, 'Só o mediador da sala pode enviar o PIX.');
-  const partida = partidas.buscar(db, partidaId);
+  const partida = await partidas.buscar(db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
 
   const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
@@ -231,7 +227,7 @@ async function enviarPix(interaction, { db, client }, partidaId) {
 async function pagamentoRecebido(interaction, { db, client }, partidaId) {
   if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só o mediador pode confirmar o pagamento.');
   try {
-    partidas.marcarPago(db, partidaId);
+    await partidas.marcarPago(db, partidaId);
     await fluxo.atualizarPartida(client, db, partidaId);
     await auditoria.registrar(db, client, {
       guildId: interaction.guildId,
@@ -253,7 +249,7 @@ async function pagamentoRecebido(interaction, { db, client }, partidaId) {
 
 async function fecharSala(interaction, { db, client }, partidaId) {
   if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só a staff pode fechar a sala.');
-  const partida = partidas.buscar(db, partidaId);
+  const partida = await partidas.buscar(db, partidaId);
   await responderPrivado(interaction, { content: '🔒 Fechando esta sala em 5 segundos...' });
   setTimeout(async () => {
     try {
@@ -434,8 +430,8 @@ async function handleBotao(interaction, ctx) {
       case 'plantaoentrar': {
         // Exige um dos CARGOS configurados (Mediador/ADM). Só cai na permissão
         // de Administrador quando nenhum cargo foi configurado ainda.
-        const cargosMed = mediadores.cargos(db, interaction.guildId);
-        const temCargo = mediadores.temCargoMediador(db, interaction.guildId, interaction.member);
+        const cargosMed = await mediadores.cargos(db, interaction.guildId);
+        const temCargo = await mediadores.temCargoMediador(db, interaction.guildId, interaction.member);
         if (!temCargo && !(cargosMed.length === 0 && ehAdmin(interaction.member))) {
           await responderErro(
             interaction,
@@ -443,9 +439,9 @@ async function handleBotao(interaction, ctx) {
           );
           return true;
         }
-        plantao.entrar(db, { guildId: interaction.guildId, userId: interaction.user.id });
-        await interaction.editReply(plantao.painel(db, interaction.guildId));
-        const posicao = plantao.posicao(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        await plantao.entrar(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        await interaction.editReply(await plantao.painel(db, interaction.guildId));
+        const posicao = await plantao.posicao(db, { guildId: interaction.guildId, userId: interaction.user.id });
         await responderPrivado(interaction, {
           embeds: [embedSucesso(`Você está no plantão${posicao ? ` (posição ${posicao})` : ''}. Boa! ⚡`)],
         });
@@ -453,8 +449,8 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaosair': {
-        const saiu = plantao.sair(db, { guildId: interaction.guildId, userId: interaction.user.id });
-        await interaction.editReply(plantao.painel(db, interaction.guildId));
+        const saiu = await plantao.sair(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        await interaction.editReply(await plantao.painel(db, interaction.guildId));
         await responderPrivado(interaction, {
           embeds: [embedSucesso(saiu ? 'Você saiu do plantão.' : 'Você não estava no plantão.')],
         });
@@ -462,7 +458,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaostatus': {
-        await interaction.editReply(plantao.painel(db, interaction.guildId));
+        await interaction.editReply(await plantao.painel(db, interaction.guildId));
         return true;
       }
 
@@ -471,8 +467,8 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Só ADM configura o módulo de mediadores.');
           return true;
         }
-        const removidos = plantao.limpar(db, interaction.guildId);
-        await interaction.editReply(mediadores.painelConfig(db, interaction.guildId));
+        const removidos = await plantao.limpar(db, interaction.guildId);
+        await interaction.editReply(await mediadores.painelConfig(db, interaction.guildId));
         await responderPrivado(interaction, {
           embeds: [embedSucesso(`Fila de mediadores limpa (${removidos} mediador(es) removido(s)).`)],
         });
@@ -484,11 +480,11 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Só ADM configura o módulo de mediadores.');
           return true;
         }
-        const atual = mediadores.modo(db, interaction.guildId);
+        const atual = await mediadores.modo(db, interaction.guildId);
         const novo = atual === 'rodizio' ? 'fila' : 'rodizio';
         await persistenciaSupabase.definirConfig(interaction.guildId, 'modo_mediadores', novo);
-        mediadores.definirModo(db, interaction.guildId, novo);
-        await interaction.editReply(mediadores.painelConfig(db, interaction.guildId));
+        await mediadores.definirModo(db, interaction.guildId, novo);
+        await interaction.editReply(await mediadores.painelConfig(db, interaction.guildId));
         await responderPrivado(interaction, {
           embeds: [embedSucesso(`Modo de mediação agora é **${mediadores.MODOS[novo]}**.`)],
         });
@@ -531,7 +527,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Use esse botão em um canal de texto.');
           return true;
         }
-        await canalPainel.send(mediadores.painelConfig(db, interaction.guildId));
+        await canalPainel.send(await mediadores.painelConfig(db, interaction.guildId));
         await responderPrivado(interaction, {
           embeds: [embedSucesso('Painel de mediadores reenviado neste canal.')],
         });
@@ -630,12 +626,12 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'criarsala': {
-        const partida = partidas.buscar(db, args[0]);
+        const partida = await partidas.buscar(db, args[0]);
         if (!partida) {
           await responderErro(interaction, 'Sala não encontrada.');
           return true;
         }
-        if (!mediadores.ehMediador(db, interaction.guildId, interaction.member)) {
+        if (!(await mediadores.ehMediador(db, interaction.guildId, interaction.member))) {
           await responderErro(interaction, 'Só o mediador desta sala pode criar a sala do jogo.');
           return true;
         }
@@ -715,8 +711,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Só a staff vê as salas.');
           return true;
         }
-        const ativas = partidas
-          .ativas(db, interaction.guildId)
+        const ativas = (await partidas.ativas(db, interaction.guildId))
           .filter((partida) => partida.status !== 'confirmando');
         const corpo = ativas.length
           ? ativas

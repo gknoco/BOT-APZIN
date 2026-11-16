@@ -9,14 +9,14 @@ const { exigirMediador, responderErro, responderPrivado } = require('../util/seg
 const { reais, mencao } = require('../util/embeds');
 
 /** Acha a partida pelo ID informado ou pela sala onde o comando foi usado. */
-function localizar(db, interaction) {
+async function localizar(db, interaction) {
   const idInformado = interaction.options.getString('partida');
   if (idInformado) {
-    const partida = partidas.buscar(db, idInformado.trim());
+    const partida = await partidas.buscar(db, idInformado.trim());
     if (!partida) throw new Error(`Não achei nenhuma sala com o ID \`${idInformado}\`.`);
     return partida;
   }
-  const porCanal = partidas.porCanal(db, interaction.guildId, interaction.channelId);
+  const porCanal = await partidas.porCanal(db, interaction.guildId, interaction.channelId);
   if (!porCanal) {
     throw new Error('Use o comando dentro da sala da partida ou informe o ID da sala.');
   }
@@ -43,7 +43,7 @@ const comandos = [
       if (!(await exigirMediador(interaction))) return;
 
       const time = interaction.options.getInteger('time');
-      const partida = localizar(db, interaction);
+      const partida = await localizar(db, interaction);
       const resultado = await fluxo.encerrarPartida(client, db, {
         partidaId: partida.id,
         vencedorTime: time,
@@ -77,7 +77,7 @@ const comandos = [
       if (!(await exigirMediador(interaction))) return;
 
       const ausente = interaction.options.getInteger('ausente');
-      const partida = localizar(db, interaction);
+      const partida = await localizar(db, interaction);
       const resultado = await fluxo.aplicarWO(client, db, {
         partidaId: partida.id,
         timeAusente: ausente,

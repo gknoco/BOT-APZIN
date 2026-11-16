@@ -39,7 +39,7 @@ const comandos = config.MODOS.map((modo) => ({
       return responderErro(interaction, 'Use esse comando em um canal de texto.');
     }
 
-    const entradas = filas.listar(db, { guildId: interaction.guildId, modo: modo.id });
+    const entradas = await filas.listar(db, { guildId: interaction.guildId, modo: modo.id });
     const enviadas = await paineis.publicarFila(db, canal, {
       guildId: interaction.guildId,
       modo,

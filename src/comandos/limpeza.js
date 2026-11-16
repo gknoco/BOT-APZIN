@@ -24,7 +24,11 @@ function verificarCanal(canal) {
 }
 
 function ehMensagemDesconhecida(erro) {
-  return Number(erro?.code) === 10008 || erro?.name === 'UnknownMessage';
+  return Number(erro?.code) === 10008 || erro?.name === 'UnknownMessage' || /^Unknown Message$/i.test(erro?.message || '');
+}
+
+function ehCanalDesconhecido(erro) {
+  return Number(erro?.code) === 10003 || erro?.name === 'UnknownChannel' || /^Unknown Channel$/i.test(erro?.message || '');
 }
 
 async function apagarSeExiste(mensagem) {
@@ -52,7 +56,10 @@ async function apagarLote(canal, mensagens) {
       const resultado = await canal.bulkDelete(recentes, false);
       apagadas += resultado.size;
       if (resultado.size !== recentes.length) {
-        throw new Error(`O Discord apagou ${resultado.size} de ${recentes.length} mensagens recentes.`);
+        // Exclusão concorrente não é falha: confira somente as restantes.
+        for (const mensagem of recentes) {
+          if (!resultado.has(mensagem.id) && await apagarSeExiste(mensagem)) apagadas += 1;
+        }
       }
     } catch (erro) {
       if (!ehMensagemDesconhecida(erro)) throw erro;
@@ -72,13 +79,25 @@ async function apagarQuantidade(canal, quantidade) {
 
   while (apagadas < quantidade) {
     const limite = Math.min(100, quantidade - apagadas);
-    const lote = await canal.messages.fetch({ limit: limite });
+    let lote;
+    try {
+      lote = await canal.messages.fetch({ limit: limite });
+    } catch (erro) {
+      if (ehCanalDesconhecido(erro)) return apagadas;
+      throw erro;
+    }
     const mensagens = [...lote.values()].slice(0, limite);
     if (mensagens.length === 0) {
       throw new Error(`Só consegui apagar ${apagadas} mensagem(ns); não havia mais mensagens no canal.`);
     }
 
-    const progresso = await apagarLote(canal, mensagens);
+    let progresso;
+    try {
+      progresso = await apagarLote(canal, mensagens);
+    } catch (erro) {
+      if (ehCanalDesconhecido(erro)) return apagadas;
+      throw erro;
+    }
     if (progresso === 0) throw new Error('A limpeza parou porque nenhuma mensagem foi apagada.');
     apagadas += progresso;
   }
@@ -91,11 +110,17 @@ async function apagarTudo(canal) {
   let lotesSemProgresso = 0;
 
   while (true) {
-    const lote = await canal.messages.fetch({ limit: 100 });
-    const mensagens = [...lote.values()];
-    if (mensagens.length === 0) return apagadas;
-
-    const progresso = await apagarLote(canal, mensagens);
+    let progresso;
+    try {
+      const lote = await canal.messages.fetch({ limit: 100 });
+      const mensagens = [...lote.values()];
+      if (mensagens.length === 0) return apagadas;
+      progresso = await apagarLote(canal, mensagens);
+    } catch (erro) {
+      // O canal pode desaparecer enquanto a exclusão percorre o histórico.
+      if (ehCanalDesconhecido(erro)) return apagadas;
+      throw erro;
+    }
     if (progresso === 0) {
       lotesSemProgresso += 1;
       if (lotesSemProgresso >= 3) return apagadas;
@@ -109,9 +134,11 @@ async function apagarTudo(canal) {
 async function removerResposta(interaction) {
   try {
     await interaction.deleteReply();
-  } catch {
+  } catch (erro) {
     // Uma limpeza longa pode ultrapassar a validade do token da interação. O
     // retorno é efêmero e, portanto, nunca fica visível no histórico do canal.
+    if (ehMensagemDesconhecida(erro) || ehCanalDesconhecido(erro) || [10015, 10062, 50027].includes(Number(erro?.code))) return;
+    throw erro;
   }
 }
 
@@ -157,4 +184,4 @@ const comandos = [
   },
 ];
 
-module.exports = { comandos, apagarLote, apagarQuantidade, apagarTudo, podeLimpar, apagarSeExiste, ehMensagemDesconhecida };
+module.exports = { comandos, apagarLote, apagarQuantidade, apagarTudo, podeLimpar, apagarSeExiste, ehMensagemDesconhecida, ehCanalDesconhecido, removerResposta };

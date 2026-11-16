@@ -1,40 +1,34 @@
 'use strict';
 
-/** Lista negra: bloqueia entrada na fila e mantém histórico do motivo. */
+const { TABELAS } = require('../db/esquema');
+const { cliente, executar, excluir, listarPaginado, limitePositivo } = require('../db/consultas');
+const CAMPOS = 'guild_id,user_id,motivo,autor_id,criado_em';
 
-const agora = () => Date.now();
-
-function adicionar(db, { guildId, userId, motivo, autorId }) {
+async function adicionar(db, { guildId, userId, motivo, autorId }) {
   const texto = String(motivo || '').trim();
   if (texto.length < 3) throw new Error('Escreva o motivo (pelo menos 3 letras).');
-  db.prepare(
-    `INSERT INTO blacklist (guild_id, user_id, motivo, autor_id, criado_em) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (guild_id, user_id) DO UPDATE
-       SET motivo = excluded.motivo, autor_id = excluded.autor_id, criado_em = excluded.criado_em`,
-  ).run(String(guildId), String(userId), texto.slice(0, 300), String(autorId), agora());
-  return obter(db, guildId, userId);
+  return executar(cliente(db).from(TABELAS.blacklist).upsert({
+    guild_id: String(guildId), user_id: String(userId), motivo: texto.slice(0, 300),
+    autor_id: String(autorId), criado_em: Date.now(),
+  }, { onConflict: 'guild_id,user_id' }).select(CAMPOS).single(), 'adicionar à blacklist');
 }
 
-function obter(db, guildId, userId) {
-  return (
-    db
-      .prepare('SELECT * FROM blacklist WHERE guild_id = ? AND user_id = ?')
-      .get(String(guildId), String(userId)) || null
-  );
+async function obter(db, guildId, userId) {
+  return await executar(cliente(db).from(TABELAS.blacklist).select(CAMPOS)
+    .eq('guild_id', String(guildId)).eq('user_id', String(userId)).maybeSingle(), 'consultar blacklist') || null;
 }
 
-function estaBloqueado(db, guildId, userId) {
-  return Boolean(obter(db, guildId, userId));
+async function estaBloqueado(db, guildId, userId) { return Boolean(await obter(db, guildId, userId)); }
+
+async function remover(db, { guildId, userId }) {
+  return excluir(cliente(db).from(TABELAS.blacklist).delete({ count: 'exact' })
+    .eq('guild_id', String(guildId)).eq('user_id', String(userId)), 'remover da blacklist');
 }
 
-function remover(db, { guildId, userId }) {
-  return db.prepare('DELETE FROM blacklist WHERE guild_id = ? AND user_id = ?').run(String(guildId), String(userId)).changes;
-}
-
-function listar(db, guildId, limite = 50) {
-  return db
-    .prepare('SELECT * FROM blacklist WHERE guild_id = ? ORDER BY criado_em DESC LIMIT ?')
-    .all(String(guildId), Math.max(1, Math.trunc(limite)));
+async function listar(db, guildId, limite = 50) {
+  return listarPaginado(() => cliente(db).from(TABELAS.blacklist).select(CAMPOS)
+    .eq('guild_id', String(guildId)).order('criado_em', { ascending: false }).order('user_id'),
+  'listar blacklist', limitePositivo(limite));
 }
 
 module.exports = { adicionar, obter, estaBloqueado, remover, listar };
