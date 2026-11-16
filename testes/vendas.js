@@ -133,7 +133,7 @@ test('painel principal mantém o desenho original e os dois botões originais', 
   ]);
 });
 
-test('estilo com ícones e valores fica no embed de pacotes; o select preserva preços e placeholder exato', () => {
+test('embed de pacotes usa carrinho e contém somente quantidade/total; o select é minimalista e mantém placeholder exato', () => {
   assert.equal(vendas.PRECO_SALA_CENTAVOS, 3);
   assert.deepEqual(vendas.PACOTES_SALAS.map((item) => [item.quantidade, item.totalCentavos]), [
     [1, 3], [5, 15], [10, 30], [20, 60], [50, 150], [100, 300],
@@ -142,16 +142,18 @@ test('estilo com ícones e valores fica no embed de pacotes; o select preserva p
   assert.equal(menu.custom_id, 'ap:compraspacote');
   assert.equal(menu.placeholder, 'Escolha seu pacote de salas...');
   const cardPacotes = vendas.embedPacotes().toJSON();
-  assert.equal(cardPacotes.fields.length, 6);
+  const linhasEsperadas = vendas.PACOTES_SALAS.map((pacote) =>
+    `🛒 **${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}** — \`${reais(pacote.totalCentavos)}\``,
+  ).join('\n');
+  assert.equal(cardPacotes.description, linhasEsperadas);
+  assert.equal(cardPacotes.fields, undefined);
+  assert.equal(cardPacotes.footer, undefined);
   for (const [i, item] of menu.options.entries()) {
     const pacote = vendas.PACOTES_SALAS[i];
     assert.equal(item.value, String(pacote.quantidade));
-    assert.equal(item.label, `${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'} — ${reais(pacote.totalCentavos)}`);
-    assert.match(item.description, /R\$ 0,03/);
-    assert.ok(item.description.includes(`total ${reais(pacote.totalCentavos)}`));
-    assert.match(cardPacotes.fields[i].name, new RegExp(`${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`));
-    assert.match(cardPacotes.fields[i].name, new RegExp(pacote.emoji));
-    assert.equal(cardPacotes.fields[i].value, `**${reais(pacote.totalCentavos)}**\n${reais(vendas.PRECO_SALA_CENTAVOS)} por sala`);
+    assert.equal(item.label, `${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'} - ${reais(pacote.totalCentavos)}`);
+    assert.equal(item.description, undefined);
+    assert.equal(item.emoji, undefined);
   }
 });
 

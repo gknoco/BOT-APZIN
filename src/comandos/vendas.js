@@ -15,10 +15,8 @@ const { ehAdmin, responderPrivado, responderErro } = require('../util/seguranca'
 const { embed, embedSucesso, reais, mencaoCargo } = require('../util/embeds');
 
 const PRECO_SALA_CENTAVOS = 3;
-const ICONES_PACOTES = ['🧩', '📦', '🎁', '🧰', '🏆', '👑'];
-const PACOTES_SALAS = [1, 5, 10, 20, 50, 100].map((quantidade, indice) => ({
+const PACOTES_SALAS = [1, 5, 10, 20, 50, 100].map((quantidade) => ({
   quantidade,
-  emoji: ICONES_PACOTES[indice],
   totalCentavos: quantidade * PRECO_SALA_CENTAVOS,
 }));
 const MAX_CARGOS_COMPRA = 10;
@@ -50,14 +48,11 @@ function componentesPainelCompra() {
 }
 
 function embedPacotes() {
-  return embed('Pacotes de salas', 'Valores transparentes, sem taxas escondidas. Selecione seu pacote para continuar.', {
+  const linhas = PACOTES_SALAS.map((pacote) =>
+    `🛒 **${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}** — \`${reais(pacote.totalCentavos)}\``,
+  ).join('\n');
+  return embed('Pacotes de salas', linhas, {
     cor: config.CORES.principal,
-    campos: PACOTES_SALAS.map((pacote) => ({
-      name: `${pacote.emoji}  ${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`,
-      value: `**${reais(pacote.totalCentavos)}**\n${reais(PRECO_SALA_CENTAVOS)} por sala`,
-      inline: true,
-    })),
-    rodape: 'Pix processado pelo Mercado Pago · R$ 0,03 por sala',
   });
 }
 
@@ -103,9 +98,8 @@ function componentesPacotes() {
         .setMinValues(1)
         .setMaxValues(1)
         .addOptions(PACOTES_SALAS.map(({ quantidade, totalCentavos }) => ({
-          label: `${quantidade} ${quantidade === 1 ? 'sala' : 'salas'} — ${reais(totalCentavos)}`,
+          label: `${quantidade} ${quantidade === 1 ? 'sala' : 'salas'} - ${reais(totalCentavos)}`,
           value: String(quantidade),
-          description: `${reais(PRECO_SALA_CENTAVOS)} por sala · total ${reais(totalCentavos)}`,
         }))),
     ),
   ];
