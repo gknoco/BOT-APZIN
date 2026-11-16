@@ -9,11 +9,16 @@ process.env.DISCORD_TOKEN = 'test.token.value';
 process.env.DATABASE_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'royal-ap-')), 'royal.db');
 const { abrirBanco } = require('../src/db');
 const comandos = require('../src/comandos');
+const utilidades = require('../src/comandos/utilidades');
+const comunidade = require('../src/comandos/comunidade');
+const limpeza = require('../src/comandos/limpeza');
 const { responderPrivado, ehComponente, EFEMERO } = require('../src/util/seguranca');
-const { responderVerificacaoPix } = require('../src/interacoes/botoes');
+const { responderVerificacaoPix, textoPagamentoAprovado } = require('../src/interacoes/botoes');
 const vendas = require('../src/comandos/vendas');
 const modais = require('../src/interacoes/modais');
 const mercadoPago = require('../src/servicos/mercadoPago');
+const comprasSalas = require('../src/servicos/comprasSalas');
+const auditoria = require('../src/servicos/auditoria');
 const db = abrirBanco(process.env.DATABASE_PATH);
 const testes = [];
 function test(name, fn) { testes.push({ name, fn }); }
@@ -57,6 +62,38 @@ test('ROYAL SALA registra os comandos pedidos e o painel contém somente os dois
   ]);
 });
 
+test('/ajuda lista todos os comandos e subcomandos registrados', () => {
+  const embeds = utilidades.ajudaEmbeds(comandos.comandos);
+  const texto = embeds.map((item) => item.toJSON().description || '').join('\n');
+  assert.ok(embeds.length <= 10, 'Discord permite no máximo dez embeds por resposta');
+  for (const comando of comandos.comandos) {
+    const json = comando.data.toJSON();
+    assert.ok(texto.includes(`**/${json.name}**`), `comando ausente da ajuda: /${json.name}`);
+    for (const opcao of json.options || []) {
+      if (opcao.type === 1) assert.ok(texto.includes(`/${json.name} ${opcao.name}`), `subcomando ausente: /${json.name} ${opcao.name}`);
+      if (opcao.type === 2) for (const sub of opcao.options || []) {
+        if (sub.type === 1) assert.ok(texto.includes(`/${json.name} ${opcao.name} ${sub.name}`));
+      }
+    }
+  }
+});
+
+test('painéis /comprar expiram após cinco minutos e a exclusão é idempotente', () => {
+  let callback;
+  let atraso;
+  let apagamentos = 0;
+  vendas.agendarExclusaoPainel({ delete: async () => { apagamentos += 1; } }, (fn, ms) => {
+    callback = fn;
+    atraso = ms;
+    return { unref() {} };
+  });
+  assert.equal(atraso, 300000);
+  callback();
+  assert.equal(apagamentos, 1);
+  const fonte = fs.readFileSync(path.join(__dirname, '../src/comandos/vendas.js'), 'utf8');
+  assert.equal((fonte.match(/agendarExclusaoPainel\(mensagem\)/g) || []).length, 2);
+});
+
 test('modal de compra preserva ordem de quantidade/cupom e inclui e-mail exigido pelo Pix', async () => {
   let modal;
   await modais.abrirModalCompra({ showModal: async (valor) => { modal = valor; return true; } });
@@ -65,6 +102,20 @@ test('modal de compra preserva ordem de quantidade/cupom e inclui e-mail exigido
   assert.deepEqual(json.components.map((row) => row.components[0].custom_id), ['quantidade', 'cupom', 'email']);
   assert.equal(json.components[0].components[0].required, false);
   assert.equal(json.components[1].components[0].required, false);
+  await modais.abrirModalCompra({ showModal: async (valor) => { modal = valor; return true; } }, 10);
+  assert.equal(modal.toJSON().title, 'Pacote de 10 salas');
+});
+
+test('e-mail Pix tem validação única e alinhada à API/SQL', () => {
+  for (const email of ['jogador@example.com', 'nome.sobrenome+ap@gmail.com']) assert.equal(comprasSalas.validarEmailPix(email), true, email);
+  for (const email of ['', 'sem-arroba.com', 'x@dominio.c', 'nome..duplo@example.com', 'nome @example.com']) {
+    assert.equal(comprasSalas.validarEmailPix(email), false, email);
+  }
+  for (const email of ['jogador@example.com', 'nome+ap@gmail.com', 'invalido@dominio.c']) {
+    assert.equal(comprasSalas.validarEmailPix(email), mercadoPago.validarEmailPix(email), email);
+  }
+  const source = fs.readFileSync(path.join(__dirname, '../src/interacoes/modais.js'), 'utf8');
+  assert.match(source, /E-mail inválido\. Por favor, insira um e-mail válido para gerar o Pix\./);
 });
 
 test('criações Nix passam pela reserva Supabase e exigem reconciliação quando o resultado é incerto', () => {
@@ -255,6 +306,59 @@ test('Pix usa centavos exatos e webhook exige assinatura HMAC íntegra', () => {
   const signature = `ts=${ts},v1=${v1}`;
   assert.equal(mercadoPago.assinaturaValida({ signature, requestId, dataId, secret }), true);
   assert.equal(mercadoPago.assinaturaValida({ signature, requestId: 'wrong', dataId, secret }), false);
+});
+
+test('aprovação do Pix informa saldo e quantidade com singular/plural corretos', () => {
+  assert.equal(textoPagamentoAprovado(1), '✅ Pagamento aprovado! O saldo de 1 sala já caiu na sua conta para criar salas.');
+  assert.equal(textoPagamentoAprovado(5), '✅ Pagamento aprovado! O saldo de 5 salas já caiu na sua conta para criar salas.');
+});
+
+test('botão Copia e Cola busca código Pix pelo pedido, servidor e dono e envia resposta privada', () => {
+  const modalSource = fs.readFileSync(path.join(__dirname, '../src/interacoes/modais.js'), 'utf8');
+  const buttonSource = fs.readFileSync(path.join(__dirname, '../src/interacoes/botoes.js'), 'utf8');
+  const dbSource = fs.readFileSync(path.join(__dirname, '../src/servicos/roomSalesSupabase.js'), 'utf8');
+  assert.match(modalSource, /setCustomId\(`ap:copiarpix:\$\{order\.id\}`\)/);
+  assert.match(modalSource, /setLabel\('Copia e Cola'\)/);
+  assert.match(buttonSource, /case 'copiarpix'/);
+  assert.match(buttonSource, /vendasDb\.obterPixPedidoUsuario/);
+  assert.match(buttonSource, /Copie o código Pix abaixo/);
+  assert.match(dbSource, /\.eq\('user_id', String\(userId\)\)/);
+  assert.match(buttonSource, /responderPrivado\(interaction, \{\s*content: `Copie o código Pix/);
+});
+
+test('versículo público não revela quem chamou o comando nem inclui avatar/menção', () => {
+  const card = comunidade.embedVersiculo({ texto: 'Texto de teste', referencia: 'Livro 1:1' }).toJSON();
+  assert.match(card.description, /Livro 1:1/);
+  assert.doesNotMatch(JSON.stringify(card), /Pedido por|@usuario_teste|avatar/);
+});
+
+test('/clearall ignora mensagens já removidas com Discord 10008 sem mascarar outros erros', async () => {
+  const velha = (deleteFn) => ({ createdTimestamp: Date.now(), delete: deleteFn });
+  const ausente = Object.assign(new Error('Unknown Message'), { code: 10008 });
+  assert.equal(await limpeza.apagarLote({}, [velha(async () => { throw ausente; })]), 0);
+  const mensagens = [velha(async () => { throw ausente; }), velha(async () => {})];
+  assert.equal(await limpeza.apagarLote({ bulkDelete: async () => { throw ausente; } }, mensagens), 1);
+  assert.equal(auditoria.canalDesconhecido({ code: 10003 }), true);
+  assert.equal(auditoria.canalDesconhecido({ code: 10008 }), false);
+});
+
+test('configurações de canais importantes são persistidas e restauradas pelo Supabase', () => {
+  const comunidadeSource = fs.readFileSync(path.join(__dirname, '../src/comandos/comunidade.js'), 'utf8');
+  const membrosSource = fs.readFileSync(path.join(__dirname, '../src/eventos/membros.js'), 'utf8');
+  const utilSource = fs.readFileSync(path.join(__dirname, '../src/comandos/utilidades.js'), 'utf8');
+  const flowSource = fs.readFileSync(path.join(__dirname, '../src/servicos/fluxo.js'), 'utf8');
+  const mediadoresSource = fs.readFileSync(path.join(__dirname, '../src/servicos/mediadores.js'), 'utf8');
+  const supabaseSource = fs.readFileSync(path.join(__dirname, '../src/servicos/supabase.js'), 'utf8');
+  assert.match(comunidadeSource, /'canal_boas_vindas'/);
+  assert.match(comunidadeSource, /'canal_saida'/);
+  assert.match(membrosSource, /persistenciaSupabase\.obterConfig/);
+  assert.match(utilSource, /definirConfig\(interaction\.guildId, 'canal_logs'/);
+  assert.match(utilSource, /definirConfig\(interaction\.guildId, 'categoria_filas'/);
+  assert.match(utilSource, /persistenciaSupabase\.listarConfigs/);
+  assert.match(utilSource, /persistenciaSupabase\.removerConfig/);
+  assert.match(flowSource, /persistenciaSupabase\.obterConfig\(guild\.id, chave\)/);
+  assert.match(mediadoresSource, /hidratarConfiguracaoRemota/);
+  assert.match(supabaseSource, /\.limit\(100\)/);
 });
 
 async function main() {

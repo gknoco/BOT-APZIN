@@ -14,6 +14,7 @@ const filas = require('../servicos/filas');
 const paineis = require('../servicos/paineis');
 const mediadores = require('../servicos/mediadores');
 const staffSupabase = require('../servicos/staffSupabase');
+const persistenciaSupabase = require('../servicos/supabase');
 const plantao = require('../servicos/plantao');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
@@ -126,16 +127,19 @@ async function handleSelect(interaction, ctx) {
     const valores = (interaction.values || []).map(String).filter(Boolean);
     try {
       if (acao === 'medcargos') {
-        mediadores.definirCargos(ctx.db, interaction.guildId, valores);
         await staffSupabase.definirConfig(interaction.guildId, 'cargos_mediadores', JSON.stringify(valores));
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'cargos_mediadores', JSON.stringify(valores));
+        mediadores.definirCargos(ctx.db, interaction.guildId, valores);
       }
       if (acao === 'medfila') {
-        mediadores.definirCanalBatePonto(ctx.db, interaction.guildId, valores[0]);
         await staffSupabase.definirConfig(interaction.guildId, 'canal_bateponto', valores[0]);
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_bateponto', valores[0]);
+        mediadores.definirCanalBatePonto(ctx.db, interaction.guildId, valores[0]);
       }
       if (acao === 'medpix') {
-        mediadores.definirCanalConfigPix(ctx.db, interaction.guildId, valores[0]);
         await staffSupabase.definirConfig(interaction.guildId, 'canal_configpix', valores[0]);
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_configpix', valores[0]);
+        mediadores.definirCanalConfigPix(ctx.db, interaction.guildId, valores[0]);
       }
     } catch (erro) {
       console.error(`[selects] não consegui salvar ${acao}:`, erro.message);

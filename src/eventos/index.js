@@ -14,7 +14,8 @@ const convites = require('../servicos/convites');
 const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
 const { registrarComandos } = require('../servicos/registroComandos');
-const membros = require('./membros');
+const miembros = require('./membros');
+const mediadores = require('../servicos/mediadores');
 const { embedErro } = require('../util/embeds');
 const { responderPrivado } = require('../util/seguranca');
 
@@ -84,6 +85,9 @@ function montar(client, db) {
 
     for (const guild of conectado.guilds.cache.values()) {
       await convites.atualizarCache(guild).catch(() => {});
+      await mediadores.hidratarConfiguracaoRemota(db, guild.id).catch((erro) => {
+        console.warn(`[mediadores] não consegui restaurar configurações do servidor ${guild.id}:`, erro.message);
+      });
     }
   });
 

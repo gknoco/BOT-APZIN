@@ -81,6 +81,18 @@ async function obterPedidoUsuario({ orderId, guildId, userId }) {
   return data;
 }
 
+async function obterPixPedidoUsuario({ orderId, guildId, userId }) {
+  const { data, error } = await cliente()
+    .from('royal_room_purchase_orders')
+    .select('id,status,pix_copy_paste,expires_at')
+    .eq('id', String(orderId))
+    .eq('guild_id', String(guildId))
+    .eq('user_id', String(userId))
+    .maybeSingle();
+  if (error) throw new Error(`consulta do Pix do pedido Supabase: ${error.message}`);
+  return data;
+}
+
 async function obterPedidoInterno(orderId) {
   const { data, error } = await cliente()
     .from('royal_room_purchase_orders')
@@ -169,6 +181,7 @@ module.exports = {
   anexarPagamento,
   marcarFalhaPedido,
   obterPedidoUsuario,
+  obterPixPedidoUsuario,
   obterPedidoInterno,
   aplicarPagamento,
   enfileirarEvento,

@@ -6,6 +6,7 @@ const config = require('../config');
 const fluxo = require('../servicos/fluxo');
 const partidas = require('../servicos/partidas');
 const staffSupabase = require('../servicos/staffSupabase');
+const persistenciaSupabase = require('../servicos/supabase');
 const filas = require('../servicos/filas');
 const paineis = require('../servicos/paineis');
 const plantao = require('../servicos/plantao');
@@ -27,6 +28,11 @@ const {
 } = require('../util/seguranca');
 
 const varianteNome = (modo, id) => config.varianteDoModo(modo, id)?.nome ?? String(id);
+
+function textoPagamentoAprovado(quantidade) {
+  const total = Math.max(0, Math.trunc(Number(quantidade) || 0));
+  return `✅ Pagamento aprovado! O saldo de ${total} ${total === 1 ? 'sala' : 'salas'} já caiu na sua conta para criar salas.`;
+}
 
 /** O botão já pode ter sido reconhecido por deferUpdate antes da consulta PIX. */
 async function responderVerificacaoPix(interaction, payload) {
@@ -480,6 +486,7 @@ async function handleBotao(interaction, ctx) {
         }
         const atual = mediadores.modo(db, interaction.guildId);
         const novo = atual === 'rodizio' ? 'fila' : 'rodizio';
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'modo_mediadores', novo);
         mediadores.definirModo(db, interaction.guildId, novo);
         await interaction.editReply(mediadores.painelConfig(db, interaction.guildId));
         await responderPrivado(interaction, {
@@ -569,13 +576,38 @@ async function handleBotao(interaction, ctx) {
           guildId: interaction.guildId,
           userId: interaction.user.id,
         });
-        const mensagem = pedido.status === 'approved'
-          ? 'Pagamento aprovado! O saldo de salas já foi liberado na sua conta.'
-          : pedido.status === 'manual_review'
-            ? 'O pagamento está em revisão. Nenhum crédito foi liberado; não faça outro Pix para este pedido.'
-            : `Pagamento ainda não aprovado (status: **${pedido.status || 'pendente'}**). Assim que o Mercado Pago confirmar, o saldo será liberado automaticamente.`;
+        if (pedido.status === 'approved') {
+          await responderPrivado(interaction, {
+            content: textoPagamentoAprovado(pedido.rooms_quantity),
+          });
+          return true;
+        }
+        const mensagem = pedido.status === 'manual_review'
+          ? 'O pagamento está em revisão. Nenhum crédito foi liberado; não faça outro Pix para este pedido.'
+          : `Pagamento ainda não aprovado (status: **${pedido.status || 'pendente'}**). Assim que o Mercado Pago confirmar, o saldo será liberado automaticamente.`;
         await responderPrivado(interaction, {
           embeds: [embed(pedido.status === 'approved' ? '✅ Pix aprovado' : '💠 Status do Pix', mensagem)],
+        });
+        return true;
+      }
+
+      case 'copiarpix': {
+        const pedido = await vendasDb.obterPixPedidoUsuario({
+          orderId: args[0],
+          guildId: interaction.guildId,
+          userId: interaction.user.id,
+        });
+        const codigo = String(pedido?.pix_copy_paste || '').replace(/[\r\n`]/g, '').trim();
+        if (!codigo) {
+          await responderErro(interaction, 'Não encontrei o código Pix deste pedido. Confirme se o pedido pertence à sua conta ou gere um novo atendimento.');
+          return true;
+        }
+        if (codigo.length > 1700) {
+          await responderErro(interaction, 'O código Pix retornado excede o limite seguro de mensagem do Discord. Use o QR Code exibido no pedido e fale com a administração se precisar de ajuda.');
+          return true;
+        }
+        await responderPrivado(interaction, {
+          content: `Copie o código Pix abaixo:\n\`\`\`\n${codigo}\n\`\`\``,
         });
         return true;
       }
@@ -725,4 +757,5 @@ async function handleBotao(interaction, ctx) {
 module.exports = {
   handleBotao,
   responderVerificacaoPix,
+  textoPagamentoAprovado,
 };

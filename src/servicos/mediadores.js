@@ -16,9 +16,11 @@ const {
 } = require('discord.js');
 const config = require('../config');
 const { obterConfig, definirConfig } = require('../db');
+const persistenciaSupabase = require('./supabase');
 const { embed, mencaoCargo } = require('../util/embeds');
 
 const LIMITE_CARGOS = 10;
+const CHAVES_REMOTAS = ['cargos_mediadores', 'canal_bateponto', 'canal_configpix', 'modo_mediadores', 'limpar_fila_auto'];
 const MODOS = {
   rodizio: 'Rodízio',
   fila: 'Fila',
@@ -65,6 +67,21 @@ const definirModo = (db, guildId, valor) => {
 const limparFilaAuto = (db, guildId) => obterConfig(db, guildId, 'limpar_fila_auto', '0') === '1';
 const definirLimparFilaAuto = (db, guildId, ativo) =>
   definirConfig(db, guildId, 'limpar_fila_auto', ativo ? '1' : '0');
+
+/** Restaura no SQLite as preferências remotas de mediadores antes de usá-las. */
+async function hidratarConfiguracaoRemota(db, guildId) {
+  const resultados = await Promise.all(CHAVES_REMOTAS.map(async (chave) => {
+    try {
+      return [chave, await persistenciaSupabase.obterConfig(guildId, chave)];
+    } catch (erro) {
+      console.warn(`[mediadores] não consegui restaurar ${chave} do Supabase: ${erro.message}`);
+      return [chave, null];
+    }
+  }));
+  for (const [chave, valor] of resultados) {
+    if (valor !== null && valor !== undefined) definirConfig(db, guildId, chave, valor);
+  }
+}
 
 
 /**
@@ -170,6 +187,7 @@ module.exports = {
   definirModo,
   limparFilaAuto,
   definirLimparFilaAuto,
+  hidratarConfiguracaoRemota,
   AVISO_CARGO,
   podeUsarSalas,
   temCargoMediador,

@@ -23,6 +23,8 @@ const mediadores = require('./mediadores');
 const blacklist = require('./blacklist');
 const auditoria = require('./auditoria');
 const royalSupabase = require('./royalSupabase');
+const persistenciaSupabase = require('./supabase');
+const avisosCategoriaSupabase = new Set();
 
 const { STATUS } = partidas;
 
@@ -243,7 +245,16 @@ function componentesPartida(partida) {
 
 /** Categoria onde as salas são criadas (env -> banco -> nome "filas aqui"). */
 async function resolverCategoria(guild, db, chave, envId) {
-  const salvo = obterConfig(db, guild.id, chave, envId);
+  let salvo = null;
+  try {
+    salvo = await persistenciaSupabase.obterConfig(guild.id, chave);
+  } catch (erro) {
+    if (!avisosCategoriaSupabase.has(String(guild.id))) {
+      avisosCategoriaSupabase.add(String(guild.id));
+      console.warn(`[salas] categoria remota indisponível no servidor ${guild.id}; usando fallback local/.env.`);
+    }
+  }
+  salvo = salvo || obterConfig(db, guild.id, chave, envId);
   if (salvo) {
     const porId =
       guild.channels.cache.get(salvo) || (await guild.channels.fetch(salvo).catch(() => null));

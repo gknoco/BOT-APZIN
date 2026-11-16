@@ -12,6 +12,9 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 - Compras que concedem coins/giros creditam o perfil; resgates PIX/físicos ficam com status `pending`.
 - Entregas de cargos da roleta/loja também ficam pendentes no Supabase até a atribuição do Discord ser confirmada; falhas não são descartadas silenciosamente.
 - As migrações v4 revogam acesso de `anon`/`authenticated`, ativam RLS nas tabelas persistentes e reservam policies/grants ao backend `service_role`; somente essa role executa as RPCs `SECURITY DEFINER`.
+- `/ajuda` é gerado a partir do registro real de comandos e os organiza por categoria; o modal valida o e-mail Pix, o botão **Copia e Cola** responde em privado e os painéis de compra expiram após cinco minutos.
+- `/configcanal1`, `/configcanal2`, `/logs`, `/boombot setlog`, `/boombot setcategoria`, canais/cargos/modo de mediadores e configurações `/conectar` são gravados em `discord_configuracoes` e espelhados no SQLite quando aplicável; configurações de mediadores são restauradas do Supabase na inicialização.
+- A remoção resiliente trata mensagens inexistentes (Discord `10008`) sem interromper `/clearall`; falhas de canal inexistente (`10003`) nas boas-vindas/saídas não geram avisos repetidos.
 
 ## Instalação e atualização
 
@@ -33,6 +36,8 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 ## Persistência: limites explícitos
 
 PIX, saldo, giros, roleta, loja, inventário e estatísticas usadas nos rankings são persistidos no Supabase; não há fallback econômico em SQLite. Filas, estado operacional das partidas (canais/mensagens, pagamento, sala e sessão Nix), painéis, plantão, blacklist, telagem e alguns logs/configurações continuam em SQLite. `DATABASE_PATH` permanece necessário para esses módulos. Não remova o volume/backup SQLite até concluir uma migração de cutover específica para o fluxo operacional de partidas.
+
+As configurações de boas-vindas/saída, auditoria, categoria das filas, mediadores e integrações são armazenadas em `discord_configuracoes` como fonte remota; o SQLite é um espelho/fallback em partes do fluxo. Integrações com credenciais cadastradas em `/conectar` devem ser tratadas como segredo do servidor: a consulta é administrativa e o comando de listagem só mostra se cada valor está configurado, sem imprimir o segredo.
 
 O backfill é para transição. Não o use como sincronização contínua: após o corte, novas alterações econômicas são feitas somente pelas RPCs Supabase, e um arquivo SQLite antigo não deve ser tratado como autoridade para esses valores.
 
@@ -84,6 +89,8 @@ Comandos e permissões:
 
 O painel principal tem apenas os botões **Adquirir Sala** e **Ver pacotes de salas**. O menu fixo oferece 1, 5, 10, 20, 50 ou 100 salas; a tarifa-base é R$ 0,03 por sala. O formulário pede quantidade, cupom opcional e e-mail do pagador: o campo de e-mail é necessário porque a API de pagamentos do Mercado Pago exige `payer.email`, e o bot Discord não recebe o e-mail do usuário. A seleção de pacote confirma a quantidade no modal antes de gerar o Pix, permitindo informar e-mail/cupom.
 
+Após gerar o Pix, o pedido e o código de pagamento ficam persistidos no Supabase. **Copia e Cola** envia o código somente ao comprador em resposta privada (o Discord não disponibiliza uma ação de clipboard nativa em botões). A validação verifica formato, não a propriedade do e-mail. `/comprar` e `/painelcomprar` removem o painel publicado cinco minutos depois; se o processo Railway reiniciar antes do timer, a remoção poderá não ocorrer.
+
 ### Variáveis privadas no Railway
 
 Adicione estas variáveis em **Railway → projeto → serviço do bot → Variables** e faça redeploy. Nunca as inclua em `.env.example`, commit, log ou mensagem Discord:
@@ -96,3 +103,12 @@ Adicione estas variáveis em **Railway → projeto → serviço do bot → Varia
 6. `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` — URL e chave `service_role` do projeto Supabase **Apzin**, em **Project Settings → API** (ou **API Keys** no painel atual). A `service_role` é segredo administrativo; nunca use a chave `anon` e nunca a exponha.
 
 Antes do modo produção, confirme no Railway todas as variáveis acima, valide a URL do webhook pelo endpoint `GET`, faça um pagamento de teste com as credenciais de teste/conta de teste e verifique `/minhassalas`. A referência oficial do [Access Token](https://www.mercadopago.com.br/developers/pt/docs/your-integrations/credentials), do [Pix via API](https://www.mercadopago.com.br/developers/pt/reference/online-payments/checkout-api-payments/create-payment/post) e de [Webhooks/assinatura](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/additional-content/your-integrations/notifications/webhooks) descreve os campos e passos do painel. A aplicação exige credenciais e configuração corretas; nenhum sistema pode prometer disponibilidade ou aprovação de pagamentos “100% sem erros”.
+
+### Checklist final do Railway
+
+1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22+. O deploy padrão executa `npm start`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
+2. Crie e monte um **Persistent Volume** em `/data` e defina `DATABASE_PATH=/data/royal.db`. Isso mantém filas e estado operacional após redeploys; não substitui o Supabase para dados econômicos.
+3. Cadastre `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` (opcional para sincronização imediata), `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` do projeto Apzin. Não configure a chave `anon`/public.
+4. Para vendas, acrescente `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_WEBHOOK_URL`, `DEV_OWNER_ID` e `CARGOS_SUPER_ADMIN_IDS`. `NIX_API_KEY`/`NIX_API_URL` são necessários para criação automática das salas; `CATEGORIA_FILAS_ID`, `CARGO_ADMIN_ID`, `CARGO_STAFF_ID` e `CARGO_MEDIADOR_ID` definem a operação normal.
+5. Aplique todas as migrações listadas acima no Supabase antes de publicar o serviço. Depois do primeiro `ready`, confira o health check, `/ajuda`, `/logs` e os canais de boas-vindas; teste um Pix no ambiente de teste do Mercado Pago antes de mudar para credenciais reais.
+6. Nunca faça commit de `.env`, tokens, banco SQLite ou backups. Use o `.env.example` apenas como referência e cadastre valores privados no painel Railway.

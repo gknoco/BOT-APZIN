@@ -52,6 +52,20 @@ function centavos(valor) {
   return Number(achou[1]) * 100 + Number((achou[2] || '').padEnd(2, '0') || 0);
 }
 
+function validarEmailPix(valor) {
+  const email = String(valor || '').trim();
+  if (email.length < 5 || email.length > 254 || /\s/.test(email)) return false;
+  const partes = email.split('@');
+  if (partes.length !== 2) return false;
+  const [local, dominio] = partes;
+  if (!local || local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) return false;
+  if (!/^[A-Z0-9._%+-]+$/i.test(local)) return false;
+  const rotulos = dominio.split('.');
+  return dominio.length <= 253 && rotulos.length >= 2 && rotulos.every((rotulo) =>
+    rotulo.length > 0 && rotulo.length <= 63 && /^[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?$/i.test(rotulo),
+  ) && /^[A-Z]{2,63}$/i.test(rotulos.at(-1));
+}
+
 function assinaturaValida({ signature, requestId, dataId, secret }) {
   if (!signature || !requestId || !dataId || !secret) return false;
   const partes = Object.fromEntries(
@@ -119,7 +133,7 @@ async function criarPix({ order, payerEmail }) {
     throw new ErroMercadoPago('Pedido inválido para gerar Pix.', { code: 'mp_order_invalid', definitive: true });
   }
   const email = String(payerEmail || '').trim().toLowerCase();
-  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!validarEmailPix(email)) {
     throw new ErroMercadoPago('Informe um e-mail válido do pagador.', { code: 'mp_email_invalid', definitive: true });
   }
   const corpo = {
@@ -167,6 +181,7 @@ module.exports = {
   ambienteCompleto,
   exigirAmbiente,
   centavos,
+  validarEmailPix,
   assinaturaValida,
   requisitar,
   criarPix,

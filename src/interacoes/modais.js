@@ -249,7 +249,7 @@ async function abrirModalCompra(interaction, quantidadeFixa = null) {
   const fixo = Number.isInteger(quantidade) && quantidade >= 1 && quantidade <= 100;
   const modal = new ModalBuilder()
     .setCustomId(`ap:modalcompra:${fixo ? quantidade : 'custom'}`)
-    .setTitle('Adquirir Salas');
+    .setTitle(fixo ? `Pacote de ${quantidade} ${quantidade === 1 ? 'sala' : 'salas'}` : 'Adquirir Salas');
   const campos = [];
   if (!fixo) {
     campos.push(new ActionRowBuilder().addComponents(
@@ -303,6 +303,10 @@ async function aplicarCompraSalas(interaction, partes) {
   }
   const email = String(interaction.fields.getTextInputValue('email') || '').trim();
   const cupom = String(interaction.fields.getTextInputValue('cupom') || '').trim();
+  if (!comprasSalas.validarEmailPix(email)) {
+    await responderPrivado(interaction, { content: 'E-mail inválido. Por favor, insira um e-mail válido para gerar o Pix.' });
+    return true;
+  }
 
   const { order, payment } = await comprasSalas.criarPedidoPix({
     guildId: interaction.guildId,
@@ -340,16 +344,16 @@ async function aplicarCompraSalas(interaction, partes) {
   }
   if (!arquivos.length) throw new Error('O Mercado Pago não retornou a imagem do QR Code. O pedido ficou registrado; não gere outro Pix e procure a administração.');
 
-  const pixCopiaCola = String(payment.qrCode || '').replace(/[\r\n`]/g, '').slice(0, 4000);
   const botoes = [new ButtonBuilder()
     .setCustomId(`ap:verificarcompra:${order.id}`)
     .setLabel('Verificar pagamento')
-    .setStyle(ButtonStyle.Primary)];
-  if (/^https:\/\//i.test(String(payment.ticketUrl || ''))) {
-    botoes.push(new ButtonBuilder().setURL(payment.ticketUrl).setLabel('Abrir Pix no Mercado Pago').setStyle(ButtonStyle.Link));
-  }
+    .setStyle(ButtonStyle.Primary),
+  new ButtonBuilder()
+    .setCustomId(`ap:copiarpix:${order.id}`)
+    .setLabel('Copia e Cola')
+    .setEmoji('📋')
+    .setStyle(ButtonStyle.Secondary)];
   return responderPrivado(interaction, {
-    content: `**Pix copia e cola**\n\`\`\`\n${pixCopiaCola}\n\`\`\``,
     embeds: [card],
     files: arquivos,
     components: [new ActionRowBuilder().addComponents(...botoes)],

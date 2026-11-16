@@ -2,7 +2,7 @@
   "name": "royal-ap-bot",
   "version": "4.0.0",
   "private": true,
-  "description": "Bot ORG Royal AP v3: PIX persistente no Supabase, economia, roleta, lojinha e salas automáticas da Nix FF",
+  "description": "Bot ORG Royal AP v4: PIX e economia persistentes no Supabase, compras de salas e automação Nix FF",
   "main": "index.js",
   "engines": {
     "node": ">=22.0.0"

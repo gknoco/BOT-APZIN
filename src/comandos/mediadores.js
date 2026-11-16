@@ -10,6 +10,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const mediadores = require('../servicos/mediadores');
 const plantao = require('../servicos/plantao');
+const persistenciaSupabase = require('../servicos/supabase');
 const { exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embedSucesso } = require('../util/embeds');
 
@@ -22,6 +23,7 @@ const comandos = [
 
     async executar(interaction, { db }) {
       if (!(await exigirAdmin(interaction, 'Só ADM pode configurar o módulo de mediadores.'))) return;
+      await mediadores.hidratarConfiguracaoRemota(db, interaction.guildId);
       return responderPrivado(interaction, mediadores.painelConfig(db, interaction.guildId));
     },
   },
@@ -50,6 +52,8 @@ const comandos = [
         return responderErro(interaction, 'Use esse comando em um canal de texto.');
       }
 
+      const chaveCanal = tipo === 'registro' ? 'canal_configpix' : 'canal_bateponto';
+      await persistenciaSupabase.definirConfig(interaction.guildId, chaveCanal, canal.id);
       const painel = tipo === 'registro' ? plantao.painelRegistroPix() : plantao.painel(db, interaction.guildId);
       const mensagem = await canal.send(painel).catch((erro) => {
         console.error('[mediadores] não consegui publicar o painel:', erro.message);

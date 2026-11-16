@@ -5,6 +5,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const config = require('../config');
 const { obterConfig, definirConfig } = require('../db');
+const persistenciaSupabase = require('../servicos/supabase');
 const blacklist = require('../servicos/blacklist');
 const auditoria = require('../servicos/auditoria');
 const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
@@ -326,13 +327,20 @@ const comandos = [
       const canal = interaction.options.getChannel('canal');
 
       if (canal) {
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id);
         definirConfig(db, interaction.guildId, 'canal_logs', canal.id);
         return responderPrivado(interaction, {
           embeds: [embedSucesso(`Canal de logs definido: ${canal}.\nTudo que a staff fizer vai aparecer lá.`)],
         });
       }
 
-      const atual = obterConfig(db, interaction.guildId, 'canal_logs', config.CANAL_LOGS_ID);
+      let atual = null;
+      try {
+        atual = await persistenciaSupabase.obterConfig(interaction.guildId, 'canal_logs');
+      } catch (erro) {
+        console.warn('[logs] usando a configuração local como fallback:', erro.message);
+      }
+      atual = atual || obterConfig(db, interaction.guildId, 'canal_logs', config.CANAL_LOGS_ID);
       const recentes = auditoria.recentes(db, interaction.guildId, 10);
       const corpo = recentes.length
         ? recentes

@@ -25,14 +25,20 @@ const MAX_CARGOS_COMPRA = 10;
 
 function embedPainelCompra() {
   return embed(
-    'ROYAL SALA',
+    '⚡ ROYAL SALA · Central de créditos',
     [
-      'Adquira créditos para criar salas automatizadas da Nix FF.',
+      'Créditos para criar salas automatizadas de Free Fire pela Nix FF, com liberação após confirmação segura do pagamento.',
       '',
-      '**Preço:** R$ 0,03 por sala. O pagamento é via Pix Mercado Pago e o crédito entra automaticamente após a aprovação.',
-      'Escolha **Adquirir Sala** para informar a quantidade ou **Ver pacotes de salas** para selecionar um pacote fixo.',
+      '━━━━━━━━━━━━━━━━━━━━',
+      '**INVESTIMENTO**  ·  R$ 0,03 por sala',
+      '**PAGAMENTO**  ·  Pix processado pelo Mercado Pago',
+      '**CRÉDITOS**  ·  entram automaticamente após aprovação',
+      '**USO**  ·  cada crédito libera uma criação de sala Nix',
+      '━━━━━━━━━━━━━━━━━━━━',
+      '',
+      'Use **Adquirir Sala** para escolher a quantidade ou **Ver pacotes de salas** para comparar as opções disponíveis.',
     ].join('\n'),
-    { cor: config.CORES.ouro, rodape: 'ORG Royal AP · Central de Vendas' },
+    { cor: config.CORES.ouro, rodape: 'ORG ROYAL AP  ·  Seguro · Automático · Persistido no Supabase' },
   );
 }
 
@@ -46,11 +52,32 @@ function componentesPainelCompra() {
 }
 
 function embedPacotes() {
-  const corpo = PACOTES_SALAS.map((pacote) => `• **${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}** — ${reais(pacote.totalCentavos)}`).join('\n');
-  return embed('📦 Pacotes de salas', `${corpo}\n\nSelecione um pacote. Depois informe o e-mail do pagador e, se tiver, o cupom de desconto.`, {
+  const corpo = PACOTES_SALAS.map((pacote) => {
+    const unidade = pacote.quantidade === 1 ? 'sala' : 'salas';
+    return `┄ **${pacote.quantidade} ${unidade}**  ·  ${pacote.quantidade} × R$ 0,03  =  **${reais(pacote.totalCentavos)}**`;
+  }).join('\n');
+  return embed('📦 Pacotes ROYAL SALA', [
+    'Escolha a quantidade ideal para suas criações de sala.',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━',
+    corpo,
+    '━━━━━━━━━━━━━━━━━━━━',
+    '',
+    'Após selecionar, informe o e-mail do pagador e, se tiver, o cupom de desconto.',
+  ].join('\n'), {
     cor: config.CORES.principal,
-    rodape: 'Cada sala custa R$ 0,03',
+    rodape: 'Preço unitário: R$ 0,03 por sala · Pix Mercado Pago',
   });
+}
+
+function agendarExclusaoPainel(mensagem, agendar = setTimeout) {
+  const timer = agendar(() => {
+    Promise.resolve(mensagem?.delete?.()).catch((erro) => {
+      if (Number(erro?.code) !== 10008) console.warn('[vendas] não consegui apagar painel temporário:', erro.message);
+    });
+  }, 5 * 60 * 1000);
+  timer?.unref?.();
+  return timer;
 }
 
 function componentesPacotes() {
@@ -147,8 +174,9 @@ const comandos = [
       if (!settings.panel_channel_id) return responderErro(interaction, 'Canal de vendas não configurado. O dono do bot deve definir o canal em /permicompras.');
       const canal = client.channels.cache.get(String(settings.panel_channel_id)) || await client.channels.fetch(String(settings.panel_channel_id)).catch(() => null);
       if (!canal?.send || String(canal.guildId) !== String(interaction.guildId)) return responderErro(interaction, 'O canal de vendas configurado não existe neste servidor ou o bot não pode enviar mensagens nele.');
-      await canal.send({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
-      return responderPrivado(interaction, { embeds: [embedSucesso(`Painel ROYAL SALA publicado em <#${canal.id}>.`)] });
+      const mensagem = await canal.send({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
+      agendarExclusaoPainel(mensagem);
+      return responderPrivado(interaction, { embeds: [embedSucesso(`Painel ROYAL SALA publicado em <#${canal.id}>. Ele será removido automaticamente em 5 minutos.`)] });
     },
   },
   {
@@ -156,8 +184,9 @@ const comandos = [
     async executar(interaction) {
       if (!interaction.guildId || !interaction.channel?.send) return responderErro(interaction, 'Use /comprar em um canal de texto do servidor.');
       if (!(await exigirCargoCompra(interaction))) return;
-      await interaction.channel.send({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
-      return responderPrivado(interaction, { embeds: [embedSucesso('Painel ROYAL SALA publicado neste canal.')] });
+      const mensagem = await interaction.channel.send({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
+      agendarExclusaoPainel(mensagem);
+      return responderPrivado(interaction, { embeds: [embedSucesso('Painel ROYAL SALA publicado neste canal. Ele será removido automaticamente em 5 minutos.')] });
     },
   },
   {
@@ -243,6 +272,7 @@ module.exports = {
   componentesPainelCompra,
   embedPacotes,
   componentesPacotes,
+  agendarExclusaoPainel,
   embedPainelPermissoes,
   ehDonoConfigurado,
   ehCargoCompra,

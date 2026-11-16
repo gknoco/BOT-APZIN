@@ -28,15 +28,12 @@ function dataHoraBrasilia(data = new Date()) {
   return `${porTipo.day}/${porTipo.month}/${porTipo.year} ${porTipo.hour}:${porTipo.minute}`;
 }
 
-function embedVersiculo(usuario, versiculo, data = new Date()) {
-  const nome = usuario.tag || usuario.username || usuario.globalName || usuario.id;
-  const rodape = `Pedido por @${nome} | ${dataHoraBrasilia(data)}`;
-  const avatar = usuario.displayAvatarURL?.({ dynamic: true, size: 256 });
+function embedVersiculo(versiculo, data = new Date()) {
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle('📿 Versículo do Dia')
     .setDescription(`*"${versiculo.texto}"*\n\n**— ${versiculo.referencia}**`)
-    .setFooter(avatar ? { text: rodape, iconURL: avatar } : { text: rodape });
+    .setFooter({ text: `ORG Royal AP · ${dataHoraBrasilia(data)}` });
   return embed;
 }
 
@@ -76,7 +73,7 @@ const comandos = [
           userId: interaction.user.id,
           cliente: contexto.supabase,
         });
-        return interaction.editReply({ embeds: [embedVersiculo(interaction.user, sorteio.versiculo)] });
+        return interaction.editReply({ embeds: [embedVersiculo(sorteio.versiculo)] });
       } catch (erro) {
         console.error('[versiculos] falha no sorteio:', erro.message);
         await interaction.deleteReply().catch(() => null);

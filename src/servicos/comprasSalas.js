@@ -6,6 +6,10 @@ const vendas = require('./roomSalesSupabase');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function validarEmailPix(valor) {
+  return mp.validarEmailPix(valor);
+}
+
 function resumoErro(error) {
   return String(error?.code || (error?.status ? `mp_http_${error.status}` : error?.name || 'mp_processing_error')).slice(0, 80);
 }
@@ -13,7 +17,7 @@ function resumoErro(error) {
 async function criarPedidoPix({ guildId, userId, requestId, quantity, couponCode, payerEmail }) {
   mp.exigirAmbiente();
   const email = String(payerEmail || '').trim().toLowerCase();
-  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Informe um e-mail válido para gerar o Pix.');
+  if (!validarEmailPix(email)) throw new Error('E-mail inválido. Por favor, insira um e-mail válido para gerar o Pix.');
   const qtd = Number(quantity);
   if (!Number.isInteger(qtd) || qtd < 1 || qtd > 1000) throw new Error('A quantidade precisa ser um número inteiro entre 1 e 1.000 salas.');
 
@@ -118,6 +122,7 @@ function chaveEvento(body, paymentId) {
 
 module.exports = {
   UUID,
+  validarEmailPix,
   resumoErro,
   criarPedidoPix,
   aplicarPagamentoVerificado,

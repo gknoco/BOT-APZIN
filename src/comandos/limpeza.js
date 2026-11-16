@@ -23,6 +23,20 @@ function verificarCanal(canal) {
   }
 }
 
+function ehMensagemDesconhecida(erro) {
+  return Number(erro?.code) === 10008 || erro?.name === 'UnknownMessage';
+}
+
+async function apagarSeExiste(mensagem) {
+  try {
+    await mensagem.delete();
+    return true;
+  } catch (erro) {
+    if (ehMensagemDesconhecida(erro)) return false;
+    throw erro;
+  }
+}
+
 /** Apaga exatamente as mensagens recebidas, usando exclusão individual para as antigas. */
 async function apagarLote(canal, mensagens) {
   const agora = Date.now();
@@ -32,19 +46,22 @@ async function apagarLote(canal, mensagens) {
   let apagadas = 0;
 
   if (recentes.length === 1) {
-    await recentes[0].delete();
-    apagadas += 1;
+    if (await apagarSeExiste(recentes[0])) apagadas += 1;
   } else if (recentes.length > 1) {
-    const resultado = await canal.bulkDelete(recentes, false);
-    apagadas += resultado.size;
-    if (resultado.size !== recentes.length) {
-      throw new Error(`O Discord apagou ${resultado.size} de ${recentes.length} mensagens recentes.`);
+    try {
+      const resultado = await canal.bulkDelete(recentes, false);
+      apagadas += resultado.size;
+      if (resultado.size !== recentes.length) {
+        throw new Error(`O Discord apagou ${resultado.size} de ${recentes.length} mensagens recentes.`);
+      }
+    } catch (erro) {
+      if (!ehMensagemDesconhecida(erro)) throw erro;
+      for (const mensagem of recentes) if (await apagarSeExiste(mensagem)) apagadas += 1;
     }
   }
 
   for (const mensagem of antigas) {
-    await mensagem.delete();
-    apagadas += 1;
+    if (await apagarSeExiste(mensagem)) apagadas += 1;
   }
   return apagadas;
 }
@@ -71,6 +88,7 @@ async function apagarQuantidade(canal, quantidade) {
 async function apagarTudo(canal) {
   verificarCanal(canal);
   let apagadas = 0;
+  let lotesSemProgresso = 0;
 
   while (true) {
     const lote = await canal.messages.fetch({ limit: 100 });
@@ -78,7 +96,12 @@ async function apagarTudo(canal) {
     if (mensagens.length === 0) return apagadas;
 
     const progresso = await apagarLote(canal, mensagens);
-    if (progresso === 0) throw new Error('A limpeza parou porque nenhuma mensagem foi apagada.');
+    if (progresso === 0) {
+      lotesSemProgresso += 1;
+      if (lotesSemProgresso >= 3) return apagadas;
+      continue;
+    }
+    lotesSemProgresso = 0;
     apagadas += progresso;
   }
 }
@@ -134,4 +157,4 @@ const comandos = [
   },
 ];
 
-module.exports = { comandos, apagarLote, apagarQuantidade, apagarTudo, podeLimpar };
+module.exports = { comandos, apagarLote, apagarQuantidade, apagarTudo, podeLimpar, apagarSeExiste, ehMensagemDesconhecida };

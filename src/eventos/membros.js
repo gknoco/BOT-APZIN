@@ -6,6 +6,17 @@ const { EmbedBuilder, Events } = require('discord.js');
 const persistenciaSupabase = require('../servicos/supabase');
 
 const COR_ESCURO = 0x2b2d31;
+const avisosCanalDesconhecido = new Set();
+
+function avisarFalhaCanal(chave, erro, operacao) {
+  if (Number(erro?.code) === 10003 || erro?.name === 'UnknownChannel') {
+    if (avisosCanalDesconhecido.has(chave)) return;
+    avisosCanalDesconhecido.add(chave);
+    console.warn(`[membros] canal configurado não existe (${operacao}); ajuste em /configcanal1 ou /configcanal2.`);
+    return;
+  }
+  console.error(`[membros] ${operacao}: ${erro.message}`);
+}
 
 function urlAvatar(member) {
   return member.user.displayAvatarURL({ dynamic: true, size: 256 });
@@ -51,7 +62,7 @@ async function publicar(member, chave, montarEmbed, clienteSupabase) {
   try {
     canal = await member.guild.channels.fetch(canalId);
   } catch (erro) {
-    console.warn(`[membros] não consegui buscar o canal ${canalId}: ${erro.message}`);
+    avisarFalhaCanal(`${member.guild.id}:${canalId}`, erro, 'falha ao buscar canal');
     return null;
   }
   if (!canal?.isTextBased?.() || typeof canal.send !== 'function') return null;
@@ -62,7 +73,7 @@ async function publicar(member, chave, montarEmbed, clienteSupabase) {
       allowedMentions: { parse: [], users: [member.id] },
     });
   } catch (erro) {
-    console.error(`[membros] não consegui enviar mensagem em ${canalId}: ${erro.message}`);
+    avisarFalhaCanal(`${member.guild.id}:${canalId}`, erro, 'falha ao enviar mensagem');
     return null;
   }
 }

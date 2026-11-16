@@ -53,6 +53,31 @@ async function obterConfig(guildId, chave, clienteOverride) {
   return data?.valor ?? null;
 }
 
+async function listarConfigs(guildId, prefixo, clienteOverride) {
+  if (!guildId || !prefixo) return [];
+  const supabase = clienteOverride || obterCliente();
+  const { data, error } = await supabase
+    .from('discord_configuracoes')
+    .select('chave,valor')
+    .eq('guild_id', String(guildId))
+    .like('chave', `${String(prefixo)}%`)
+    .order('chave', { ascending: true })
+    .limit(100);
+  if (error) throw falha('Não consegui listar configurações do Supabase', error);
+  return data || [];
+}
+
+async function removerConfig(guildId, chave, clienteOverride) {
+  if (!guildId || !chave) throw new Error('Servidor e chave da configuração são obrigatórios.');
+  const supabase = clienteOverride || obterCliente();
+  const { error } = await supabase
+    .from('discord_configuracoes')
+    .delete()
+    .eq('guild_id', String(guildId))
+    .eq('chave', String(chave));
+  if (error) throw falha('Não consegui remover a configuração do Supabase', error);
+}
+
 async function sortearVersiculo(guildId, userId, clienteOverride) {
   const supabase = clienteOverride || obterCliente();
   const { data, error } = await supabase.rpc('discord_sortear_versiculo', {
@@ -70,4 +95,4 @@ async function sortearVersiculo(guildId, userId, clienteOverride) {
   };
 }
 
-module.exports = { obterCliente, definirConfig, obterConfig, sortearVersiculo };
+module.exports = { obterCliente, definirConfig, obterConfig, listarConfigs, removerConfig, sortearVersiculo };

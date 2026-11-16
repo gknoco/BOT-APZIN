@@ -10,42 +10,68 @@ const {
   SlashCommandBuilder,
 } = require('discord.js');
 const config = require('../config');
-const { obterConfig, definirConfig } = require('../db');
+const { definirConfig } = require('../db');
+const persistenciaSupabase = require('../servicos/supabase');
 const filas = require('../servicos/filas');
 const partidas = require('../servicos/partidas');
 const paineis = require('../servicos/paineis');
 const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso, dataBR } = require('../util/embeds');
 
+const CATEGORIAS_AJUDA = [
+  { titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
+  { titulo: '🎮 Filas e partidas', nomes: [...config.MODOS.map((modo) => modo.comando), 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
+  { titulo: '👥 Mediação e PIX', nomes: ['mediadores', 'painel_mediadores', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
+  { titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
+  { titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar'] },
+  { titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
+  { titulo: '🛡️ Moderação e administração', nomes: ['blacklist', 'limpar', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
+  { titulo: '⚙️ Configuração e comunidade', nomes: ['boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'versiculododia', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
+];
+
+function formatarComandoAjuda(comando) {
+  const json = comando.data.toJSON();
+  const opcoes = Array.isArray(json.options) ? json.options : [];
+  const subcomandos = opcoes.filter((opcao) => opcao.type === 1 || opcao.type === 2);
+  const linhas = [`**/${json.name}** — ${json.description}`];
+  for (const sub of subcomandos) {
+    if (sub.type === 1) linhas.push(`  · /${json.name} ${sub.name} — ${sub.description}`);
+    else for (const aninhado of sub.options || []) {
+      if (aninhado.type === 1) linhas.push(`  · /${json.name} ${sub.name} ${aninhado.name} — ${aninhado.description}`);
+    }
+  }
+  return linhas.join('\n');
+}
+
+function ajudaEmbeds(listaComandos = require('./index').comandos) {
+  const porNome = new Map(listaComandos.map((comando) => [comando.data.name, comando]));
+  const usados = new Set();
+  const saida = [];
+  for (const categoria of CATEGORIAS_AJUDA) {
+    const linhas = categoria.nomes
+      .map((nome) => porNome.get(nome))
+      .filter((comando) => {
+        if (!comando || usados.has(comando.data.name)) return false;
+        usados.add(comando.data.name);
+        return true;
+      })
+      .map(formatarComandoAjuda);
+    if (linhas.length) saida.push(embed(categoria.titulo, linhas.join('\n\n'), { cor: config.CORES.principal }));
+  }
+  const restantes = listaComandos.filter((comando) => !usados.has(comando.data.name));
+  if (restantes.length) {
+    saida.push(embed('📚 Outros comandos', restantes.map(formatarComandoAjuda).join('\n\n'), { cor: config.CORES.neutro }));
+  }
+  return saida;
+}
+
 const comandos = [
   {
     data: new SlashCommandBuilder().setName('ajuda').setDescription('Explica como o bot funciona e todos os comandos'),
 
     async executar(interaction) {
-      const paineisDisponiveis = config.MODOS.map((modo) => `\`/${modo.comando}\``).join(' · ');
-      const corpo = [
-        '**Como funciona um AP:**',
-        '1. A staff publica o painel do modo no canal (ex: `/filasx1mobile`).',
-        '2. Você escolhe a **faixa de aposta** no menu e o **tipo de gelo**.',
-        '3. Quando o grupo fecha, o bot cria uma **sala privada** só com os jogadores.',
-        '4. Os dois jogadores clicam em **Confirmar Partida** na sala privada.',
-        '5. O **mediador** assume, manda o PIX, confere o pagamento e libera a sala.',
-        '6. No fim, o mediador declara o vencedor (ou aplica W.O.).',
-        '',
-        '**Painéis de AP:**',
-        paineisDisponiveis,
-        '',
-        '**Mediação:** `/mediadores` (configuração) · `/painel_mediadores` (plantão/PIX) · `/criar_telagem`',
-        '**Placar:** `/verp @jogador`',
-        '**Jogador:** `/perfil` · `/verp` · `/ranking` · `/apostas` · `/convites` · `/roleta` · `/lojinha` · `/inventario`',
-        '**Staff:** `/painel_mediador` · `/registrar_pix` · `/pix` · `/vencedor` · `/wo` · `/receita_mediadores` · `/analista`',
-        '**Configuração:** `/boombot setcategoria` (categoria das filas) · `/boombot setlog`',
-        '**Nix FF (salas automáticas):** `/nix status` · `/nix criarsala` · `/nix iniciar` · `/nix statussala` · `/nix resultado`',
-        '**ADM:** `/painel` · `/anunciar` · `/logs` · `/limpar` · `/blacklist` · `/loja` · `/envio_massa` · `/boombot` · `/botperfil`',
-      ].join('\n');
-
       return responderPrivado(interaction, {
-        embeds: [embed('❓ Central de ajuda · ORG Royal AP', corpo, { cor: config.CORES.principal, rodape: 'ORG Royal AP' })],
+        embeds: ajudaEmbeds(),
       });
     },
   },
@@ -143,12 +169,14 @@ const comandos = [
 
       if (sub === 'setlog') {
         const canal = interaction.options.getChannel('canal');
+        await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id);
         definirConfig(db, interaction.guildId, 'canal_logs', canal.id);
         return responderPrivado(interaction, { content: `✅ Canal de logs: ${canal}.` });
       }
 
 
       const categoria = interaction.options.getChannel('categoria');
+      await persistenciaSupabase.definirConfig(interaction.guildId, 'categoria_filas', categoria.id);
       definirConfig(db, interaction.guildId, 'categoria_filas', categoria.id);
       return responderPrivado(interaction, { content: `✅ Salas de AP serão criadas em **${categoria.name}**.` });
     },
@@ -167,9 +195,7 @@ const comandos = [
       const url = interaction.options.getString('url');
 
       if (!nome) {
-        const linhas = db
-          .prepare("SELECT chave, valor FROM configuracoes WHERE guild_id = ? AND chave LIKE 'integracao:%'")
-          .all(interaction.guildId);
+        const linhas = await persistenciaSupabase.listarConfigs(interaction.guildId, 'integracao:');
         const corpo = linhas.length
           ? linhas
               .map((linha) => `• **${linha.chave.replace('integracao:', '')}** → \`${linha.valor ? 'configurada' : 'vazia'}\``)
@@ -179,11 +205,13 @@ const comandos = [
       }
 
       if (!url) {
+        const atual = await persistenciaSupabase.obterConfig(interaction.guildId, `integracao:${nome}`);
         return responderPrivado(interaction, {
-          content: `**${nome}**: \`${obterConfig(db, interaction.guildId, `integracao:${nome}`, 'não configurada')}\``,
+          content: `**${nome}**: ${atual ? 'configurada' : 'não configurada'}. O valor privado não é exibido no Discord.`,
         });
       }
 
+      await persistenciaSupabase.definirConfig(interaction.guildId, `integracao:${nome}`, url);
       definirConfig(db, interaction.guildId, `integracao:${nome}`, url);
       return responderPrivado(interaction, { embeds: [embedSucesso(`Integração **${nome}** salva.`)] });
     },
@@ -198,6 +226,11 @@ const comandos = [
     async executar(interaction, { db }) {
       if (!(await exigirAdmin(interaction))) return;
       const nome = interaction.options.getString('nome');
+      const atual = await persistenciaSupabase.obterConfig(interaction.guildId, `integracao:${nome}`);
+      if (!atual) {
+        return responderPrivado(interaction, { content: `Não achei a integração **${nome}**.` });
+      }
+      await persistenciaSupabase.removerConfig(interaction.guildId, `integracao:${nome}`);
       const info = db
         .prepare('DELETE FROM configuracoes WHERE guild_id = ? AND chave = ?')
         .run(interaction.guildId, `integracao:${nome}`);
@@ -285,4 +318,4 @@ const comandos = [
   },
 ];
 
-module.exports = { comandos };
+module.exports = { comandos, ajudaEmbeds, formatarComandoAjuda };
