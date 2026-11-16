@@ -25,7 +25,7 @@ const CATEGORIAS_AJUDA = [
   { titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar'] },
   { titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
   { titulo: '🛡️ Moderação e administração', nomes: ['blacklist', 'limpar', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
-  { titulo: '⚙️ Configuração e comunidade', nomes: ['boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'versiculododia', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
+  { titulo: '⚙️ Configuração e comunidade', nomes: ['boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'setcargo', 'versiculododia', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
 ];
 
 function formatarComandoAjuda(comando) {
@@ -267,13 +267,13 @@ const comandos = [
       if (sub === 'setlog') {
         const canal = interaction.options.getChannel('canal');
         await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id, db.client);
-        return responderPrivado(interaction, { content: `✅ Canal de logs: ${canal}.` });
+        return responderPrivado(interaction, { content: `✅ Canal de logs salvo com sucesso no banco de dados (Supabase): ${canal}.` });
       }
 
 
       const categoria = interaction.options.getChannel('categoria');
       await persistenciaSupabase.definirConfig(interaction.guildId, 'categoria_filas', categoria.id, db.client);
-      return responderPrivado(interaction, { content: `✅ Salas de AP serão criadas em **${categoria.name}**.` });
+      return responderPrivado(interaction, { content: `✅ Categoria de salas salva com sucesso no banco de dados (Supabase): **${categoria.name}**.` });
     },
   },
 
@@ -307,7 +307,7 @@ const comandos = [
       }
 
       await persistenciaSupabase.definirConfig(interaction.guildId, `integracao:${nome}`, url, db.client);
-      return responderPrivado(interaction, { embeds: [embedSucesso(`Integração **${nome}** salva.`)] });
+      return responderPrivado(interaction, { embeds: [embedSucesso(`Integração **${nome}** salva com sucesso no banco de dados (Supabase).`)] });
     },
   },
 

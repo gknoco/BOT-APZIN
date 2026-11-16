@@ -5,6 +5,8 @@
 const { EmbedBuilder, Events } = require('discord.js');
 const persistenciaSupabase = require('../servicos/supabase');
 
+const CARGO_AUTO_ROLE_ID = '1543684013968064614';
+
 const COR_ESCURO = 0x2b2d31;
 const avisosCanalDesconhecido = new Set();
 
@@ -87,6 +89,9 @@ function registrar(client, db) {
     }
   };
   client.on(Events.GuildMemberAdd, (member) => {
+    void member.roles.add(CARGO_AUTO_ROLE_ID, 'Cargo automático para novos membros da ORG Royal AP').catch((erro) => {
+      console.error(`[membros] não consegui atribuir o cargo automático a ${member.id}: ${erro.message}`);
+    });
     void enviar(member, 'canal_boas_vindas', embedEntrada);
   });
   client.on(Events.GuildMemberRemove, (member) => {
@@ -94,4 +99,4 @@ function registrar(client, db) {
   });
 }
 
-module.exports = { registrar, publicar, embedEntrada, embedSaida };
+module.exports = { registrar, publicar, embedEntrada, embedSaida, CARGO_AUTO_ROLE_ID };

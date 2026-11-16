@@ -52,7 +52,7 @@ test('novos comandos estão registrados e comandos legados não existem', () => 
 });
 
 test('ROYAL SALA registra os comandos pedidos e o painel contém somente os dois botões oficiais', () => {
-  for (const nome of ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar']) {
+  for (const nome of ['painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar']) {
     assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
   }
   const painel = vendas.componentesPainelCompra().flatMap((linha) => linha.components.map((componente) => componente.toJSON()));
@@ -78,7 +78,7 @@ test('/ajuda lista todos os comandos e subcomandos registrados', () => {
   }
 });
 
-test('painéis /comprar expiram após cinco minutos e a exclusão é idempotente', () => {
+test('expiração configurável de painéis mantém o padrão de quinze minutos', () => {
   let callback;
   let atraso;
   let apagamentos = 0;
@@ -87,11 +87,11 @@ test('painéis /comprar expiram após cinco minutos e a exclusão é idempotente
     atraso = ms;
     return { unref() {} };
   });
-  assert.equal(atraso, 300000);
+  assert.equal(atraso, 900000);
   callback();
   assert.equal(apagamentos, 1);
   const fonte = fs.readFileSync(path.join(__dirname, '../src/comandos/vendas.js'), 'utf8');
-  assert.equal((fonte.match(/agendarExclusaoPainel\(mensagem\)/g) || []).length, 2);
+  assert.match(fonte, /15 \* 60 \* 1000/);
 });
 
 test('modal de compra preserva ordem de quantidade/cupom e inclui e-mail exigido pelo Pix', async () => {
@@ -309,9 +309,9 @@ test('Pix usa centavos exatos e webhook exige assinatura HMAC íntegra', () => {
   assert.equal(mercadoPago.assinaturaValida({ signature, requestId: 'wrong', dataId, secret }), false);
 });
 
-test('aprovação do Pix informa saldo e quantidade com singular/plural corretos', () => {
-  assert.equal(textoPagamentoAprovado(1), '✅ Pagamento aprovado! O saldo de 1 sala já caiu na sua conta para criar salas.');
-  assert.equal(textoPagamentoAprovado(5), '✅ Pagamento aprovado! O saldo de 5 salas já caiu na sua conta para criar salas.');
+test('aprovação do Pix informa saldo, quantidade e consulta de salas', () => {
+  assert.equal(textoPagamentoAprovado(1), '✅ Pagamento aprovado! O saldo de 1 sala já caiu na sua conta para criar salas. Use /minhassalas para ver suas salas.');
+  assert.equal(textoPagamentoAprovado(5), '✅ Pagamento aprovado! O saldo de 5 salas já caiu na sua conta para criar salas. Use /minhassalas para ver suas salas.');
 });
 
 test('botão Copia e Cola busca código Pix pelo pedido, servidor e dono e envia resposta privada', () => {

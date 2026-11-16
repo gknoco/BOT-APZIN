@@ -9,6 +9,7 @@ const {
   RoleSelectMenuBuilder,
   SlashCommandBuilder,
   StringSelectMenuBuilder,
+  PermissionFlagsBits,
 } = require('discord.js');
 const config = require('../config');
 const vendasDb = require('../servicos/roomSalesSupabase');
@@ -29,12 +30,10 @@ function embedPainelCompra() {
     [
       'Créditos para criar salas automatizadas de Free Fire pela Nix FF, com liberação após confirmação segura do pagamento.',
       '',
-      '━━━━━━━━━━━━━━━━━━━━',
       '**INVESTIMENTO**  ·  R$ 0,03 por sala',
       '**PAGAMENTO**  ·  Pix processado pelo Mercado Pago',
       '**CRÉDITOS**  ·  entram automaticamente após aprovação',
       '**USO**  ·  cada crédito libera uma criação de sala Nix',
-      '━━━━━━━━━━━━━━━━━━━━',
       '',
       'Use **Adquirir Sala** para escolher a quantidade ou **Ver pacotes de salas** para comparar as opções disponíveis.',
     ].join('\n'),
@@ -54,14 +53,12 @@ function componentesPainelCompra() {
 function embedPacotes() {
   const corpo = PACOTES_SALAS.map((pacote) => {
     const unidade = pacote.quantidade === 1 ? 'sala' : 'salas';
-    return `┄ **${pacote.quantidade} ${unidade}**  ·  ${pacote.quantidade} × R$ 0,03  =  **${reais(pacote.totalCentavos)}**`;
+    return `**${pacote.quantidade} ${unidade}**  ·  ${pacote.quantidade} × R$ 0,03  =  **${reais(pacote.totalCentavos)}**`;
   }).join('\n');
   return embed('📦 Pacotes ROYAL SALA', [
     'Escolha a quantidade ideal para suas criações de sala.',
     '',
-    '━━━━━━━━━━━━━━━━━━━━',
     corpo,
-    '━━━━━━━━━━━━━━━━━━━━',
     '',
     'Após selecionar, informe o e-mail do pagador e, se tiver, o cupom de desconto.',
   ].join('\n'), {
@@ -70,12 +67,12 @@ function embedPacotes() {
   });
 }
 
-function agendarExclusaoPainel(mensagem, agendar = setTimeout) {
+function agendarExclusaoPainel(mensagem, agendar = setTimeout, atraso = 15 * 60 * 1000) {
   const timer = agendar(() => {
     Promise.resolve(mensagem?.delete?.()).catch((erro) => {
       if (Number(erro?.code) !== 10008) console.warn('[vendas] não consegui apagar painel temporário:', erro.message);
     });
-  }, 5 * 60 * 1000);
+  }, atraso);
   timer?.unref?.();
   return timer;
 }
@@ -175,18 +172,41 @@ const comandos = [
       const canal = client.channels.cache.get(String(settings.panel_channel_id)) || await client.channels.fetch(String(settings.panel_channel_id)).catch(() => null);
       if (!canal?.send || String(canal.guildId) !== String(interaction.guildId)) return responderErro(interaction, 'O canal de vendas configurado não existe neste servidor ou o bot não pode enviar mensagens nele.');
       const mensagem = await canal.send({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
-      agendarExclusaoPainel(mensagem);
-      return responderPrivado(interaction, { embeds: [embedSucesso(`Painel ROYAL SALA publicado em <#${canal.id}>. Ele será removido automaticamente em 5 minutos.`)] });
+      return responderPrivado(interaction, { embeds: [embedSucesso(`Painel ROYAL SALA publicado permanentemente em <#${canal.id}>. Ele permanecerá disponível até ser removido manualmente.`)] });
     },
   },
   {
-    data: new SlashCommandBuilder().setName('comprar').setDescription('Publica o painel ROYAL SALA neste canal (Administrador/Mediador autorizado)'),
+    data: new SlashCommandBuilder().setName('comprar').setDescription('Abre em privado o painel ROYAL SALA por 15 minutos'),
     async executar(interaction) {
-      if (!interaction.guildId || !interaction.channel?.send) return responderErro(interaction, 'Use /comprar em um canal de texto do servidor.');
+      if (!interaction.guildId) return responderErro(interaction, 'Use /comprar dentro do servidor.');
       if (!(await exigirCargoCompra(interaction))) return;
-      const mensagem = await interaction.channel.send({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
-      agendarExclusaoPainel(mensagem);
-      return responderPrivado(interaction, { embeds: [embedSucesso('Painel ROYAL SALA publicado neste canal. Ele será removido automaticamente em 5 minutos.')] });
+      const mensagem = await interaction.editReply({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
+      agendarExclusaoPainel({ delete: () => interaction.deleteReply() }, undefined, 15 * 60 * 1000);
+      return mensagem;
+    },
+  },
+  {
+    data: new SlashCommandBuilder().setName('setcargo').setDescription('Atribui um cargo a todos os membros, inclusive bots')
+      .addRoleOption((opcao) => opcao.setName('cargo').setDescription('Cargo que será atribuído a todos').setRequired(true)),
+    async executar(interaction) {
+      const ehDono = interaction.guild?.ownerId && String(interaction.user.id) === String(interaction.guild.ownerId);
+      if (!ehDono && !interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator)) {
+        return responderErro(interaction, 'Somente o dono do servidor ou um Administrador pode usar /setcargo.');
+      }
+      const cargo = interaction.options.getRole('cargo');
+      if (!cargo || String(cargo.guild.id) !== String(interaction.guildId)) return responderErro(interaction, 'Selecione um cargo válido deste servidor.');
+      const posicaoBot = interaction.guild.members.me?.roles?.highest?.position;
+      if (cargo.managed || !Number.isFinite(posicaoBot) || cargo.position >= posicaoBot) return responderErro(interaction, 'O bot não pode atribuir esse cargo: verifique se não é gerenciado e se está abaixo do cargo mais alto do bot.');
+      const membros = await interaction.guild.members.fetch();
+      let atribuidos = 0;
+      let jaPossuiam = 0;
+      let falhas = 0;
+      for (const membro of membros.values()) {
+        if (membro.roles.cache.has(cargo.id)) { jaPossuiam += 1; continue; }
+        try { await membro.roles.add(cargo, 'Comando administrativo /setcargo'); atribuidos += 1; }
+        catch { falhas += 1; }
+      }
+      return responderPrivado(interaction, { embeds: [embedSucesso(`**Cargo:** ${cargo}\n**Atribuído:** ${atribuidos}\n**Já possuíam:** ${jaPossuiam}\n**Falhas:** ${falhas}\n**Total verificado:** ${membros.size}`)] });
     },
   },
   {

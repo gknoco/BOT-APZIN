@@ -333,7 +333,7 @@ const comandos = [
       if (canal) {
         await persistenciaSupabase.definirConfig(interaction.guildId, 'canal_logs', canal.id, db.client);
         return responderPrivado(interaction, {
-          embeds: [embedSucesso(`Canal de logs definido: ${canal}.\nTudo que a staff fizer vai aparecer lá.`)],
+          embeds: [embedSucesso(`Canal de logs salvo com sucesso no banco de dados (Supabase): ${canal}.\nTudo que a staff fizer vai aparecer lá.`)],
         });
       }
 

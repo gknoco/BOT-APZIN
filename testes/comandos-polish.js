@@ -103,7 +103,7 @@ test('/ajuda inclui todos os nomes e subcomandos reais, sem aliases inventados',
       }
     }
   }
-  for (const nome of ['minhassalas', 'comprar', 'painelcomprar', 'permicompras', 'cupomcompras', 'salasreconciliar']) {
+  for (const nome of ['minhassalas', 'comprar', 'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras', 'salasreconciliar']) {
     assert.ok(texto.includes(`**/${nome}**`));
   }
   assert.ok(!texto.includes('**/configcanal**'), 'O nome real é configcanal1');

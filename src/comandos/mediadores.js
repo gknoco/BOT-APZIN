@@ -70,8 +70,8 @@ const comandos = [
         embeds: [
           embedSucesso(
             tipo === 'registro'
-              ? `Central de Pagamentos publicada e fixada em <#${canal.id}>.`
-              : `Fila de mediadores publicada e fixada em <#${canal.id}>.`,
+              ? `Central de Pagamentos publicada e fixada em <#${canal.id}>. Canal salvo com sucesso no banco de dados (Supabase).`
+              : `Fila de mediadores publicada e fixada em <#${canal.id}>. Canal salvo com sucesso no banco de dados (Supabase).`,
           ),
         ],
       });

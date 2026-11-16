@@ -108,8 +108,8 @@ async function handleSelect(interaction, ctx) {
     await redesenhar(interaction, vendasUI.embedPainelPermissoes(salvo));
     await responderPrivado(interaction, {
       content: acao === 'comprascargos'
-        ? `Permissões salvas no Supabase (${cargos.length} cargo(s)).`
-        : `Canal do painel de vendas salvo no Supabase: <#${selecionados[0]}>.`,
+        ? `✅ Permissões salvas com sucesso no banco de dados (Supabase) (${cargos.length} cargo(s)).`
+        : `✅ Canal do painel de vendas salvo com sucesso no banco de dados (Supabase): <#${selecionados[0]}>.`,
     }).catch(() => {});
     return true;
   }
@@ -150,7 +150,7 @@ async function handleSelect(interaction, ctx) {
 
     // Painel novo, já com a escolha gravada.
     await redesenhar(interaction, await mediadores.painelConfig(ctx.db, interaction.guildId));
-    if (aviso) await responderPrivado(interaction, { content: aviso }).catch(() => {});
+    await responderPrivado(interaction, { content: `✅ Configuração ${acao === 'medcargos' ? 'de cargos' : 'de canal'} salva com sucesso no banco de dados (Supabase).${aviso ? ` ${aviso}` : ''}` }).catch(() => {});
     return true;
   }
 

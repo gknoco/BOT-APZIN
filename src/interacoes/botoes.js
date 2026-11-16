@@ -486,7 +486,7 @@ async function handleBotao(interaction, ctx) {
         await mediadores.definirModo(db, interaction.guildId, novo);
         await interaction.editReply(await mediadores.painelConfig(db, interaction.guildId));
         await responderPrivado(interaction, {
-          embeds: [embedSucesso(`Modo de mediação agora é **${mediadores.MODOS[novo]}**.`)],
+          embeds: [embedSucesso(`Modo de mediação salvo no banco de dados (Supabase): **${mediadores.MODOS[novo]}**.`)],
         });
         return true;
       }

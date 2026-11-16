@@ -352,7 +352,11 @@ async function aplicarCompraSalas(interaction, partes) {
     .setCustomId(`ap:copiarpix:${order.id}`)
     .setLabel('Copia e Cola')
     .setEmoji('📋')
-    .setStyle(ButtonStyle.Secondary)];
+    .setStyle(ButtonStyle.Secondary),
+  new ButtonBuilder()
+    .setCustomId(`ap:verificarcompra:${order.id}`)
+    .setLabel('Verificar pagamento')
+    .setStyle(ButtonStyle.Success)];
   return responderPrivado(interaction, {
     embeds: [card],
     files: arquivos,

@@ -50,7 +50,7 @@ async function configurarCanal(interaction, chave, rotulo, clienteSupabase) {
   }
 
   await persistenciaSupabase.definirConfig(interaction.guildId, chave, canal.id, clienteSupabase);
-  return responderPrivado(interaction, { content: `✅ Canal de ${rotulo} salvo: ${canal}.` });
+  return responderPrivado(interaction, { content: `✅ Canal de ${rotulo} salvo com sucesso no banco de dados (Supabase): ${canal}.` });
 }
 
 const canaisDeTexto = [ChannelType.GuildText, ChannelType.GuildAnnouncement];

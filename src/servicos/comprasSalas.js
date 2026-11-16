@@ -13,7 +13,7 @@ function validarEmailPix(valor) {
 
 function textoPagamentoAprovado(quantidade) {
   const total = Math.max(0, Math.trunc(Number(quantidade) || 0));
-  return `✅ Pagamento aprovado! O saldo de ${total} ${total === 1 ? 'sala' : 'salas'} já caiu na sua conta para criar salas.`;
+  return `✅ Pagamento aprovado! O saldo de ${total} ${total === 1 ? 'sala' : 'salas'} já caiu na sua conta para criar salas. Use /minhassalas para ver suas salas.`;
 }
 
 function resumoErro(error) {

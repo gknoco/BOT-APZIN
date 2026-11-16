@@ -85,15 +85,16 @@ A migração `20261116044000_royal_room_sales.sql` cria os pedidos Pix, cupons, 
 Comandos e permissões:
 
 - `/permicompras` — somente `DEV_OWNER_ID`; define no Supabase os cargos autorizados para compra e o canal onde será publicado o painel.
-- `/painelcomprar` — dono do bot, proprietário do servidor ou IDs em `CARGOS_SUPER_ADMIN_IDS`; publica no canal configurado.
-- `/comprar` — exige um dos cargos definidos por `/permicompras`; publica o painel no canal atual.
+- `/painelcomprar` — dono do bot, proprietário do servidor ou IDs em `CARGOS_SUPER_ADMIN_IDS`; publica no canal configurado e mantém o painel público até remoção manual.
+- `/comprar` — exige um dos cargos definidos por `/permicompras`; abre o painel somente para quem executou, com expiração após 15 minutos.
+- `/setcargo cargo:<cargo>` — Administrador ou proprietário do servidor; atribui o cargo escolhido a todos os membros (humanos e bots) e apresenta relatório de resultados.
 - `/cupomcompras criar` e `/cupomcompras desativar` — somente `DEV_OWNER_ID`.
 - `/minhassalas` — mostra saldo disponível, reservas, salas criadas hoje e total histórico, consultados no Supabase.
 - `/salasreconciliar` — somente dono do bot/Administrador; resolve uma chamada Nix cujo resultado ficou incerto. Não repita a criação enquanto o crédito estiver reservado.
 
-O painel principal tem apenas os botões **Adquirir Sala** e **Ver pacotes de salas**. O menu fixo oferece 1, 5, 10, 20, 50 ou 100 salas; a tarifa-base é R$ 0,03 por sala. O formulário pede quantidade, cupom opcional e e-mail do pagador: o campo de e-mail é necessário porque a API de pagamentos do Mercado Pago exige `payer.email`, e o bot Discord não recebe o e-mail do usuário. A seleção de pacote confirma a quantidade no modal antes de gerar o Pix, permitindo informar e-mail/cupom.
+O painel principal tem os botões **Adquirir Sala** e **Ver pacotes de salas**. O menu fixo oferece 1, 5, 10, 20, 50 ou 100 salas; a tarifa-base é R$ 0,03 por sala. O formulário pede quantidade, cupom opcional e e-mail do pagador: o campo de e-mail é necessário porque a API de pagamentos do Mercado Pago exige `payer.email`, e o bot Discord não recebe o e-mail do usuário. A seleção de pacote confirma a quantidade no modal antes de gerar o Pix, permitindo informar e-mail/cupom.
 
-Após gerar o Pix, o pedido e o código de pagamento ficam persistidos no Supabase. **Copia e Cola** envia o código somente ao comprador em resposta privada (o Discord não disponibiliza uma ação de clipboard nativa em botões). A validação verifica formato, não a propriedade do e-mail. `/comprar` remove o painel temporário cinco minutos depois; `/painelcomprar` mantém sua temporização pré-existente de cinco minutos; se o processo Railway reiniciar antes do timer, a remoção poderá não ocorrer.
+Após gerar o Pix, o pedido e o código de pagamento ficam persistidos no Supabase. **Copia e Cola** envia o código somente ao comprador em resposta privada (o Discord não disponibiliza uma ação de clipboard nativa em botões). O botão **Verificar pagamento** consulta o Mercado Pago e libera créditos somente para o `user_id` e `guild_id` associados à ordem no Supabase. A validação verifica formato, não a propriedade do e-mail. O painel efêmero de `/comprar` é removido ao expirar a resposta privada após 15 minutos; `/painelcomprar` publica uma mensagem permanente no canal configurado.
 
 ### Variáveis privadas no Railway
 
