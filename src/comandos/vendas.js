@@ -25,26 +25,26 @@ const MAX_CARGOS_COMPRA = 10;
 
 function embedPainelCompra() {
   return embed(
-    'ROYAL SALA | Central de créditos',
-    'Créditos pré-pagos para criar salas de Free Fire pela Nix FF. Um fluxo simples, com pagamento Pix seguro e saldo liberado automaticamente após a confirmação do Mercado Pago.',
-    {
-      cor: config.CORES.ouro,
-      campos: [
-        { name: 'VALOR POR SALA', value: '**R$ 0,03**', inline: true },
-        { name: 'PAGAMENTO', value: 'Pix · Mercado Pago', inline: true },
-        { name: 'LIBERAÇÃO', value: 'Automática após aprovação', inline: true },
-        { name: 'COMO FUNCIONA', value: 'Consulte seu saldo ou selecione um pacote. Após o pagamento aprovado, os créditos ficam disponíveis para criar salas.', inline: false },
-      ],
-      rodape: 'ORG ROYAL AP · Créditos e pedidos protegidos no Supabase',
-    },
+    '⚡ ROYAL SALA · Central de créditos',
+    [
+      'Créditos para criar salas automatizadas de Free Fire pela Nix FF, com liberação após confirmação segura do pagamento.',
+      '',
+      '**INVESTIMENTO**  ·  R$ 0,03 por sala',
+      '**PAGAMENTO**  ·  Pix processado pelo Mercado Pago',
+      '**CRÉDITOS**  ·  entram automaticamente após aprovação',
+      '**USO**  ·  cada crédito libera uma criação de sala Nix',
+      '',
+      'Use **Adquirir Sala** para escolher a quantidade ou **Ver pacotes de salas** para comparar as opções disponíveis.',
+    ].join('\n'),
+    { cor: config.CORES.ouro, rodape: 'ORG ROYAL AP  ·  Seguro · Automático · Persistido no Supabase' },
   );
 }
 
 function componentesPainelCompra() {
   return [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('ap:meupainel').setLabel('Ver meu Painel').setEmoji('📊').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('ap:verpacotes').setLabel('Comprar salas').setEmoji('🛍️').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ap:comprar').setLabel('Adquirir Sala').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ap:verpacotes').setLabel('Ver pacotes de salas').setStyle(ButtonStyle.Primary),
     ),
   ];
 }
@@ -102,11 +102,10 @@ function componentesPacotes() {
         .setPlaceholder('Escolha seu pacote de salas...')
         .setMinValues(1)
         .setMaxValues(1)
-        .addOptions(PACOTES_SALAS.map(({ quantidade, totalCentavos, emoji }) => ({
-          label: `${quantidade} ${quantidade === 1 ? 'sala' : 'salas'}`,
+        .addOptions(PACOTES_SALAS.map(({ quantidade, totalCentavos }) => ({
+          label: `${quantidade} ${quantidade === 1 ? 'sala' : 'salas'} — ${reais(totalCentavos)}`,
           value: String(quantidade),
-          description: `${reais(PRECO_SALA_CENTAVOS)} por sala · Total ${reais(totalCentavos)}`,
-          emoji: { name: emoji },
+          description: `${reais(PRECO_SALA_CENTAVOS)} por sala · total ${reais(totalCentavos)}`,
         }))),
     ),
   ];

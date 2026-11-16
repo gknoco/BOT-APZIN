@@ -115,22 +115,25 @@ function clientePedidos(pedidos, consultas) {
   };
 }
 
-test('painel comercial tem hierarquia visual, preço claro e dois botões funcionais', () => {
+test('painel principal mantém o desenho original e os dois botões originais', () => {
   const card = vendas.embedPainelCompra().toJSON();
-  assert.match(card.title, /ROYAL SALA/);
-  assert.match(card.fields[0].value, /R\$ 0,03/);
+  assert.equal(card.title, '⚡ ROYAL SALA · Central de créditos');
+  assert.match(card.description, /R\$ 0,03 por sala/);
+  assert.match(card.description, /Adquirir Sala/);
+  assert.match(card.description, /Ver pacotes de salas/);
   assert.doesNotMatch(card.description, /━{3,}|-{3,}/);
   assert.match(card.description, /automaticamente/);
+  assert.equal(card.fields, undefined);
   const componentes = vendas.componentesPainelCompra().flatMap((row) => row.toJSON().components);
   assert.deepEqual(componentes.map((item) => [item.custom_id, item.label]), [
-    ['ap:meupainel', 'Ver meu Painel'], ['ap:verpacotes', 'Comprar salas'],
+    ['ap:comprar', 'Adquirir Sala'], ['ap:verpacotes', 'Ver pacotes de salas'],
   ]);
   assert.deepEqual(vendas.comandos.map((item) => item.data.name), [
     'painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar',
   ]);
 });
 
-test('select de pacotes tem placeholder exato, ícone e preço unitário/total em cada opção', () => {
+test('estilo com ícones e valores fica no embed de pacotes; o select preserva preços e placeholder exato', () => {
   assert.equal(vendas.PRECO_SALA_CENTAVOS, 3);
   assert.deepEqual(vendas.PACOTES_SALAS.map((item) => [item.quantidade, item.totalCentavos]), [
     [1, 3], [5, 15], [10, 30], [20, 60], [50, 150], [100, 300],
@@ -143,11 +146,12 @@ test('select de pacotes tem placeholder exato, ícone e preço unitário/total e
   for (const [i, item] of menu.options.entries()) {
     const pacote = vendas.PACOTES_SALAS[i];
     assert.equal(item.value, String(pacote.quantidade));
-    assert.equal(item.label, `${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`);
-    assert.equal(item.emoji.name, pacote.emoji);
+    assert.equal(item.label, `${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'} — ${reais(pacote.totalCentavos)}`);
     assert.match(item.description, /R\$ 0,03/);
-    assert.ok(item.description.includes(`Total ${reais(pacote.totalCentavos)}`));
+    assert.ok(item.description.includes(`total ${reais(pacote.totalCentavos)}`));
     assert.match(cardPacotes.fields[i].name, new RegExp(`${pacote.quantidade} ${pacote.quantidade === 1 ? 'sala' : 'salas'}`));
+    assert.match(cardPacotes.fields[i].name, new RegExp(pacote.emoji));
+    assert.equal(cardPacotes.fields[i].value, `**${reais(pacote.totalCentavos)}**\n${reais(vendas.PRECO_SALA_CENTAVOS)} por sala`);
   }
 });
 
@@ -327,8 +331,8 @@ test('/comprar expira em 15 minutos e /painelcomprar fixa no canal atual e salva
     id: 'canal-atual', guildId: 'guild-a',
     send: async (payload) => {
       enviadoNoCanal = true;
-      assert.equal(payload.embeds[0].toJSON().title, 'ROYAL SALA | Central de créditos');
-      assert.deepEqual(payload.components[0].toJSON().components.map((item) => item.label), ['Ver meu Painel', 'Comprar salas']);
+      assert.equal(payload.embeds[0].toJSON().title, '⚡ ROYAL SALA · Central de créditos');
+      assert.deepEqual(payload.components[0].toJSON().components.map((item) => item.label), ['Adquirir Sala', 'Ver pacotes de salas']);
       return permanente;
     },
   };
@@ -344,7 +348,7 @@ test('/comprar expira em 15 minutos e /painelcomprar fixa no canal atual e salva
       await vendas.comandos.find((item) => item.data.name === 'comprar').executar(interaction);
       assert.equal(tarefas.length, 1);
       assert.equal(tarefas[0].atraso, 900000);
-      assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, 'ROYAL SALA | Central de créditos');
+      assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, '⚡ ROYAL SALA · Central de créditos');
       await vendas.comandos.find((item) => item.data.name === 'painelcomprar').executar(interaction);
       assert.equal(tarefas.length, 1);
       assert.equal(enviadoNoCanal, true);
