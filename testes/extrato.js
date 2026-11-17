@@ -95,38 +95,40 @@ test('migration retorna totais globais do usuário, últimas seis linhas e restr
   assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.royal_wallet_statement\(text, text\) TO service_role/);
 });
 
-test('Canvas gera banner do extrato por usuário preservando dimensões e limitando histórico a três linhas', async () => {
-  const { createCanvas, loadImage } = require('canvas');
-  const renderer = require('../src/util/imageGenerator');
+test('embed privado de Extrato mostra identidade, saldos Supabase, histórico e não usa Canvas/banner', () => {
   const ui = require('../src/comandos/recarga');
+  const packageJson = JSON.parse(fs.readFileSync(require.resolve('../package.json'), 'utf8'));
   const extrato = {
     balanceCents: 2510,
     totalEntriesCents: 4000,
     totalExitsCents: 1490,
     status: 'Normal',
-    movements: Array.from({ length: 6 }, (_, i) => ({ eventType: 'topup', deltaCents: 500 + i, createdAt: '2026-11-16T18:30:00Z' })),
+    movements: [{ eventType: 'topup', deltaCents: 500, createdAt: '2026-11-16T18:30:00Z' }],
   };
-  const imagem = await renderer.gerarBannerExtrato({ username: 'usuario_teste', extrato });
-  assert.ok(Buffer.isBuffer(imagem));
-  assert.equal(imagem.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
-  const carregada = await loadImage(imagem);
-  assert.equal(carregada.width, 1420);
-  assert.equal(carregada.height, 575);
-  const original = await loadImage(ui.BANNER_EXTRATO_PATH);
-  const compararPixel = (fonte, x, y) => {
-    const canvas = createCanvas(1, 1);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(fonte, -x, -y);
-    return [...ctx.getImageData(0, 0, 1, 1).data];
+  const usuario = {
+    username: 'staff_teste',
+    globalName: 'Staff Teste',
+    displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/user-a/avatar.png',
   };
-  for (const [x, y] of [[15, 15], [700, 80], [1390, 120], [20, 550], [1400, 550]]) {
-    assert.deepEqual(compararPixel(carregada, x, y), compararPixel(original, x, y), `pixel intacto em ${x},${y}`);
-  }
-  const outra = await renderer.gerarBannerExtrato({ username: 'outro_usuario', extrato: { ...extrato, balanceCents: 99 } });
-  assert.notDeepEqual(outra, imagem);
-  assert.match(renderer.descreverMovimento(extrato.movements[0]), /^• Recarga Pix · \+R\$ 5,00 · /);
-  assert.ok(fs.existsSync(ui.BANNER_EXTRATO_PATH));
+  const card = ui.embedExtratoCarteira(extrato, usuario).toJSON();
+  assert.equal(card.title, '✦ CARTEIRA DIGITAL · EXTRATO');
+  assert.equal(card.author.name, '@Staff Teste');
+  assert.equal(card.author.icon_url, 'https://cdn.discordapp.com/avatars/user-a/avatar.png');
+  assert.equal(card.color, 0x4B2E5D);
+  assert.match(card.fields[0].value, /R\$ 25,10/);
+  assert.match(card.fields[1].value, /R\$ 40,00/);
+  assert.match(card.fields[1].value, /R\$ 14,90/);
+  assert.equal(card.fields[2].value, '**Normal**');
+  assert.match(card.fields[3].value, /Recarga Pix.*\+R\$ 5,00/);
+  assert.equal(card.footer.text, 'ROYAL AP  ·  CARTEIRA DIGITAL  ·  PRIVADO');
+  assert.ok(card.timestamp);
+  assert.equal(card.image, undefined);
+  assert.equal(card.thumbnail, undefined);
+  assert.equal(packageJson.dependencies.canvas, undefined);
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../src/util/imageGenerator.js')), false);
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../assets/extrato-royal-ap.png')), false);
   assert.equal(ui.BANNER_NOME, 'recarga-royal-ap.jpg');
+  assert.equal(ui.BANNER_EXTRATO_PATH, undefined);
   const buttons = ui.componentesExtrato().flatMap((row) => row.toJSON().components);
   assert.deepEqual(buttons.map((button) => button.custom_id), ['ap:extratovoltar', 'ap:extratoatualizar']);
 });

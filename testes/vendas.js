@@ -211,7 +211,7 @@ test('Gerar Pix abre modal e Sala Infinita responde em painel efêmero sem edita
 
 });
 
-test('Extrato abre em privado com imagem Canvas personalizada e botões, sem texto ou embed', async () => {
+test('Extrato abre em privado com embed de elite, identidade do autor e botões sem imagem', async () => {
   let filtro;
   const expiracoes = [];
   const agendarOriginal = vendas.agendarExclusaoPainel;
@@ -223,6 +223,9 @@ test('Extrato abre em privado com imagem Canvas personalizada e botões, sem tex
     movements: [{ eventType: 'topup', deltaCents: 500, balanceAfterCents: 2510, createdAt: '2026-11-16T18:30:00.000Z' }],
   };
   const extrato = interacao('ap:recargaextrato');
+  extrato.user.username = 'staff_teste';
+  extrato.user.globalName = 'Staff Teste';
+  extrato.user.displayAvatarURL = () => 'https://cdn.discordapp.com/avatars/user-a/avatar.png';
   await comMocks([
     [mediadores, { podeUsarSalas: async () => true }],
     [extratoCarteira, { obterExtrato: async (args) => { filtro = args; return dados; } }],
@@ -238,15 +241,21 @@ test('Extrato abre em privado com imagem Canvas personalizada e botões, sem tex
     assert.equal(extrato.chamadas[0][1].flags & EFEMERO, EFEMERO);
     const payload = ultimoPayload(extrato);
     assert.equal(payload.content, '');
-    assert.deepEqual(payload.embeds, []);
-    assert.equal(payload.files[0].name, 'extrato-royal-ap.png');
-    assert.equal(payload.files[0].attachment.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+    assert.equal(payload.embeds.length, 1);
+    const card = payload.embeds[0].toJSON();
+    assert.equal(card.author.name, '@Staff Teste');
+    assert.match(card.fields[0].value, /R\$ 25,10/);
+    assert.match(card.fields[1].value, /R\$ 40,00/);
+    assert.match(card.fields[1].value, /R\$ 14,90/);
+    assert.match(card.fields[3].value, /Recarga Pix.*\+R\$ 5,00/);
+    assert.equal(payload.files, undefined);
+    assert.equal(card.image, undefined);
     assert.deepEqual(payload.components.flatMap((row) => row.toJSON().components).map((button) => button.label), ['Voltar', 'Atualizar extrato']);
     assert.deepEqual(expiracoes, [30 * 60 * 1000]);
   });
 });
 
-test('Atualizar extrato gera imagem Canvas com dados atuais e membro sem cargo não consulta a carteira', async () => {
+test('Atualizar extrato reconstrói embed com os novos dados e membro sem cargo não consulta a carteira', async () => {
   let consultas = 0;
   await comMocks([
     [mediadores, { podeUsarSalas: async () => true }],
@@ -256,6 +265,9 @@ test('Atualizar extrato gera imagem Canvas com dados atuais e membro sem cargo n
     atualizar.message = { flags: { has: (flag) => flag === EFEMERO } };
     await botoes.handleBotao(atualizar, ctx);
     assert.deepEqual(atualizar.chamadas.map(([nome]) => nome), ['deferUpdate', 'editReply']);
+    const embedAtualizado = ultimoPayload(atualizar).embeds[0].toJSON();
+    assert.match(embedAtualizado.fields[0].value, /R\$ 1,00/);
+    assert.equal(embedAtualizado.fields[3].value, 'Nenhuma movimentação registrada no momento.');
     assert.equal(consultas, 1);
   });
 

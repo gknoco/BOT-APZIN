@@ -11,15 +11,13 @@ const {
 } = require('discord.js');
 const config = require('../config');
 const persistenciaSupabase = require('../servicos/supabase');
-const { embed, embedSucesso } = require('../util/embeds');
+const { embed, embedSucesso, reais } = require('../util/embeds');
 const { responderErro: responderErroSeguro, responderPrivado: responderPrivadoSeguro } = require('../util/seguranca');
 
 const BANNER_NOME = 'recarga-royal-ap.jpg';
 const BANNER_PATH = path.join(__dirname, '../../assets', BANNER_NOME);
 const BANNER_INFINITA_NOME = 'sala-infinita-royal-ap.png';
 const BANNER_INFINITA_PATH = path.join(__dirname, '../../assets', BANNER_INFINITA_NOME);
-const BANNER_EXTRATO_NOME = 'extrato-royal-ap.png';
-const BANNER_EXTRATO_PATH = path.join(__dirname, '../../assets', BANNER_EXTRATO_NOME);
 const CHAVE_CANAL_RECARGA = 'canal_recarga';
 
 function embedPainelRecarga() {
@@ -70,6 +68,50 @@ function componentesExtrato() {
     new ButtonBuilder().setCustomId('ap:extratovoltar').setLabel('Voltar').setEmoji('⬅️').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('ap:extratoatualizar').setLabel('Atualizar extrato').setEmoji('🔄').setStyle(ButtonStyle.Primary),
   )];
+}
+
+function formatarMovimentoCarteira(movimento) {
+  const delta = Number(movimento?.deltaCents) || 0;
+  const tipo = movimento?.eventType === 'topup'
+    ? 'Recarga Pix'
+    : movimento?.eventType === 'refund_review' ? 'Ajuste em análise' : 'Movimentação';
+  const data = movimento?.createdAt ? new Date(movimento.createdAt) : null;
+  const dataFormatada = data && !Number.isNaN(data.getTime())
+    ? new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short',
+    }).format(data)
+    : 'data indisponível';
+  const sinal = delta < 0 ? '−' : '+';
+  return `• **${tipo}** — ${sinal}${reais(Math.abs(delta))} — ${dataFormatada}`;
+}
+
+function embedExtratoCarteira(extrato = {}, usuario = {}) {
+  const movimentos = Array.isArray(extrato.movements) ? extrato.movements.slice(0, 6) : [];
+  const historico = movimentos.length
+    ? movimentos.map(formatarMovimentoCarteira).join('\n').slice(0, 1024)
+    : 'Nenhuma movimentação registrada no momento.';
+  const saldo = reais(extrato.balanceCents);
+  const entradas = reais(extrato.totalEntriesCents);
+  const saidas = reais(extrato.totalExitsCents);
+  const status = String(extrato.status || 'Normal').replace(/[\r\n]/g, ' ').slice(0, 40);
+  const nome = String(usuario.globalName || usuario.username || usuario.tag || 'Staff')
+    .replace(/[\r\n<>]/g, '').replace(/^@+/, '').slice(0, 64);
+
+  const painel = embed('✦ CARTEIRA DIGITAL · EXTRATO', 'Visão privada e atualizada da sua carteira.', {
+    cor: 0x4B2E5D,
+    campos: [
+      { name: '💰 Saldo Disponível', value: `**${saldo}**`, inline: false },
+      { name: '📊 Fluxo Financeiro', value: `🟢 Total de Entradas: **${entradas}**\n🔴 Total de Saídas: **${saidas}**`, inline: false },
+      { name: '🛡️ Status da Conta', value: `**${status}**`, inline: true },
+      { name: '🧾 Últimas Movimentações', value: historico, inline: false },
+    ],
+    rodape: 'ROYAL AP  ·  CARTEIRA DIGITAL  ·  PRIVADO',
+  });
+  const avatar = typeof usuario.displayAvatarURL === 'function'
+    ? usuario.displayAvatarURL({ size: 128 })
+    : null;
+  painel.setAuthor({ name: `@${nome}`, ...(avatar ? { iconURL: avatar } : {}) });
+  return painel;
 }
 
 const comandos = [
@@ -138,11 +180,11 @@ module.exports = {
   BANNER_PATH,
   BANNER_INFINITA_NOME,
   BANNER_INFINITA_PATH,
-  BANNER_EXTRATO_NOME,
-  BANNER_EXTRATO_PATH,
   CHAVE_CANAL_RECARGA,
   embedPainelRecarga,
   embedSalaInfinita,
+  embedExtratoCarteira,
+  formatarMovimentoCarteira,
   componentesRecarga,
   componentesSalaInfinita,
   componentesExtrato,
