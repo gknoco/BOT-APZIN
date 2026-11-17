@@ -14,7 +14,7 @@ const persistenciaSupabase = require('../servicos/supabase');
 const { embed, embedSucesso, reais } = require('../util/embeds');
 const { responderErro: responderErroSeguro, responderPrivado: responderPrivadoSeguro } = require('../util/seguranca');
 
-const BANNER_NOME = 'recarga-royal-ap.jpg';
+const BANNER_NOME = 'recarga-royal-ap.png';
 const BANNER_PATH = path.join(__dirname, '../../assets', BANNER_NOME);
 const BANNER_INFINITA_NOME = 'sala-infinita-royal-ap.png';
 const BANNER_INFINITA_PATH = path.join(__dirname, '../../assets', BANNER_INFINITA_NOME);

@@ -161,7 +161,7 @@ test('botão público Sala Infinita abre painel efêmero e só atualiza mensagem
   await botoes.handleBotao(back, { db: {}, client: {} });
   assert.deepEqual(back.calls.map(([name]) => name), ['update']);
   const restored = last(back);
-  assert.equal(restored.embeds[0].toJSON().image.url, 'attachment://recarga-royal-ap.jpg');
+  assert.equal(restored.embeds[0].toJSON().image.url, 'attachment://recarga-royal-ap.png');
   assert.deepEqual(restored.components.flatMap((row) => row.toJSON().components).map((button) => button.label), ['Gerar Pix', 'Sala Infinita', 'Extrato']);
 });
 

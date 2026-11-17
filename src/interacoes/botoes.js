@@ -324,6 +324,7 @@ async function handleBotao(interaction, ctx) {
   // por isso esses dois não podem ser adiados.
   const abreModal =
     acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' ||
+    acao === 'comprarsaldo' ||
     acao === 'recargapix' || acao === 'recargasemanal' || acao === 'recargamensal';
   const painelRecargaPrivado = mensagemEfemera(interaction) &&
     ['recargasalainfinita', 'recargavoltar', 'extratovoltar'].includes(acao);
@@ -606,6 +607,12 @@ async function handleBotao(interaction, ctx) {
       case 'comprar': {
         const { abrirModalCompra } = require('./modais');
         await abrirModalCompra(interaction, null);
+        return true;
+      }
+
+      case 'comprarsaldo': {
+        const { abrirModalCompraSaldo } = require('./modais');
+        await abrirModalCompraSaldo(interaction);
         return true;
       }
 

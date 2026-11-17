@@ -127,7 +127,7 @@ test('embed privado de Extrato mostra identidade, saldos Supabase, histórico e 
   assert.equal(packageJson.dependencies.canvas, undefined);
   assert.equal(fs.existsSync(path.resolve(__dirname, '../src/util/imageGenerator.js')), false);
   assert.equal(fs.existsSync(path.resolve(__dirname, '../assets/extrato-royal-ap.png')), false);
-  assert.equal(ui.BANNER_NOME, 'recarga-royal-ap.jpg');
+  assert.equal(ui.BANNER_NOME, 'recarga-royal-ap.png');
   assert.equal(ui.BANNER_EXTRATO_PATH, undefined);
   const buttons = ui.componentesExtrato().flatMap((row) => row.toJSON().components);
   assert.deepEqual(buttons.map((button) => button.custom_id), ['ap:extratovoltar', 'ap:extratoatualizar']);

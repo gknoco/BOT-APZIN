@@ -50,6 +50,16 @@ async function criarPedido({ guildId, userId, requestId, quantity, couponCode, p
   });
 }
 
+async function comprarComSaldo({ guildId, userId, requestId, quantity, amountCents }) {
+  return rpc('royal_wallet_purchase_rooms', {
+    p_guild_id: String(guildId),
+    p_user_id: String(userId),
+    p_request_id: String(requestId),
+    p_rooms_quantity: Math.trunc(Number(quantity)),
+    p_amount_cents: Math.trunc(Number(amountCents)),
+  });
+}
+
 async function anexarPagamento({ orderId, paymentId, qrCode, qrBase64, ticketUrl, expiresAt }) {
   return rpc('royal_room_attach_payment', {
     p_order_id: String(orderId),
@@ -178,6 +188,7 @@ module.exports = {
   salvarConfiguracao,
   salvarCupom,
   criarPedido,
+  comprarComSaldo,
   anexarPagamento,
   marcarFalhaPedido,
   obterPedidoUsuario,

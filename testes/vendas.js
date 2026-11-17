@@ -116,7 +116,7 @@ function clientePedidos(pedidos, consultas) {
   };
 }
 
-test('painel principal mantém o desenho original e os dois botões originais', () => {
+test('painel principal mantém o desenho original e adiciona Usar Saldo sem remover os dois botões existentes', () => {
   const card = vendas.embedPainelCompra().toJSON();
   assert.equal(card.title, '⚡ ROYAL SALA · Central de créditos');
   assert.match(card.description, /R\$ 0,03 por sala/);
@@ -127,8 +127,9 @@ test('painel principal mantém o desenho original e os dois botões originais', 
   assert.equal(card.fields, undefined);
   const componentes = vendas.componentesPainelCompra().flatMap((row) => row.toJSON().components);
   assert.deepEqual(componentes.map((item) => [item.custom_id, item.label]), [
-    ['ap:comprar', 'Adquirir Sala'], ['ap:verpacotes', 'Ver pacotes de salas'],
+    ['ap:comprar', 'Adquirir Sala'], ['ap:verpacotes', 'Ver pacotes de salas'], ['ap:comprarsaldo', 'Usar Saldo'],
   ]);
+  assert.equal(componentes[2].emoji.name, '💳');
   assert.deepEqual(vendas.comandos.map((item) => item.data.name), [
     'painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar',
   ]);
@@ -163,6 +164,87 @@ test('embed de pacotes usa carrinho e contém somente quantidade/total; o select
     '🛒 50 salas - R$ 1,50',
     '🛒 100 salas - R$ 3,00',
   ]);
+});
+
+test('botão Usar Saldo abre modal curto com valor em reais', async () => {
+  const interaction = interacao('ap:comprarsaldo');
+  await botoes.handleBotao(interaction, ctx);
+  assert.equal(interaction.chamadas[0][0], 'showModal');
+  const modal = ultimoPayload(interaction).toJSON();
+  assert.equal(modal.custom_id, 'ap:modalcomprasaldo');
+  assert.equal(modal.title, 'Comprar salas com saldo');
+  assert.equal(modal.components[0].components[0].custom_id, 'valor');
+  assert.match(modal.components[0].components[0].label, /R\$ 0,03/);
+});
+
+test('compra com saldo converte R$ 0,30 em dez salas e confirma débito/saldo restante', async () => {
+  const interaction = interacao('ap:modalcomprasaldo', { valor: '0,30' });
+  await comMocks([
+    [vendas, { exigirCargoCompra: async () => true }],
+    [vendasDb, { comprarComSaldo: async (args) => {
+      assert.deepEqual(args, {
+        guildId: 'guild-a', userId: 'user-a', requestId: 'wallet-room:request-a',
+        amountCents: 30, quantity: 10,
+      });
+      return { status: 'approved', amount_cents: 30, balance_cents: 70, rooms_quantity: 10 };
+    } }],
+  ], async () => {
+    await modais.handleModal(interaction, ctx);
+    assert.equal(interaction.chamadas[0][0], 'deferReply');
+    assert.equal(ultimoPayload(interaction).embeds[0].toJSON().description.includes('R$ 0,30'), true);
+    assert.match(texto(ultimoPayload(interaction)), /10/);
+    assert.match(texto(ultimoPayload(interaction)), /R\$ 0,70/);
+  });
+});
+
+test('saldo insuficiente não libera salas e orienta recarga em resposta privada', async () => {
+  const interaction = interacao('ap:modalcomprasaldo', { valor: '0,30' });
+  await comMocks([
+    [vendas, { exigirCargoCompra: async () => true }],
+    [vendasDb, { comprarComSaldo: async () => ({ status: 'insufficient_funds', balance_cents: 12, amount_cents: 30 }) }],
+  ], async () => {
+    await modais.handleModal(interaction, ctx);
+    assert.match(texto(ultimoPayload(interaction)), /Saldo insuficiente/);
+    assert.match(texto(ultimoPayload(interaction)), /\/recarga/);
+    assert.equal(interaction.chamadas[0][1].flags & EFEMERO, EFEMERO);
+  });
+});
+
+test('valor que não representa número inteiro de salas é rejeitado antes de defer/consulta', async () => {
+  const interaction = interacao('ap:modalcomprasaldo', { valor: '0,04' });
+  await comMocks([[vendasDb, { comprarComSaldo: bloqueado }]], async () => {
+    assert.equal(await modais.handleModal(interaction, ctx), true);
+    assert.deepEqual(interaction.chamadas.map(([nome]) => nome), ['reply']);
+    assert.match(texto(ultimoPayload(interaction)), /múltiplo exato/);
+    assert.equal(ultimoPayload(interaction).flags & EFEMERO, EFEMERO);
+  });
+});
+
+test('roomSalesSupabase envia os dados convertidos ao RPC atômico de compra com saldo', async () => {
+  const chamadas = [];
+  await comMocks([[supabase, { obterCliente: () => ({ rpc: async (nome, args) => {
+    chamadas.push([nome, args]);
+    return { data: { status: 'approved' }, error: null };
+  } }) }]], async () => {
+    const resultado = await vendasDb.comprarComSaldo({ guildId: 'g-1', userId: 'u-1', requestId: 'req-1', quantity: 5, amountCents: 15 });
+    assert.equal(resultado.status, 'approved');
+    assert.deepEqual(chamadas, [['royal_wallet_purchase_rooms', {
+      p_guild_id: 'g-1', p_user_id: 'u-1', p_request_id: 'req-1', p_rooms_quantity: 5, p_amount_cents: 15,
+    }]]);
+  });
+});
+
+test('migration do saldo trava a carteira e grava débito/compra de salas numa única RPC protegida', () => {
+  const sql = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261117120228_royal_wallet_room_purchases.sql'), 'utf8');
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.royal_wallet_purchase_rooms\(/);
+  assert.match(sql, /pg_advisory_xact_lock/);
+  assert.match(sql, /WHERE guild_id = trim\(p_guild_id\) AND user_id = trim\(p_user_id\)\s+FOR UPDATE/);
+  assert.match(sql, /p_amount_cents <> p_rooms_quantity::bigint \* 3/);
+  assert.match(sql, /'insufficient_funds'/);
+  assert.match(sql, /balance_cents = balance_cents - p_amount_cents/);
+  assert.match(sql, /INSERT INTO public\.royal_room_wallets/);
+  assert.match(sql, /INSERT INTO public\.royal_wallet_topup_ledger[\s\S]*'room_purchase',[\s\S]*-p_amount_cents/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.royal_wallet_purchase_rooms[\s\S]*TO service_role/);
 });
 
 test('Ver pacotes responde somente com embed e select, sem botões, e agenda exclusão em 30 minutos', async () => {
@@ -290,7 +372,7 @@ test('Voltar do Extrato restaura o painel de recarga somente na mensagem efêmer
   await botoes.handleBotao(voltar, ctx);
   assert.deepEqual(voltar.chamadas.map(([nome]) => nome), ['update']);
   const payload = ultimoPayload(voltar);
-  assert.equal(payload.embeds[0].toJSON().image.url, 'attachment://recarga-royal-ap.jpg');
+  assert.equal(payload.embeds[0].toJSON().image.url, 'attachment://recarga-royal-ap.png');
   assert.deepEqual(payload.components.flatMap((row) => row.toJSON().components).map((button) => button.label), [
     'Gerar Pix', 'Sala Infinita', 'Extrato',
   ]);
@@ -473,7 +555,7 @@ test('/comprar expira em 30 minutos e /painelcomprar fixa no canal atual e salva
     send: async (payload) => {
       enviadoNoCanal = true;
       assert.equal(payload.embeds[0].toJSON().title, '⚡ ROYAL SALA · Central de créditos');
-      assert.deepEqual(payload.components[0].toJSON().components.map((item) => item.label), ['Adquirir Sala', 'Ver pacotes de salas']);
+      assert.deepEqual(payload.components[0].toJSON().components.map((item) => item.label), ['Adquirir Sala', 'Ver pacotes de salas', 'Usar Saldo']);
       return permanente;
     },
   };

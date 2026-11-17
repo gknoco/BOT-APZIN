@@ -20,6 +20,7 @@ const fluxo = require('../servicos/fluxo');
 const comprasSalas = require('../servicos/comprasSalas');
 const recargas = require('../servicos/recargas');
 const salaInfinita = require('../servicos/salaInfinita');
+const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
@@ -296,6 +297,33 @@ async function abrirModalCompra(interaction, quantidadeFixa = null) {
   return interaction.showModal(modal);
 }
 
+async function abrirModalCompraSaldo(interaction) {
+  return interaction.showModal(new ModalBuilder()
+    .setCustomId('ap:modalcomprasaldo')
+    .setTitle('Comprar salas com saldo')
+    .addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('valor')
+        .setLabel('Valor a usar (múltiplos de R$ 0,03)')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Ex.: 0,30 para 10 salas')
+        .setMaxLength(12)
+        .setRequired(true),
+    )));
+}
+
+function calcularCompraSaldo(valor) {
+  const centavos = recargas.valorEmCentavos(valor);
+  if (centavos == null) throw new Error('Informe um valor maior que zero com até duas casas decimais, como 0,30.');
+  const precoUnitario = vendasUI.PRECO_SALA_CENTAVOS;
+  const limite = precoUnitario * 1000;
+  if (centavos > limite) throw new Error(`O limite por compra é ${reais(limite)} (1.000 salas).`);
+  if (centavos % precoUnitario !== 0) {
+    throw new Error(`O valor precisa ser múltiplo exato de ${reais(precoUnitario)} por sala; isso evita cobrar saldo por salas fracionadas.`);
+  }
+  return { amountCents: centavos, quantity: centavos / precoUnitario };
+}
+
 async function abrirModalRecarga(interaction) {
   const modal = new ModalBuilder()
     .setCustomId('ap:modalrecarga')
@@ -545,6 +573,38 @@ async function aplicarCompraSalas(interaction, partes) {
   });
 }
 
+async function aplicarCompraSaldo(interaction) {
+  if (!interaction.guildId) {
+    await responderErro(interaction, 'A compra com saldo funciona somente dentro do servidor.');
+    return true;
+  }
+  if (!(await vendasUI.exigirCargoCompra(interaction))) return true;
+  const { amountCents, quantity } = calcularCompraSaldo(interaction.fields.getTextInputValue('valor'));
+  const resultado = await vendasDb.comprarComSaldo({
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+    requestId: `wallet-room:${interaction.id}`,
+    amountCents,
+    quantity,
+  });
+  if (resultado.status === 'insufficient_funds') {
+    await responderErro(interaction,
+      `Saldo insuficiente para esta compra. Seu saldo é **${reais(resultado.balance_cents)}** e o total é **${reais(amountCents)}**. Use **/recarga** para adicionar saldo à carteira.`);
+    return true;
+  }
+  if (resultado.status !== 'approved') {
+    throw new Error('O Supabase não confirmou a compra com saldo. Nenhuma sala foi liberada; confira o extrato antes de tentar novamente.');
+  }
+  await responderPrivado(interaction, {
+    embeds: [embedSucesso(
+      `Compra aprovada e registrada na carteira.\n**Valor debitado:** ${reais(resultado.amount_cents)}\n` +
+      `**Salas liberadas:** ${Number(resultado.rooms_quantity)}\n**Saldo restante:** ${reais(resultado.balance_cents)}\n\n` +
+      'Os créditos já estão disponíveis para criar salas. Use **/minhassalas** para consultar seu saldo de salas.',
+    )],
+  });
+  return true;
+}
+
 async function aplicarPix(interaction, db) {
   if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
     await responderErro(interaction, 'Só mediadores/ADM registram PIX de recebimento.');
@@ -595,7 +655,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalrecarga', 'modalinfinita'].includes(tipo);
+    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
@@ -605,6 +665,14 @@ async function handleModal(interaction, { db, client }) {
     const email = String(interaction.fields.getTextInputValue('email') || '').trim();
     if (!comprasSalas.validarEmailPix(email)) {
       await responderPrivado(interaction, { content: comprasSalas.MENSAGEM_EMAIL_INVALIDO });
+      return true;
+    }
+  }
+  if (tipo === 'modalcomprasaldo') {
+    try {
+      calcularCompraSaldo(interaction.fields.getTextInputValue('valor'));
+    } catch (erro) {
+      await responderErro(interaction, erro.message);
       return true;
     }
   }
@@ -651,6 +719,7 @@ async function handleModal(interaction, { db, client }) {
     if (String(tipo || '').startsWith('modalbot')) return await aplicarPerfilBot(interaction, client, tipo);
     if (tipo === 'modalpix') return await aplicarPix(interaction, db);
     if (tipo === 'modalcompra') return await aplicarCompraSalas(interaction, partes);
+    if (tipo === 'modalcomprasaldo') return await aplicarCompraSaldo(interaction);
     if (tipo === 'modalrecarga') return await aplicarRecarga(interaction);
     if (tipo === 'modalinfinita') return await aplicarPlanoInfinito(interaction, db, partidaId);
 
@@ -693,6 +762,7 @@ module.exports = {
   abrirModalBotPerfil,
   abrirModalPix,
   abrirModalCompra,
+  abrirModalCompraSaldo,
   abrirModalRecarga,
   abrirModalPlanoInfinito,
   aplicarPlanoInfinito,

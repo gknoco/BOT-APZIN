@@ -129,11 +129,16 @@ test('/recarga publica, fixa e registra no Supabase o painel com banner e três 
 
   await comando(registro, 'recarga').executar(i, { db: banco(fake.client) });
 
-  assert.ok(fs.existsSync(path.join(__dirname, '../assets/recarga-royal-ap.jpg')));
+  const banner = path.join(__dirname, '../assets/recarga-royal-ap.png');
+  assert.ok(fs.existsSync(banner));
+  const bytes = fs.readFileSync(banner);
+  assert.equal(bytes.toString('hex', 0, 8), '89504e470d0a1a0a');
+  assert.equal(bytes.readUInt32BE(16), 1514);
+  assert.equal(bytes.readUInt32BE(20), 704);
   assert.equal(publicado.files.length, 1);
-  assert.equal(publicado.files[0].name, 'recarga-royal-ap.jpg');
+  assert.equal(publicado.files[0].name, 'recarga-royal-ap.png');
   const embed = publicado.embeds[0].toJSON();
-  assert.equal(embed.image.url, 'attachment://recarga-royal-ap.jpg');
+  assert.equal(embed.image.url, 'attachment://recarga-royal-ap.png');
   assert.equal(embed.description, undefined);
   assert.equal(embed.fields, undefined);
   assert.equal(embed.footer, undefined);

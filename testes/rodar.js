@@ -51,12 +51,12 @@ test('novos comandos estão registrados e comandos legados não existem', () => 
   for (const nome of comandos.nomes) assert.equal(/legado-impossivel/i.test(nome), false, nome);
 });
 
-test('ROYAL SALA registra os comandos pedidos e o painel contém somente os dois botões oficiais', () => {
+test('ROYAL SALA registra os comandos pedidos e o painel inclui Usar Saldo junto aos botões oficiais', () => {
   for (const nome of ['painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar']) {
     assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
   }
   const painel = vendas.componentesPainelCompra().flatMap((linha) => linha.components.map((componente) => componente.toJSON()));
-  assert.deepEqual(painel.map((botao) => botao.label), ['Adquirir Sala', 'Ver pacotes de salas']);
+  assert.deepEqual(painel.map((botao) => botao.label), ['Adquirir Sala', 'Ver pacotes de salas', 'Usar Saldo']);
   assert.deepEqual(vendas.PACOTES_SALAS.map((p) => [p.quantidade, p.totalCentavos]), [
     [1, 3], [5, 15], [10, 30], [20, 60], [50, 150], [100, 300],
   ]);

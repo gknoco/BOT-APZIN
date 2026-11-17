@@ -44,6 +44,7 @@ function componentesPainelCompra() {
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ap:comprar').setLabel('Adquirir Sala').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('ap:verpacotes').setLabel('Ver pacotes de salas').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('ap:comprarsaldo').setLabel('Usar Saldo').setEmoji('💳').setStyle(ButtonStyle.Success),
     ),
   ];
 }
