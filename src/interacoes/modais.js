@@ -24,6 +24,13 @@ const vendasUI = require('../comandos/vendas');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
+async function responderPainelPrivadoTemporario(interaction, payload) {
+  const mensagem = await responderPrivado(interaction, payload);
+  const alvo = mensagem?.delete ? mensagem : { delete: () => interaction.deleteReply() };
+  vendasUI.agendarExclusaoPainel(alvo);
+  return mensagem;
+}
+
 async function abrirModalRegras(interaction, db, partidaId) {
   const partida = await partidas.buscar(db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
@@ -382,7 +389,7 @@ async function aplicarPlanoInfinito(interaction, db, plan) {
     new ButtonBuilder().setCustomId(`ap:copiarinfinita:${resultado.order.id}`).setLabel('Copia e Cola').setEmoji('📋').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`ap:verificarinfinita:${resultado.order.id}`).setLabel('Verificar pagamento').setEmoji('🔄').setStyle(ButtonStyle.Success),
   );
-  return responderPrivado(interaction, {
+  return responderPainelPrivadoTemporario(interaction, {
     embeds: [card],
     files: [new AttachmentBuilder(qr, { name: 'royal-infinite-qr.png' })],
     components: [row],
@@ -454,7 +461,7 @@ async function aplicarRecarga(interaction) {
       .setEmoji('🔄')
       .setStyle(ButtonStyle.Success),
   );
-  return responderPrivado(interaction, {
+  return responderPainelPrivadoTemporario(interaction, {
     embeds: [card],
     files: [new AttachmentBuilder(qr, { name: 'royal-wallet-topup-qr.png' })],
     components: [botoes],

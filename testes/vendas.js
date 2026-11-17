@@ -211,8 +211,10 @@ test('Gerar Pix abre modal e Sala Infinita responde em painel efêmero sem edita
 
 });
 
-test('Extrato abre em privado, consulta apenas guild_id/user_id do autor e apresenta saldo/entradas/saídas/movimentos', async () => {
+test('Extrato abre em privado, consulta apenas guild_id/user_id do autor e envia só a imagem com ações', async () => {
   let filtro;
+  const expiracoes = [];
+  const agendarOriginal = vendas.agendarExclusaoPainel;
   const dados = {
     balanceCents: 2510,
     totalEntriesCents: 4000,
@@ -224,22 +226,23 @@ test('Extrato abre em privado, consulta apenas guild_id/user_id do autor e apres
   await comMocks([
     [mediadores, { podeUsarSalas: async () => true }],
     [extratoCarteira, { obterExtrato: async (args) => { filtro = args; return dados; } }],
+    [vendas, { agendarExclusaoPainel: (...args) => {
+      const timer = agendarOriginal(...args);
+      expiracoes.push(timer._idleTimeout);
+      return timer;
+    } }],
   ], async () => {
     await botoes.handleBotao(extrato, ctx);
     assert.deepEqual(filtro, { guildId: 'guild-a', userId: 'user-a' });
     assert.deepEqual(extrato.chamadas.map(([nome]) => nome), ['deferReply', 'editReply']);
     assert.equal(extrato.chamadas[0][1].flags & EFEMERO, EFEMERO);
     const payload = ultimoPayload(extrato);
-    const card = payload.embeds[0].toJSON();
-    assert.equal(card.title, 'Meu Extrato');
-    assert.equal(card.image.url, 'attachment://extrato-royal-ap.png');
-    assert.equal(card.fields[0].value, '**R$ 25,10**');
-    assert.equal(card.fields[1].value, '+ **R$ 40,00**');
-    assert.equal(card.fields[2].value, '− **R$ 14,90**');
-    assert.equal(card.fields[3].value, '**Normal**');
-    assert.match(card.description, /Recarga Pix/);
+    assert.equal(payload.content, '');
+    assert.deepEqual(payload.embeds, []);
     assert.equal(payload.files[0].name, 'extrato-royal-ap.png');
+    assert.equal(payload.files[0].attachment.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     assert.deepEqual(payload.components.flatMap((row) => row.toJSON().components).map((button) => button.label), ['Voltar', 'Atualizar extrato']);
+    assert.deepEqual(expiracoes, [30 * 60 * 1000]);
   });
 });
 
@@ -275,7 +278,7 @@ test('Voltar do Extrato restaura o painel de recarga somente na mensagem efêmer
   await botoes.handleBotao(voltar, ctx);
   assert.deepEqual(voltar.chamadas.map(([nome]) => nome), ['update']);
   const payload = ultimoPayload(voltar);
-  assert.equal(payload.embeds[0].toJSON().image.url, 'attachment://recarga-royal-ap.jpg');
+  assert.equal(payload.embeds[0].toJSON().image.url, 'attachment://recarga-royal-ap.png');
   assert.deepEqual(payload.components.flatMap((row) => row.toJSON().components).map((button) => button.label), [
     'Gerar Pix', 'Sala Infinita', 'Extrato',
   ]);

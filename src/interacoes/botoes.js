@@ -17,6 +17,7 @@ const royalSupabase = require('../servicos/royalSupabase');
 const comprasSalas = require('../servicos/comprasSalas');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const extratoCarteira = require('../servicos/extratoCarteira');
+const imageGenerator = require('../util/imageGenerator');
 const vendasUI = require('../comandos/vendas');
 const recargaUI = require('../comandos/recarga');
 const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
@@ -62,15 +63,24 @@ function payloadPainelSalaInfinita() {
   };
 }
 
-function payloadPainelExtrato(extrato) {
+async function payloadPainelExtrato(username, extrato) {
   const { AttachmentBuilder } = require('discord.js');
+  const imagem = await imageGenerator.gerarBannerExtrato({ username, extrato });
   return {
-    embeds: [recargaUI.embedExtratoCarteira(extrato)],
-    files: [new AttachmentBuilder(recargaUI.BANNER_EXTRATO_PATH, { name: recargaUI.BANNER_EXTRATO_NOME })],
+    content: '',
+    embeds: [],
+    files: [new AttachmentBuilder(imagem, { name: recargaUI.BANNER_EXTRATO_NOME })],
     attachments: [],
     components: recargaUI.componentesExtrato(),
     allowedMentions: { parse: [] },
   };
+}
+
+function agendarExclusaoPainelCarteira(interaction, mensagem) {
+  const alvo = mensagem?.delete
+    ? mensagem
+    : { delete: () => interaction.deleteReply() };
+  return vendasUI.agendarExclusaoPainel(alvo);
 }
 
 /** O botão já pode ter sido reconhecido por deferUpdate antes da consulta PIX. */
@@ -619,15 +629,19 @@ async function handleBotao(interaction, ctx) {
 
       case 'recargasalainfinita': {
         const payload = payloadPainelSalaInfinita();
-        if (mensagemEfemera(interaction)) await interaction.update(payload);
-        else await responderPrivado(interaction, payload);
+        const mensagem = mensagemEfemera(interaction)
+          ? await interaction.update(payload)
+          : await responderPrivado(interaction, payload);
+        agendarExclusaoPainelCarteira(interaction, mensagem);
         return true;
       }
 
       case 'recargavoltar': {
         const payload = payloadPainelRecarga();
-        if (mensagemEfemera(interaction)) await interaction.update(payload);
-        else await responderPrivado(interaction, payload);
+        const mensagem = mensagemEfemera(interaction)
+          ? await interaction.update(payload)
+          : await responderPrivado(interaction, payload);
+        agendarExclusaoPainelCarteira(interaction, mensagem);
         return true;
       }
 
@@ -657,7 +671,8 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         const extrato = await extratoCarteira.obterExtrato({ guildId: interaction.guildId, userId: interaction.user.id });
-        await interaction.editReply(payloadPainelExtrato(extrato));
+        const mensagem = await interaction.editReply(await payloadPainelExtrato(interaction.user.username, extrato));
+        agendarExclusaoPainelCarteira(interaction, mensagem);
         return true;
       }
 
@@ -671,7 +686,8 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         const extrato = await extratoCarteira.obterExtrato({ guildId: interaction.guildId, userId: interaction.user.id });
-        await interaction.editReply(payloadPainelExtrato(extrato));
+        const mensagem = await interaction.editReply(await payloadPainelExtrato(interaction.user.username, extrato));
+        agendarExclusaoPainelCarteira(interaction, mensagem);
         return true;
       }
 
