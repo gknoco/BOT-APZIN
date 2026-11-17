@@ -211,7 +211,7 @@ test('Gerar Pix abre modal e Sala Infinita responde em painel efêmero sem edita
 
 });
 
-test('Extrato abre em privado com banner original, dados do Supabase em texto e ações', async () => {
+test('Extrato abre em privado com imagem Canvas personalizada e botões, sem texto ou embed', async () => {
   let filtro;
   const expiracoes = [];
   const agendarOriginal = vendas.agendarExclusaoPainel;
@@ -238,22 +238,15 @@ test('Extrato abre em privado com banner original, dados do Supabase em texto e 
     assert.equal(extrato.chamadas[0][1].flags & EFEMERO, EFEMERO);
     const payload = ultimoPayload(extrato);
     assert.equal(payload.content, '');
-    assert.equal(payload.embeds.length, 1);
-    const card = payload.embeds[0].toJSON();
-    assert.equal(card.title, 'Meu Extrato');
-    assert.equal(card.image.url, 'attachment://extrato-royal-ap.png');
-    assert.equal(card.fields[0].value, '**R$ 25,10**');
-    assert.equal(card.fields[1].value, '+ **R$ 40,00**');
-    assert.equal(card.fields[2].value, '− **R$ 14,90**');
-    assert.equal(card.fields[3].value, '**Normal**');
-    assert.match(card.fields[4].value, /🛒 Recarga Pix · \+R\$ 5,00/);
+    assert.deepEqual(payload.embeds, []);
     assert.equal(payload.files[0].name, 'extrato-royal-ap.png');
+    assert.equal(payload.files[0].attachment.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     assert.deepEqual(payload.components.flatMap((row) => row.toJSON().components).map((button) => button.label), ['Voltar', 'Atualizar extrato']);
     assert.deepEqual(expiracoes, [30 * 60 * 1000]);
   });
 });
 
-test('Atualizar extrato edita apenas a resposta efêmera e membro sem cargo não consulta a carteira', async () => {
+test('Atualizar extrato gera imagem Canvas com dados atuais e membro sem cargo não consulta a carteira', async () => {
   let consultas = 0;
   await comMocks([
     [mediadores, { podeUsarSalas: async () => true }],
