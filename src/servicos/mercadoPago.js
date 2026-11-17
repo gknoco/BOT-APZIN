@@ -127,7 +127,7 @@ async function requisitar(caminho, { metodo = 'GET', corpo, idempotencyKey } = {
   }
 }
 
-async function criarPix({ order, payerEmail }) {
+async function criarPix({ order, payerEmail, description }) {
   exigirAmbiente();
   if (!order?.id || !Number.isInteger(Number(order.amount_cents)) || Number(order.amount_cents) < 1) {
     throw new ErroMercadoPago('Pedido inválido para gerar Pix.', { code: 'mp_order_invalid', definitive: true });
@@ -139,7 +139,7 @@ async function criarPix({ order, payerEmail }) {
   const corpo = {
     transaction_amount: Number((Number(order.amount_cents) / 100).toFixed(2)),
     payment_method_id: 'pix',
-    description: `${Number(order.rooms_quantity)} sala(s) automatizada(s) · Royal Sala`,
+    description: String(description || `${Number(order.rooms_quantity)} sala(s) automatizada(s) · Royal Sala`).slice(0, 250),
     external_reference: String(order.id),
     payer: { email },
     date_of_expiration: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),

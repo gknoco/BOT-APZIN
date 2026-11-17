@@ -190,9 +190,15 @@ test('Ver pacotes responde somente com embed e select, sem botões, e agenda exc
   }
 });
 
-test('botões da carteira respondem em privado que o módulo será ativado na próxima atualização', async () => {
+test('Gerar Pix abre o modal de recarga e Sala Infinita/Extrato continuam provisórios', async () => {
+  const gerarPix = interacao('ap:recargapix');
+  await botoes.handleBotao(gerarPix, ctx);
+  const modal = gerarPix.chamadas.find(([metodo]) => metodo === 'showModal')?.[1]?.toJSON();
+  assert.equal(modal.custom_id, 'ap:modalrecarga');
+  assert.equal(modal.title, 'Gerar Pix de Recarga');
+  assert.deepEqual(modal.components.flatMap((row) => row.components).map((campo) => campo.custom_id), ['valor', 'email']);
+
   const botoesRecarga = [
-    ['ap:recargapix', /geração de Pix/],
     ['ap:recargasalainfinita', /Sala Infinita/],
     ['ap:recargaextrato', /extrato da carteira/],
   ];

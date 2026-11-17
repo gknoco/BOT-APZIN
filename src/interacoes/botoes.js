@@ -276,7 +276,7 @@ async function handleBotao(interaction, ctx) {
   // "regras" e "liberar" abrem modal: showModal precisa ser a PRIMEIRA resposta,
   // por isso esses dois não podem ser adiados.
   const abreModal =
-    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar';
+    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' || acao === 'recargapix';
 
   // Confirma o clique imediatamente (deferUpdate) em todos os outros casos:
   // o Discord nunca mostra "O aplicativo não respondeu". O painel continua
@@ -568,6 +568,9 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'recargapix':
+        await require('./modais').abrirModalRecarga(interaction);
+        return true;
+
       case 'recargasalainfinita':
       case 'recargaextrato': {
         const funcionalidades = {
@@ -577,6 +580,57 @@ async function handleBotao(interaction, ctx) {
         };
         await responderPrivado(interaction, {
           content: `O módulo de ${funcionalidades[acao]} será ativado na próxima atualização.`,
+        });
+        return true;
+      }
+
+      case 'copiarrecarga': {
+        const recargas = require('../servicos/recargas');
+        const codigo = await recargas.codigoPixUsuario({
+          topupId: args[0],
+          guildId: interaction.guildId,
+          userId: interaction.user.id,
+        });
+        if (!codigo) {
+          await responderErro(interaction, 'Não encontrei o código Pix desta recarga na sua carteira.');
+          return true;
+        }
+        const limpo = String(codigo).replace(/[\s`]/g, '');
+        if (limpo.length > 2000) {
+          await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code exibido ou procure a administração.');
+          return true;
+        }
+        await responderPrivado(interaction, { content: limpo, allowedMentions: { parse: [] } });
+        return true;
+      }
+
+      case 'verificarrecarga': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Verifique a recarga dentro do servidor onde ela foi criada.');
+          return true;
+        }
+        const recargas = require('../servicos/recargas');
+        const resultado = await recargas.verificarRecarga({
+          topupId: args[0],
+          guildId: interaction.guildId,
+          userId: interaction.user.id,
+        });
+        if (resultado.status === 'approved') {
+          const bonus = Number(resultado.bonus_cents || 0);
+          const credito = Number(resultado.credit_cents || resultado.amount_cents);
+          await responderPrivado(interaction, {
+            embeds: [embedSucesso(
+              `Recarga aprovada! **${reais(credito)}** foram adicionados à sua carteira${bonus > 0 ? `, incluindo **${reais(bonus)}** de bônus` : ''}.\n` +
+              `**Saldo disponível:** ${reais(resultado.balance_cents)}. O crédito está vinculado somente à sua conta Discord no Supabase.`,
+            )],
+          });
+          return true;
+        }
+        const revisao = resultado.status === 'manual_review';
+        await responderPrivado(interaction, {
+          embeds: [embed(revisao ? '⚠️ Recarga em análise' : '💠 Status da recarga', revisao
+            ? 'Não foi liberado nenhum crédito. Não faça outro Pix para esta solicitação; procure a administração.'
+            : `Pagamento ainda não aprovado (status: **${resultado.status || 'pendente'}**). Tente verificar novamente após pagar.`)],
         });
         return true;
       }

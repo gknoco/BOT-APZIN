@@ -18,6 +18,7 @@ const staffSupabase = require('../servicos/staffSupabase');
 const mediadores = require('../servicos/mediadores');
 const fluxo = require('../servicos/fluxo');
 const comprasSalas = require('../servicos/comprasSalas');
+const recargas = require('../servicos/recargas');
 const vendasUI = require('../comandos/vendas');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
@@ -287,6 +288,106 @@ async function abrirModalCompra(interaction, quantidadeFixa = null) {
   return interaction.showModal(modal);
 }
 
+async function abrirModalRecarga(interaction) {
+  const modal = new ModalBuilder()
+    .setCustomId('ap:modalrecarga')
+    .setTitle('Gerar Pix de Recarga')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('valor')
+          .setLabel('Valor da recarga')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Ex: 10,00 ou 0.01')
+          .setMaxLength(24)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('email')
+          .setLabel('E-mail (Gmail)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('seuemail@gmail.com')
+          .setMinLength(5)
+          .setMaxLength(254)
+          .setRequired(true),
+      ),
+    );
+  return interaction.showModal(modal);
+}
+
+async function aplicarRecarga(interaction) {
+  if (!interaction.guildId) {
+    await responderErro(interaction, 'A carteira de recarga funciona somente dentro do servidor.');
+    return true;
+  }
+  const amountCents = recargas.valorEmCentavos(interaction.fields.getTextInputValue('valor'));
+  if (amountCents == null) {
+    await responderErro(interaction, 'Informe um valor maior que zero, com até duas casas decimais (ex.: 10,00 ou 0.01).');
+    return true;
+  }
+  const email = String(interaction.fields.getTextInputValue('email') || '').trim().toLowerCase();
+  if (!comprasSalas.validarEmailPix(email)) {
+    await responderPrivado(interaction, { content: comprasSalas.MENSAGEM_EMAIL_INVALIDO });
+    return true;
+  }
+
+  const { order, payment } = await recargas.criarRecargaPix({
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+    requestId: interaction.id,
+    amountCents,
+    payerEmail: email,
+  });
+  if (order.status === 'approved') {
+    const bonusAprovado = Number(order.bonus_cents || 0);
+    const creditoAprovado = Number(order.credit_cents || order.amount_cents);
+    return responderPrivado(interaction, {
+      embeds: [embedSucesso(`Recarga aprovada! **${reais(creditoAprovado)}** foram adicionados à sua carteira${bonusAprovado > 0 ? `, incluindo **${reais(bonusAprovado)}** de bônus` : ''}.\n**Saldo disponível:** ${reais(order.balance_cents)}.`)],
+    });
+  }
+  if (!payment?.qrBase64 || !payment?.qrCode) {
+    throw new Error('O pedido foi registrado, mas o Mercado Pago não retornou o QR Code. Não gere outra recarga para esta tentativa; procure a administração.');
+  }
+  const base64 = String(payment.qrBase64).replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+  if (base64.length > 6 * 1024 * 1024 || !/^[A-Za-z0-9+/=]+$/.test(base64)) {
+    throw new Error('O Mercado Pago retornou um QR Code inválido. A recarga permanece salva; procure a administração antes de tentar novamente.');
+  }
+  const qr = Buffer.from(base64, 'base64');
+  if (!qr.length || qr.length > 4 * 1024 * 1024) {
+    throw new Error('O QR Code retornado excede o limite seguro. A recarga permanece salva; procure a administração.');
+  }
+  const codigo = String(payment.qrCode).replace(/[\r\n]/g, '').trim();
+  if (!codigo || codigo.length > 3000) {
+    throw new Error('O código Pix retornado está fora do limite seguro de exibição. Use o atendimento da administração.');
+  }
+  const expiracao = payment.expiresAt || order.expires_at;
+  const bonus = Number(order.bonus_cents || 0);
+  const credito = Number(order.credit_cents || order.amount_cents);
+  const corpo = `**Valor do Pix:** ${reais(order.amount_cents)}${bonus > 0 ? `\n**Bônus Royal AP (10%):** +${reais(bonus)}` : ''}\n**Crédito na carteira:** ${reais(credito)}${expiracao ? `\n**Expira:** ${dataBR(Date.parse(expiracao))}` : ''}\n\n**Pix Copia e Cola**\n${codigo}`;
+  const card = embed('Pix de recarga', corpo, {
+    cor: config.CORES.ouro,
+    rodape: 'Carteira Digital · Mercado Pago · Crédito após aprovação',
+  }).setImage('attachment://royal-wallet-topup-qr.png');
+  const botoes = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`ap:copiarrecarga:${order.id}`)
+      .setLabel('Copia e Cola')
+      .setEmoji('📋')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`ap:verificarrecarga:${order.id}`)
+      .setLabel('Verificar pagamento')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Success),
+  );
+  return responderPrivado(interaction, {
+    embeds: [card],
+    files: [new AttachmentBuilder(qr, { name: 'royal-wallet-topup-qr.png' })],
+    components: [botoes],
+  });
+}
+
 async function aplicarCompraSalas(interaction, partes) {
   if (!interaction.guildId) {
     await responderErro(interaction, 'O sistema de compra funciona somente dentro do servidor.');
@@ -414,13 +515,25 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalregras', 'modalsala', 'modalcompra'].includes(tipo);
+    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalrecarga'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
   // autorização/consulta remota ou criação de cobrança. O serviço repete a
   // mesma validação para proteger também chamadas fora deste handler.
   if (tipo === 'modalcompra') {
+    const email = String(interaction.fields.getTextInputValue('email') || '').trim();
+    if (!comprasSalas.validarEmailPix(email)) {
+      await responderPrivado(interaction, { content: comprasSalas.MENSAGEM_EMAIL_INVALIDO });
+      return true;
+    }
+  }
+  if (tipo === 'modalrecarga') {
+    const valor = recargas.valorEmCentavos(interaction.fields.getTextInputValue('valor'));
+    if (valor == null) {
+      await responderErro(interaction, 'Informe um valor maior que zero, com até duas casas decimais (ex.: 10,00 ou 0.01).');
+      return true;
+    }
     const email = String(interaction.fields.getTextInputValue('email') || '').trim();
     if (!comprasSalas.validarEmailPix(email)) {
       await responderPrivado(interaction, { content: comprasSalas.MENSAGEM_EMAIL_INVALIDO });
@@ -447,6 +560,7 @@ async function handleModal(interaction, { db, client }) {
     if (String(tipo || '').startsWith('modalbot')) return await aplicarPerfilBot(interaction, client, tipo);
     if (tipo === 'modalpix') return await aplicarPix(interaction, db);
     if (tipo === 'modalcompra') return await aplicarCompraSalas(interaction, partes);
+    if (tipo === 'modalrecarga') return await aplicarRecarga(interaction);
 
     if (tipo === 'modalregras') {
       const texto = interaction.fields.getTextInputValue('regra');
@@ -487,6 +601,8 @@ module.exports = {
   abrirModalBotPerfil,
   abrirModalPix,
   abrirModalCompra,
+  abrirModalRecarga,
+  aplicarRecarga,
   CAMPOS_BOT,
   handleModal,
 };
