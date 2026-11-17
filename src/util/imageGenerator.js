@@ -72,16 +72,16 @@ async function gerarBannerExtrato({ username, extrato }) {
   copiarArea(ctx, modelo, { sourceX: 52, sourceY: 198, x: 52, y: 174, width: 390, height: 13 });
   copiarArea(ctx, modelo, { sourceX: 52, sourceY: 198, x: 52, y: 187, width: 390, height: 13 });
   // Os dois valores pequenos usam um trecho vazio da barra de saldo.
-  copiarArea(ctx, modelo, { sourceX: 820, sourceY: 260, x: 410, y: 260, width: 155, height: 26 });
-  copiarArea(ctx, modelo, { sourceX: 820, sourceY: 260, x: 640, y: 260, width: 140, height: 26 });
+  copiarArea(ctx, modelo, { sourceX: 820, sourceY: 250, x: 410, y: 250, width: 155, height: 46 });
+  copiarArea(ctx, modelo, { sourceX: 820, sourceY: 250, x: 640, y: 250, width: 140, height: 46 });
   // Saldo à direita dentro do painel escuro superior.
   copiarArea(ctx, modelo, { sourceX: 800, sourceY: 239, x: 1138, y: 239, width: 220, height: 68 });
   // Totais/status: clone apenas dentro das caixas correspondentes.
-  copiarArea(ctx, modelo, { sourceX: 270, sourceY: 376, x: 64, y: 376, width: 170, height: 34 });
-  copiarArea(ctx, modelo, { sourceX: 710, sourceY: 376, x: 508, y: 376, width: 210, height: 34 });
-  copiarArea(ctx, modelo, { sourceX: 1180, sourceY: 376, x: 956, y: 376, width: 145, height: 34 });
+  copiarArea(ctx, modelo, { sourceX: 270, sourceY: 370, x: 64, y: 370, width: 170, height: 48 });
+  copiarArea(ctx, modelo, { sourceX: 710, sourceY: 370, x: 508, y: 370, width: 210, height: 48 });
+  copiarArea(ctx, modelo, { sourceX: 1180, sourceY: 370, x: 956, y: 370, width: 145, height: 48 });
   // A caixa de histórico reserva espaço para três linhas.
-  copiarArea(ctx, modelo, { sourceX: 650, sourceY: 486, x: 60, y: 486, width: 610, height: 48 });
+  copiarArea(ctx, modelo, { sourceX: 650, sourceY: 480, x: 60, y: 480, width: 610, height: 58 });
 
   const entradas = Number(extrato?.totalEntriesCents) || 0;
   const saidas = Number(extrato?.totalExitsCents) || 0;
