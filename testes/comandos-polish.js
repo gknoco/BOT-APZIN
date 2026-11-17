@@ -110,6 +110,52 @@ test('/ajuda inclui todos os nomes e subcomandos reais, sem aliases inventados',
   assert.ok(paginas.some((e) => /compras/.test(e.toJSON().title)));
 });
 
+test('/recarga publica, fixa e registra no Supabase o painel com banner e três botões oficiais', async () => {
+  const fake = clienteFake();
+  let publicado;
+  let fixado = false;
+  const canal = {
+    id: 'canal-recarga',
+    send: async (payload) => {
+      publicado = payload;
+      return { pin: async () => { fixado = true; } };
+    },
+  };
+  const i = interaction({
+    guild: { ownerId: 'id-dono' },
+    channel: canal,
+    memberPermissions: { has: () => true },
+  });
+
+  await comando(registro, 'recarga').executar(i, { db: banco(fake.client) });
+
+  assert.ok(fs.existsSync(path.join(__dirname, '../assets/recarga-royal-ap.jpg')));
+  assert.equal(publicado.files.length, 1);
+  assert.equal(publicado.files[0].name, 'recarga-royal-ap.jpg');
+  const embed = publicado.embeds[0].toJSON();
+  assert.equal(embed.image.url, 'attachment://recarga-royal-ap.jpg');
+  assert.equal(embed.footer.text, 'Operado por Royal AP · Suporte Royal AP');
+  assert.equal(publicado.components.length, 1);
+  const botoes = publicado.components[0].toJSON().components;
+  assert.deepEqual(botoes.map((botao) => [botao.label, botao.emoji.name, botao.style]), [
+    ['Gerar Pix', '➕', 3],
+    ['Sala Infinita', '♾️', 2],
+    ['Extrato', '🧾', 2],
+  ]);
+  assert.equal(fixado, true);
+  const salvar = fake.chamadas.find((chamada) => chamada.tabela === 'discord_configuracoes');
+  assert.ok(salvar);
+  const upsert = salvar.operacoes.find(([nome]) => nome === 'upsert');
+  assert.deepEqual(upsert[1], {
+    guild_id: 'guild-teste',
+    chave: 'canal_recarga',
+    valor: 'canal-recarga',
+    atualizado_em: upsert[1].atualizado_em,
+  });
+  assert.ok(Number.isFinite(Date.parse(upsert[1].atualizado_em)));
+  assert.match(i.respostas.at(-1).embeds[0].toJSON().description, /registrado no Supabase/);
+});
+
 test('cada página da ajuda respeita os limites totais de embeds e seleção', () => {
   const paginas = utilidades.ajudaEmbeds();
   for (let n = 0; n < paginas.length; n += 1) {

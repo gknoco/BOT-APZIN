@@ -86,6 +86,7 @@ Comandos e permissões:
 
 - `/permicompras` — somente `DEV_OWNER_ID`; define no Supabase os cargos autorizados para a Central de Compras.
 - `/painelcomprar` — dono do bot, proprietário do servidor ou IDs em `CARGOS_SUPER_ADMIN_IDS`; publica e fixa o painel no canal atual, registra esse canal no Supabase e mantém a mensagem pública permanente.
+- `/recarga` — Administrador ou proprietário do servidor; publica e fixa neste canal o painel da carteira digital com banner oficial e os botões **Gerar Pix**, **Sala Infinita** e **Extrato**. O canal é salvo em `discord_configuracoes` no Supabase (`canal_recarga`). Os botões respondem em privado que o módulo interativo será ativado na próxima atualização.
 - `/comprar` — exige um dos cargos definidos por `/permicompras`; abre o painel somente para quem executou, com expiração após 30 minutos.
 - `/setcargo cargo:<cargo>` — Administrador ou proprietário do servidor; atribui o cargo escolhido a todos os membros (humanos e bots) e apresenta relatório de resultados.
 - `/cupomcompras criar` e `/cupomcompras desativar` — somente `DEV_OWNER_ID`.

@@ -567,6 +567,20 @@ async function handleBotao(interaction, ctx) {
         return true;
       }
 
+      case 'recargapix':
+      case 'recargasalainfinita':
+      case 'recargaextrato': {
+        const funcionalidades = {
+          recargapix: 'geração de Pix',
+          recargasalainfinita: 'Sala Infinita',
+          recargaextrato: 'extrato da carteira',
+        };
+        await responderPrivado(interaction, {
+          content: `O módulo de ${funcionalidades[acao]} será ativado na próxima atualização.`,
+        });
+        return true;
+      }
+
       case 'meupainel': {
         if (!interaction.guildId) {
           await responderErro(interaction, 'Abra seu painel de salas dentro do servidor.');

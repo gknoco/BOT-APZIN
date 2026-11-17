@@ -190,6 +190,22 @@ test('Ver pacotes responde somente com embed e select, sem botões, e agenda exc
   }
 });
 
+test('botões da carteira respondem em privado que o módulo será ativado na próxima atualização', async () => {
+  const botoesRecarga = [
+    ['ap:recargapix', /geração de Pix/],
+    ['ap:recargasalainfinita', /Sala Infinita/],
+    ['ap:recargaextrato', /extrato da carteira/],
+  ];
+  for (const [customId, esperado] of botoesRecarga) {
+    const interaction = interacao(customId);
+    await botoes.handleBotao(interaction, ctx);
+    const payload = ultimoPayload(interaction);
+    assert.match(payload.content, esperado);
+    assert.match(payload.content, /próxima atualização/);
+    assert.equal(payload.flags & EFEMERO, EFEMERO);
+  }
+});
+
 test('validador compartilhado aceita endereços comuns e rejeita estruturas inválidas', () => {
   const validos = ['a@b.com', 'jogador@example.com', 'Nome.Sobrenome+ap@gmail.com', 'nome_123@sub.exemplo.com.br', 'nome-ap@meu-dominio.org', ' contato@example.com '];
   const invalidos = ['', 'sem-arroba.com', '@example.com', 'nome@', 'nome@@example.com',
