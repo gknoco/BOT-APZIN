@@ -30,6 +30,7 @@ const mediadores = criarMock('mediadores', ['cargos', 'temCargoMediador', 'podeU
 Object.assign(mediadores, { AVISO_CARGO: 'Cargo de mediação exigido.', MODOS: { rodizio: 'Rodízio', fila: 'Fila' } });
 const fluxo = criarMock('fluxo', ['entrarNaFila', 'atualizarPartida', 'anunciarPix']);
 const staff = criarMock('staffSupabase', ['obter', 'temCargoMediador', 'listar']);
+const extratoCarteira = criarMock('extratoCarteira', ['obterExtrato']);
 criarMock('auditoria', ['registrar']);
 const salas = criarMock('salas', ['criarSalaDaPartida']);
 criarMock('royalSupabase', ['girar', 'topPerfis']);
@@ -190,7 +191,7 @@ test('Ver pacotes responde somente com embed e select, sem botões, e agenda exc
   }
 });
 
-test('Gerar Pix abre o modal de recarga, Sala Infinita navega ao painel e Extrato segue provisório', async () => {
+test('Gerar Pix abre modal e Sala Infinita responde em painel efêmero sem editar o painel público', async () => {
   const gerarPix = interacao('ap:recargapix');
   await botoes.handleBotao(gerarPix, ctx);
   const modal = gerarPix.chamadas.find(([metodo]) => metodo === 'showModal')?.[1]?.toJSON();
@@ -201,16 +202,83 @@ test('Gerar Pix abre o modal de recarga, Sala Infinita navega ao painel e Extrat
   const salaInfinita = interacao('ap:recargasalainfinita');
   salaInfinita.update = async (payload) => { salaInfinita.chamadas.push(['update', payload]); };
   await botoes.handleBotao(salaInfinita, ctx);
+  assert.equal(salaInfinita.chamadas.at(-1)[0], 'reply');
+  assert.equal(ultimoPayload(salaInfinita).flags & EFEMERO, EFEMERO);
   assert.equal(ultimoPayload(salaInfinita).embeds[0].toJSON().image.url, 'attachment://sala-infinita-royal-ap.png');
   assert.deepEqual(ultimoPayload(salaInfinita).components.flatMap((row) => row.toJSON().components).map((button) => button.label), [
     'Voltar', 'Semanal R$ 5,00', 'Mensal R$ 13,00',
   ]);
 
+});
+
+test('Extrato abre em privado, consulta apenas guild_id/user_id do autor e apresenta saldo/entradas/saídas/movimentos', async () => {
+  let filtro;
+  const dados = {
+    balanceCents: 2510,
+    totalEntriesCents: 4000,
+    totalExitsCents: 1490,
+    status: 'Normal',
+    movements: [{ eventType: 'topup', deltaCents: 500, balanceAfterCents: 2510, createdAt: '2026-11-16T18:30:00.000Z' }],
+  };
   const extrato = interacao('ap:recargaextrato');
-  await botoes.handleBotao(extrato, ctx);
-  assert.match(ultimoPayload(extrato).content, /extrato da carteira/);
-  assert.match(ultimoPayload(extrato).content, /próxima atualização/);
-  assert.equal(ultimoPayload(extrato).flags & EFEMERO, EFEMERO);
+  await comMocks([
+    [mediadores, { podeUsarSalas: async () => true }],
+    [extratoCarteira, { obterExtrato: async (args) => { filtro = args; return dados; } }],
+  ], async () => {
+    await botoes.handleBotao(extrato, ctx);
+    assert.deepEqual(filtro, { guildId: 'guild-a', userId: 'user-a' });
+    assert.deepEqual(extrato.chamadas.map(([nome]) => nome), ['deferReply', 'editReply']);
+    assert.equal(extrato.chamadas[0][1].flags & EFEMERO, EFEMERO);
+    const payload = ultimoPayload(extrato);
+    const card = payload.embeds[0].toJSON();
+    assert.equal(card.title, 'Meu Extrato');
+    assert.equal(card.image.url, 'attachment://extrato-royal-ap.png');
+    assert.equal(card.fields[0].value, '**R$ 25,10**');
+    assert.equal(card.fields[1].value, '+ **R$ 40,00**');
+    assert.equal(card.fields[2].value, '− **R$ 14,90**');
+    assert.equal(card.fields[3].value, '**Normal**');
+    assert.match(card.description, /Recarga Pix/);
+    assert.equal(payload.files[0].name, 'extrato-royal-ap.png');
+    assert.deepEqual(payload.components.flatMap((row) => row.toJSON().components).map((button) => button.label), ['Voltar', 'Atualizar extrato']);
+  });
+});
+
+test('Atualizar extrato edita apenas a resposta efêmera e membro sem cargo não consulta a carteira', async () => {
+  let consultas = 0;
+  await comMocks([
+    [mediadores, { podeUsarSalas: async () => true }],
+    [extratoCarteira, { obterExtrato: async () => { consultas += 1; return { balanceCents: 100, totalEntriesCents: 100, totalExitsCents: 0, status: 'Normal', movements: [] }; } }],
+  ], async () => {
+    const atualizar = interacao('ap:extratoatualizar');
+    atualizar.message = { flags: { has: (flag) => flag === EFEMERO } };
+    await botoes.handleBotao(atualizar, ctx);
+    assert.deepEqual(atualizar.chamadas.map(([nome]) => nome), ['deferUpdate', 'editReply']);
+    assert.equal(consultas, 1);
+  });
+
+  await comMocks([
+    [mediadores, { podeUsarSalas: async () => false, AVISO_CARGO: 'Cargo autorizado necessário.' }],
+    [extratoCarteira, { obterExtrato: async () => { consultas += 1; throw new Error('não deveria consultar'); } }],
+  ], async () => {
+    const negar = interacao('ap:recargaextrato');
+    await botoes.handleBotao(negar, ctx);
+    assert.deepEqual(negar.chamadas.map(([nome]) => nome), ['deferReply', 'editReply']);
+    assert.match(texto(ultimoPayload(negar)), /Cargo autorizado necessário/);
+    assert.equal(consultas, 1);
+  });
+});
+
+test('Voltar do Extrato restaura o painel de recarga somente na mensagem efêmera do autor', async () => {
+  const voltar = interacao('ap:extratovoltar');
+  voltar.update = async (payload) => { voltar.chamadas.push(['update', payload]); };
+  voltar.message = { flags: { has: (flag) => flag === EFEMERO } };
+  await botoes.handleBotao(voltar, ctx);
+  assert.deepEqual(voltar.chamadas.map(([nome]) => nome), ['update']);
+  const payload = ultimoPayload(voltar);
+  assert.equal(payload.embeds[0].toJSON().image.url, 'attachment://recarga-royal-ap.jpg');
+  assert.deepEqual(payload.components.flatMap((row) => row.toJSON().components).map((button) => button.label), [
+    'Gerar Pix', 'Sala Infinita', 'Extrato',
+  ]);
 });
 
 test('validador compartilhado aceita endereços comuns e rejeita estruturas inválidas', () => {

@@ -29,6 +29,9 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
    - `supabase/migrations/20261116044000_royal_room_sales.sql`
    - `supabase/migrations/20261116060000_operational_supabase.sql`
    - `supabase/migrations/20261116060001_operational_panels.sql`
+   - `supabase/migrations/20261117001100_royal_wallet_topups.sql`
+   - `supabase/migrations/20261117010700_royal_infinite_rooms.sql`
+   - `supabase/migrations/20261117014100_royal_wallet_statement.sql`
 4. Se você tem dados de uma versão SQLite, pare o bot antigo, faça um backup consistente (incluindo transações do WAL) e execute `npm run migrate:supabase -- --sqlite /caminho/backup.db --origem servidor-royal` antes de iniciar esta versão. Use Node.js 22.13+ para essa ferramenta manual. O backfill importa filas, partidas, jogadores/GO, painéis, plantão, blacklist, configurações, telagem e históricos; o arquivo original fica **somente leitura**. Dados remotos existentes nunca são sobrescritos; perfis usam uma RPC idempotente que preenche valores zerados e **aborta em conflitos**. Mantenha a mesma `--origem` para snapshots do mesmo banco. Não execute as versões antiga e nova simultaneamente. Sem backup legado, pule esta etapa; o runtime nunca cria ou abre `.db`.
 5. Execute `npm run commands:sync` ou deixe o bot sincronizar os comandos no evento `ready`.
 6. Inicie com `npm start`.
@@ -86,7 +89,7 @@ Comandos e permissões:
 
 - `/permicompras` — somente `DEV_OWNER_ID`; define no Supabase os cargos autorizados para a Central de Compras.
 - `/painelcomprar` — dono do bot, proprietário do servidor ou IDs em `CARGOS_SUPER_ADMIN_IDS`; publica e fixa o painel no canal atual, registra esse canal no Supabase e mantém a mensagem pública permanente.
-- `/recarga` — Administrador ou proprietário do servidor; publica e fixa neste canal o painel da carteira digital com banner oficial e os botões **Gerar Pix**, **Sala Infinita** e **Extrato**. O canal é salvo em `discord_configuracoes` no Supabase (`canal_recarga`). **Gerar Pix** abre um modal privado para valor e e-mail; **Sala Infinita** atualiza a própria mensagem para o banner oficial, descrição e rodapé institucional, com botões **⬅️ Voltar**, **📅 Semanal R$ 5,00** e **💎 Mensal R$ 13,00**. Os planos de 7/30 dias são oferecidos aos cargos que podem criar salas. O checkout solicita e-mail do pagador, gera Pix, verifica o pagamento e salva a assinatura cumulativa por `guild_id`/`user_id` no Supabase; **Extrato** continua como módulo futuro.
+- `/recarga` — Administrador ou proprietário do servidor; publica e fixa o painel principal da carteira para toda a staff. Navegação para **Sala Infinita** e **Extrato** abre painéis efêmeros independentes e nunca altera a mensagem pública. O painel Sala Infinita usa o banner oficial e os botões **⬅️ Voltar**, **📅 Semanal R$ 5,00** e **💎 Mensal R$ 13,00**; os planos acumulam validade no Supabase por servidor/usuário e as criações elegíveis consultam essa assinatura. **Extrato** mostra saldo, entradas, saídas e as seis movimentações mais recentes consultando a RPC `royal_wallet_statement` somente para o `guild_id` e `user_id` de quem clicou; **Voltar** retorna ao painel privado e **Atualizar extrato** recarrega seus dados. **Gerar Pix** abre um modal privado para valor e e-mail. O canal do painel principal fica registrado em `discord_configuracoes` no Supabase (`canal_recarga`).
 - `/comprar` — exige um dos cargos definidos por `/permicompras`; abre o painel somente para quem executou, com expiração após 30 minutos.
 - `/setcargo cargo:<cargo>` — Administrador ou proprietário do servidor; atribui o cargo escolhido a todos os membros (humanos e bots) e apresenta relatório de resultados.
 - `/cupomcompras criar` e `/cupomcompras desativar` — somente `DEV_OWNER_ID`.
@@ -100,6 +103,8 @@ Após gerar o Pix, o pedido e o código ficam persistidos no Supabase. **Copia e
 ### Carteira digital e recargas
 
 A migração `20261117001100_royal_wallet_topups.sql` adiciona `royal_wallet_topups`, `royal_wallet_balances` e um ledger em centavos, com RLS e privilégios exclusivos do backend `service_role`. O botão **Gerar Pix** aceita valores positivos de até duas casas decimais, cria o pedido persistente antes de chamar a API Production do Mercado Pago e mostra o QR e o código Copia e Cola em resposta efêmera. O bônus de 10% anunciado no banner é creditado a partir de R$ 10,00 (arredondado ao centavo mais próximo); o valor da cobrança Pix continua exatamente igual ao informado. **Verificar pagamento** consulta o pagamento autenticado e o crédito é aplicado por RPC transacional somente após conferir status aprovado, valor exato pago, moeda BRL, método Pix, referência externa e titular (`guild_id` + `user_id`); rechecagens não creditam duas vezes. A confirmação mostra bônus e saldo monetário persistente. Nesta etapa, a cobrança de salas do fluxo existente `/comprar` ainda segue seu próprio Pix e não consome automaticamente esse saldo, até a regra de uso/dedução ser definida.
+
+A migração `20261117014100_royal_wallet_statement.sql` adiciona a RPC `royal_wallet_statement`, disponível somente para `service_role`, que agrega entradas/saídas de todo o ledger e retorna até seis linhas recentes, filtradas simultaneamente pelo servidor e pelo usuário Discord. A mensagem efêmera usa o banner oficial do Extrato, mas os valores reais exibidos no embed vêm do Supabase; a atualização recarrega os dados da própria conta.
 
 ### Assinatura Sala Infinita
 

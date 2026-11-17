@@ -16,9 +16,11 @@ const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
 const comprasSalas = require('../servicos/comprasSalas');
 const vendasDb = require('../servicos/roomSalesSupabase');
+const extratoCarteira = require('../servicos/extratoCarteira');
 const vendasUI = require('../comandos/vendas');
 const recargaUI = require('../comandos/recarga');
 const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
+const { MessageFlags } = require('discord.js');
 const {
   EFEMERO,
   responderPrivado,
@@ -31,6 +33,45 @@ const {
 const varianteNome = (modo, id) => config.varianteDoModo(modo, id)?.nome ?? String(id);
 
 const { textoPagamentoAprovado } = comprasSalas;
+
+function mensagemEfemera(interaction) {
+  const flags = interaction.message?.flags;
+  const bitfield = flags?.bitfield ?? flags;
+  return Boolean(flags?.has?.(MessageFlags.Ephemeral) || (Number(bitfield) & MessageFlags.Ephemeral));
+}
+
+function payloadPainelRecarga() {
+  const { AttachmentBuilder } = require('discord.js');
+  return {
+    embeds: [recargaUI.embedPainelRecarga()],
+    files: [new AttachmentBuilder(recargaUI.BANNER_PATH, { name: recargaUI.BANNER_NOME })],
+    attachments: [],
+    components: recargaUI.componentesRecarga(),
+    allowedMentions: { parse: [] },
+  };
+}
+
+function payloadPainelSalaInfinita() {
+  const { AttachmentBuilder } = require('discord.js');
+  return {
+    embeds: [recargaUI.embedSalaInfinita()],
+    files: [new AttachmentBuilder(recargaUI.BANNER_INFINITA_PATH, { name: recargaUI.BANNER_INFINITA_NOME })],
+    attachments: [],
+    components: recargaUI.componentesSalaInfinita(),
+    allowedMentions: { parse: [] },
+  };
+}
+
+function payloadPainelExtrato(extrato) {
+  const { AttachmentBuilder } = require('discord.js');
+  return {
+    embeds: [recargaUI.embedExtratoCarteira(extrato)],
+    files: [new AttachmentBuilder(recargaUI.BANNER_EXTRATO_PATH, { name: recargaUI.BANNER_EXTRATO_NOME })],
+    attachments: [],
+    components: recargaUI.componentesExtrato(),
+    allowedMentions: { parse: [] },
+  };
+}
 
 /** O botão já pode ter sido reconhecido por deferUpdate antes da consulta PIX. */
 async function responderVerificacaoPix(interaction, payload) {
@@ -279,12 +320,14 @@ async function handleBotao(interaction, ctx) {
   const abreModal =
     acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' ||
     acao === 'recargapix' || acao === 'recargasemanal' || acao === 'recargamensal';
-  const atualizaPainelRecarga = acao === 'recargasalainfinita' || acao === 'recargavoltar';
+  const painelRecargaPrivado = mensagemEfemera(interaction) &&
+    ['recargasalainfinita', 'recargavoltar', 'extratovoltar'].includes(acao);
+  const respostaPrivadaRecarga = acao === 'recargasalainfinita' || acao === 'recargaextrato';
 
   // Confirma o clique imediatamente (deferUpdate) em todos os outros casos:
   // o Discord nunca mostra "O aplicativo não respondeu". O painel continua
   // igual e o texto do resultado vai em mensagem privada (followUp).
-  if (!abreModal && !atualizaPainelRecarga && !interaction.deferred && !interaction.replied) {
+  if (!abreModal && !painelRecargaPrivado && !respostaPrivadaRecarga && !interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferUpdate();
     } catch (erro) {
@@ -575,26 +618,16 @@ async function handleBotao(interaction, ctx) {
         return true;
 
       case 'recargasalainfinita': {
-        const { AttachmentBuilder } = require('discord.js');
-        await interaction.update({
-          embeds: [recargaUI.embedSalaInfinita()],
-          files: [new AttachmentBuilder(recargaUI.BANNER_INFINITA_PATH, { name: recargaUI.BANNER_INFINITA_NOME })],
-          attachments: [],
-          components: recargaUI.componentesSalaInfinita(),
-          allowedMentions: { parse: [] },
-        });
+        const payload = payloadPainelSalaInfinita();
+        if (mensagemEfemera(interaction)) await interaction.update(payload);
+        else await responderPrivado(interaction, payload);
         return true;
       }
 
       case 'recargavoltar': {
-        const { AttachmentBuilder } = require('discord.js');
-        await interaction.update({
-          embeds: [recargaUI.embedPainelRecarga()],
-          files: [new AttachmentBuilder(recargaUI.BANNER_PATH, { name: recargaUI.BANNER_NOME })],
-          attachments: [],
-          components: recargaUI.componentesRecarga(),
-          allowedMentions: { parse: [] },
-        });
+        const payload = payloadPainelRecarga();
+        if (mensagemEfemera(interaction)) await interaction.update(payload);
+        else await responderPrivado(interaction, payload);
         return true;
       }
 
@@ -613,9 +646,39 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'recargaextrato': {
-        await responderPrivado(interaction, {
-          content: 'O módulo de extrato da carteira será ativado na próxima atualização.',
-        });
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Abra o extrato dentro do servidor onde sua carteira está registrada.');
+          return true;
+        }
+        if (mensagemEfemera(interaction)) await interaction.deferUpdate();
+        else await interaction.deferReply({ flags: EFEMERO });
+        if (!(await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member))) {
+          await interaction.editReply({ embeds: [embedErro(mediadores.AVISO_CARGO)] });
+          return true;
+        }
+        const extrato = await extratoCarteira.obterExtrato({ guildId: interaction.guildId, userId: interaction.user.id });
+        await interaction.editReply(payloadPainelExtrato(extrato));
+        return true;
+      }
+
+      case 'extratoatualizar': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Atualize o extrato dentro do servidor onde sua carteira está registrada.');
+          return true;
+        }
+        if (!(await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member))) {
+          await responderErro(interaction, mediadores.AVISO_CARGO);
+          return true;
+        }
+        const extrato = await extratoCarteira.obterExtrato({ guildId: interaction.guildId, userId: interaction.user.id });
+        await interaction.editReply(payloadPainelExtrato(extrato));
+        return true;
+      }
+
+      case 'extratovoltar': {
+        const payload = payloadPainelRecarga();
+        if (mensagemEfemera(interaction)) await interaction.update(payload);
+        else await responderPrivado(interaction, payload);
         return true;
       }
 
@@ -894,6 +957,10 @@ async function handleBotao(interaction, ctx) {
     }
   } catch (erro) {
     console.error(`[botoes] erro em ${interaction.customId}:`, erro);
+    if (acao === 'recargaextrato' && interaction.deferred && !interaction.replied) {
+      await interaction.editReply({ embeds: [embedErro(erro.message || 'Não consegui carregar o extrato agora. Tente novamente.')] }).catch(() => {});
+      return true;
+    }
     await responderErro(
       interaction,
       erro.message || 'Deu um erro aqui. Tente de novo ou chame um ADM.',

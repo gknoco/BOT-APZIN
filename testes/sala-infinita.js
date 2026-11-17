@@ -134,11 +134,12 @@ test('referência/moeda/método/valor divergentes encaminham status manual_revie
   }
 });
 
-test('botão Sala Infinita troca o painel para o banner oficial e expõe planos/voltar sem ACK separado', async () => {
+test('botão público Sala Infinita abre painel efêmero e só atualiza mensagem quando ela já é privada', async () => {
   const i = interaction('ap:recargasalainfinita');
   await botoes.handleBotao(i, { db: {}, client: {} });
-  assert.deepEqual(i.calls.map(([name]) => name), ['update']);
+  assert.deepEqual(i.calls.map(([name]) => name), ['reply']);
   const payload = last(i);
+  assert.equal(payload.flags & 64, 64);
   assert.equal(payload.embeds[0].toJSON().image.url, 'attachment://sala-infinita-royal-ap.png');
   assert.equal(payload.embeds[0].toJSON().description, 'O pagamento é por Pix e o plano ativa automaticamente. Comprar de novo soma os dias.');
   assert.equal(payload.embeds[0].toJSON().footer.text, 'Operado por Royal AP · Suporte Royal AP');
@@ -150,7 +151,13 @@ test('botão Sala Infinita troca o painel para o banner oficial e expõe planos/
   assert.deepEqual(components.map((button) => button.style), [2, 3, 3]);
   assert.ok(fs.statSync(path.resolve(__dirname, '../assets/sala-infinita-royal-ap.png')).size > 1000);
 
+  const privateNav = interaction('ap:recargasalainfinita');
+  privateNav.message = { flags: { has: (flag) => flag === 64 } };
+  await botoes.handleBotao(privateNav, { db: {}, client: {} });
+  assert.deepEqual(privateNav.calls.map(([name]) => name), ['update']);
+
   const back = interaction('ap:recargavoltar');
+  back.message = { flags: { has: (flag) => flag === 64 } };
   await botoes.handleBotao(back, { db: {}, client: {} });
   assert.deepEqual(back.calls.map(([name]) => name), ['update']);
   const restored = last(back);

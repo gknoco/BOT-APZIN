@@ -11,13 +11,15 @@ const {
 } = require('discord.js');
 const config = require('../config');
 const persistenciaSupabase = require('../servicos/supabase');
-const { embed, embedSucesso } = require('../util/embeds');
+const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 const { responderErro: responderErroSeguro, responderPrivado: responderPrivadoSeguro } = require('../util/seguranca');
 
 const BANNER_NOME = 'recarga-royal-ap.jpg';
 const BANNER_PATH = path.join(__dirname, '../../assets', BANNER_NOME);
 const BANNER_INFINITA_NOME = 'sala-infinita-royal-ap.png';
 const BANNER_INFINITA_PATH = path.join(__dirname, '../../assets', BANNER_INFINITA_NOME);
+const BANNER_EXTRATO_NOME = 'extrato-royal-ap.png';
+const BANNER_EXTRATO_PATH = path.join(__dirname, '../../assets', BANNER_EXTRATO_NOME);
 const CHAVE_CANAL_RECARGA = 'canal_recarga';
 
 function embedPainelRecarga() {
@@ -61,6 +63,44 @@ function componentesSalaInfinita() {
     new ButtonBuilder().setCustomId('ap:recargavoltar').setLabel('Voltar').setEmoji('⬅️').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('ap:recargasemanal').setLabel('Semanal R$ 5,00').setEmoji('📅').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('ap:recargamensal').setLabel('Mensal R$ 13,00').setEmoji('💎').setStyle(ButtonStyle.Success),
+  )];
+}
+
+function rotuloMovimento(tipo) {
+  if (tipo === 'topup') return 'Recarga Pix';
+  if (tipo === 'refund_review') return 'Ajuste em análise';
+  return 'Movimentação';
+}
+
+function embedExtratoCarteira(extrato = {}) {
+  const saldo = Number(extrato.balanceCents) || 0;
+  const entradas = Number(extrato.totalEntriesCents) || 0;
+  const saidas = Number(extrato.totalExitsCents) || 0;
+  const movimentos = Array.isArray(extrato.movements) ? extrato.movements.slice(0, 6) : [];
+  const linhas = movimentos.map((movimento) => {
+    const delta = Number(movimento.deltaCents) || 0;
+    const sinal = delta < 0 ? '−' : '+';
+    const data = movimento.createdAt ? dataBR(Date.parse(movimento.createdAt)) : 'Data indisponível';
+    return `• **${rotuloMovimento(movimento.eventType)}** · ${sinal}${reais(Math.abs(delta))} · ${data}`;
+  });
+  const recentes = linhas.length ? linhas.join('\n') : 'Nenhuma movimentação ainda.';
+
+  return embed('Meu Extrato', '**Últimas movimentações**\n' + recentes, {
+    cor: config.CORES.neutro,
+    rodape: 'Operado por Royal AP · Suporte Royal AP',
+    campos: [
+      { name: 'SALDO ATUAL', value: `**${reais(saldo)}**`, inline: true },
+      { name: 'TOTAL DE ENTRADAS', value: `+ **${reais(entradas)}**`, inline: true },
+      { name: 'TOTAL DE SAÍDAS', value: `− **${reais(saidas)}**`, inline: true },
+      { name: 'STATUS DA CARTEIRA', value: `**${String(extrato.status || 'Normal').slice(0, 40)}**`, inline: true },
+    ],
+  }).setImage(`attachment://${BANNER_EXTRATO_NOME}`);
+}
+
+function componentesExtrato() {
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('ap:extratovoltar').setLabel('Voltar').setEmoji('⬅️').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('ap:extratoatualizar').setLabel('Atualizar extrato').setEmoji('🔄').setStyle(ButtonStyle.Primary),
   )];
 }
 
@@ -130,10 +170,14 @@ module.exports = {
   BANNER_PATH,
   BANNER_INFINITA_NOME,
   BANNER_INFINITA_PATH,
+  BANNER_EXTRATO_NOME,
+  BANNER_EXTRATO_PATH,
   CHAVE_CANAL_RECARGA,
   embedPainelRecarga,
   embedSalaInfinita,
   componentesRecarga,
   componentesSalaInfinita,
+  embedExtratoCarteira,
+  componentesExtrato,
   comandos,
 };
