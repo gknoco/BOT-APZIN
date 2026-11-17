@@ -190,7 +190,7 @@ test('Ver pacotes responde somente com embed e select, sem botões, e agenda exc
   }
 });
 
-test('Gerar Pix abre o modal de recarga e Sala Infinita/Extrato continuam provisórios', async () => {
+test('Gerar Pix abre o modal de recarga, Sala Infinita navega ao painel e Extrato segue provisório', async () => {
   const gerarPix = interacao('ap:recargapix');
   await botoes.handleBotao(gerarPix, ctx);
   const modal = gerarPix.chamadas.find(([metodo]) => metodo === 'showModal')?.[1]?.toJSON();
@@ -198,18 +198,19 @@ test('Gerar Pix abre o modal de recarga e Sala Infinita/Extrato continuam provis
   assert.equal(modal.title, 'Gerar Pix de Recarga');
   assert.deepEqual(modal.components.flatMap((row) => row.components).map((campo) => campo.custom_id), ['valor', 'email']);
 
-  const botoesRecarga = [
-    ['ap:recargasalainfinita', /Sala Infinita/],
-    ['ap:recargaextrato', /extrato da carteira/],
-  ];
-  for (const [customId, esperado] of botoesRecarga) {
-    const interaction = interacao(customId);
-    await botoes.handleBotao(interaction, ctx);
-    const payload = ultimoPayload(interaction);
-    assert.match(payload.content, esperado);
-    assert.match(payload.content, /próxima atualização/);
-    assert.equal(payload.flags & EFEMERO, EFEMERO);
-  }
+  const salaInfinita = interacao('ap:recargasalainfinita');
+  salaInfinita.update = async (payload) => { salaInfinita.chamadas.push(['update', payload]); };
+  await botoes.handleBotao(salaInfinita, ctx);
+  assert.equal(ultimoPayload(salaInfinita).embeds[0].toJSON().image.url, 'attachment://sala-infinita-royal-ap.png');
+  assert.deepEqual(ultimoPayload(salaInfinita).components.flatMap((row) => row.toJSON().components).map((button) => button.label), [
+    'Voltar', 'Semanal R$ 5,00', 'Mensal R$ 13,00',
+  ]);
+
+  const extrato = interacao('ap:recargaextrato');
+  await botoes.handleBotao(extrato, ctx);
+  assert.match(ultimoPayload(extrato).content, /extrato da carteira/);
+  assert.match(ultimoPayload(extrato).content, /próxima atualização/);
+  assert.equal(ultimoPayload(extrato).flags & EFEMERO, EFEMERO);
 });
 
 test('validador compartilhado aceita endereços comuns e rejeita estruturas inválidas', () => {

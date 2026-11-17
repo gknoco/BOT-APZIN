@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "test": "node testes/rodar.js && node --test testes/vendas.js && node --test testes/recargas.js && node testes/comandos-polish.js && node testes/servicos.js && node testes/operacional.js && node --test testes/permissoes.js",
+    "test": "node testes/rodar.js && node --test testes/vendas.js && node --test testes/recargas.js && node --test testes/sala-infinita.js && node testes/comandos-polish.js && node testes/servicos.js && node testes/operacional.js && node --test testes/permissoes.js",
     "commands:sync": "node scripts/registrar-comandos.js",
     "seed:versiculos": "node scripts/seed-versiculos.js",
     "migrate:supabase": "node scripts/migrar-supabase.js"

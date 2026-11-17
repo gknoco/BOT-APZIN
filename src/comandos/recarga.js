@@ -16,6 +16,8 @@ const { responderErro: responderErroSeguro, responderPrivado: responderPrivadoSe
 
 const BANNER_NOME = 'recarga-royal-ap.jpg';
 const BANNER_PATH = path.join(__dirname, '../../assets', BANNER_NOME);
+const BANNER_INFINITA_NOME = 'sala-infinita-royal-ap.png';
+const BANNER_INFINITA_PATH = path.join(__dirname, '../../assets', BANNER_INFINITA_NOME);
 const CHAVE_CANAL_RECARGA = 'canal_recarga';
 
 function embedPainelRecarga() {
@@ -45,6 +47,21 @@ function componentesRecarga() {
         .setStyle(ButtonStyle.Secondary),
     ),
   ];
+}
+
+function embedSalaInfinita() {
+  return embed('Sala Infinita · Planos Premium', 'O pagamento é por Pix e o plano ativa automaticamente. Comprar de novo soma os dias.', {
+    cor: config.CORES.neutro,
+    rodape: 'Operado por Royal AP · Suporte Royal AP',
+  }).setImage(`attachment://${BANNER_INFINITA_NOME}`);
+}
+
+function componentesSalaInfinita() {
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('ap:recargavoltar').setLabel('Voltar').setEmoji('⬅️').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('ap:recargasemanal').setLabel('Semanal R$ 5,00').setEmoji('📅').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('ap:recargamensal').setLabel('Mensal R$ 13,00').setEmoji('💎').setStyle(ButtonStyle.Success),
+  )];
 }
 
 const comandos = [
@@ -111,8 +128,12 @@ const comandos = [
 module.exports = {
   BANNER_NOME,
   BANNER_PATH,
+  BANNER_INFINITA_NOME,
+  BANNER_INFINITA_PATH,
   CHAVE_CANAL_RECARGA,
   embedPainelRecarga,
+  embedSalaInfinita,
   componentesRecarga,
+  componentesSalaInfinita,
   comandos,
 };

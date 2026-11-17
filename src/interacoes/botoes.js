@@ -17,6 +17,7 @@ const royalSupabase = require('../servicos/royalSupabase');
 const comprasSalas = require('../servicos/comprasSalas');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
+const recargaUI = require('../comandos/recarga');
 const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
 const {
   EFEMERO,
@@ -276,12 +277,14 @@ async function handleBotao(interaction, ctx) {
   // "regras" e "liberar" abrem modal: showModal precisa ser a PRIMEIRA resposta,
   // por isso esses dois não podem ser adiados.
   const abreModal =
-    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' || acao === 'recargapix';
+    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' ||
+    acao === 'recargapix' || acao === 'recargasemanal' || acao === 'recargamensal';
+  const atualizaPainelRecarga = acao === 'recargasalainfinita' || acao === 'recargavoltar';
 
   // Confirma o clique imediatamente (deferUpdate) em todos os outros casos:
   // o Discord nunca mostra "O aplicativo não respondeu". O painel continua
   // igual e o texto do resultado vai em mensagem privada (followUp).
-  if (!abreModal && !interaction.deferred && !interaction.replied) {
+  if (!abreModal && !atualizaPainelRecarga && !interaction.deferred && !interaction.replied) {
     try {
       await interaction.deferUpdate();
     } catch (erro) {
@@ -571,15 +574,85 @@ async function handleBotao(interaction, ctx) {
         await require('./modais').abrirModalRecarga(interaction);
         return true;
 
-      case 'recargasalainfinita':
+      case 'recargasalainfinita': {
+        const { AttachmentBuilder } = require('discord.js');
+        await interaction.update({
+          embeds: [recargaUI.embedSalaInfinita()],
+          files: [new AttachmentBuilder(recargaUI.BANNER_INFINITA_PATH, { name: recargaUI.BANNER_INFINITA_NOME })],
+          attachments: [],
+          components: recargaUI.componentesSalaInfinita(),
+          allowedMentions: { parse: [] },
+        });
+        return true;
+      }
+
+      case 'recargavoltar': {
+        const { AttachmentBuilder } = require('discord.js');
+        await interaction.update({
+          embeds: [recargaUI.embedPainelRecarga()],
+          files: [new AttachmentBuilder(recargaUI.BANNER_PATH, { name: recargaUI.BANNER_NOME })],
+          attachments: [],
+          components: recargaUI.componentesRecarga(),
+          allowedMentions: { parse: [] },
+        });
+        return true;
+      }
+
+      case 'recargasemanal':
+      case 'recargamensal': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Abra o painel de assinatura dentro do servidor.');
+          return true;
+        }
+        if (!(await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member))) {
+          await responderErro(interaction, mediadores.AVISO_CARGO);
+          return true;
+        }
+        await require('./modais').abrirModalPlanoInfinito(interaction, acao === 'recargasemanal' ? 'semanal' : 'mensal');
+        return true;
+      }
+
       case 'recargaextrato': {
-        const funcionalidades = {
-          recargapix: 'geração de Pix',
-          recargasalainfinita: 'Sala Infinita',
-          recargaextrato: 'extrato da carteira',
-        };
         await responderPrivado(interaction, {
-          content: `O módulo de ${funcionalidades[acao]} será ativado na próxima atualização.`,
+          content: 'O módulo de extrato da carteira será ativado na próxima atualização.',
+        });
+        return true;
+      }
+
+      case 'copiarinfinita': {
+        const infinita = require('../servicos/salaInfinita');
+        const codigo = await infinita.codigoPixUsuario({ orderId: args[0], guildId: interaction.guildId, userId: interaction.user.id });
+        if (!codigo) {
+          await responderErro(interaction, 'Não encontrei o código Pix deste plano na sua conta.');
+          return true;
+        }
+        const limpo = String(codigo).replace(/[\r\n\s]/g, '');
+        if (limpo.length > 2000) {
+          await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code ou procure a administração.');
+          return true;
+        }
+        await responderPrivado(interaction, { content: limpo, allowedMentions: { parse: [] } });
+        return true;
+      }
+
+      case 'verificarinfinita': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Verifique o plano dentro do servidor onde ele foi criado.');
+          return true;
+        }
+        const infinita = require('../servicos/salaInfinita');
+        const order = await infinita.verificarPlano({ orderId: args[0], guildId: interaction.guildId, userId: interaction.user.id });
+        if (order.status === 'approved' && order.premium_until_after) {
+          await responderPrivado(interaction, {
+            embeds: [embedSucesso(`Pagamento aprovado. Sala Infinita ativa até **${dataBR(Date.parse(order.premium_until_after))}**. As criações deste usuário usarão a assinatura registrada no Supabase, sem consumir créditos de sala.`)],
+          });
+          return true;
+        }
+        const revisao = order.status === 'manual_review';
+        await responderPrivado(interaction, {
+          embeds: [embed(revisao ? '⚠️ Pagamento em análise' : '♾️ Sala Infinita · pagamento pendente', revisao
+            ? 'Não foi ativada nenhuma assinatura. Não faça outro Pix para esta solicitação; procure a administração.'
+            : `Pagamento ainda não aprovado (status: **${order.status || 'pendente'}**). Após pagar, verifique novamente.`)],
         });
         return true;
       }
