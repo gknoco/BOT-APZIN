@@ -17,7 +17,6 @@ const royalSupabase = require('../servicos/royalSupabase');
 const comprasSalas = require('../servicos/comprasSalas');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const extratoCarteira = require('../servicos/extratoCarteira');
-const imageGenerator = require('../util/imageGenerator');
 const vendasUI = require('../comandos/vendas');
 const recargaUI = require('../comandos/recarga');
 const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
@@ -63,13 +62,12 @@ function payloadPainelSalaInfinita() {
   };
 }
 
-async function payloadPainelExtrato(username, extrato) {
+function payloadPainelExtrato(extrato, username) {
   const { AttachmentBuilder } = require('discord.js');
-  const imagem = await imageGenerator.gerarBannerExtrato({ username, extrato });
   return {
     content: '',
-    embeds: [],
-    files: [new AttachmentBuilder(imagem, { name: recargaUI.BANNER_EXTRATO_NOME })],
+    embeds: [recargaUI.embedExtratoCarteira(extrato, username)],
+    files: [new AttachmentBuilder(recargaUI.BANNER_EXTRATO_PATH, { name: recargaUI.BANNER_EXTRATO_NOME })],
     attachments: [],
     components: recargaUI.componentesExtrato(),
     allowedMentions: { parse: [] },
@@ -671,7 +669,7 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         const extrato = await extratoCarteira.obterExtrato({ guildId: interaction.guildId, userId: interaction.user.id });
-        const mensagem = await interaction.editReply(await payloadPainelExtrato(interaction.user.username, extrato));
+        const mensagem = await interaction.editReply(payloadPainelExtrato(extrato, interaction.user.username));
         agendarExclusaoPainelCarteira(interaction, mensagem);
         return true;
       }
@@ -686,7 +684,7 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         const extrato = await extratoCarteira.obterExtrato({ guildId: interaction.guildId, userId: interaction.user.id });
-        const mensagem = await interaction.editReply(await payloadPainelExtrato(interaction.user.username, extrato));
+        const mensagem = await interaction.editReply(payloadPainelExtrato(extrato, interaction.user.username));
         agendarExclusaoPainelCarteira(interaction, mensagem);
         return true;
       }

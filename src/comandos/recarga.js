@@ -14,7 +14,7 @@ const persistenciaSupabase = require('../servicos/supabase');
 const { embed, embedSucesso } = require('../util/embeds');
 const { responderErro: responderErroSeguro, responderPrivado: responderPrivadoSeguro } = require('../util/seguranca');
 
-const BANNER_NOME = 'recarga-royal-ap.png';
+const BANNER_NOME = 'recarga-royal-ap.jpg';
 const BANNER_PATH = path.join(__dirname, '../../assets', BANNER_NOME);
 const BANNER_INFINITA_NOME = 'sala-infinita-royal-ap.png';
 const BANNER_INFINITA_PATH = path.join(__dirname, '../../assets', BANNER_INFINITA_NOME);
@@ -25,7 +25,6 @@ const CHAVE_CANAL_RECARGA = 'canal_recarga';
 function embedPainelRecarga() {
   return embed(null, null, {
     cor: config.CORES.neutro,
-    rodape: 'Operado por Royal AP · Suporte Royal AP',
   }).setImage(`attachment://${BANNER_NOME}`);
 }
 
@@ -71,6 +70,37 @@ function componentesExtrato() {
     new ButtonBuilder().setCustomId('ap:extratovoltar').setLabel('Voltar').setEmoji('⬅️').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('ap:extratoatualizar').setLabel('Atualizar extrato').setEmoji('🔄').setStyle(ButtonStyle.Primary),
   )];
+}
+
+function embedExtratoCarteira(extrato = {}, username = 'usuário') {
+  const { reais } = require('../util/embeds');
+  const nomeSeguro = String(username || 'usuário').replace(/[\r\n<>]/g, '').slice(0, 64);
+  const movimentos = Array.isArray(extrato.movements) ? extrato.movements.slice(0, 6) : [];
+  const historico = movimentos.length
+    ? movimentos.map((movimento) => {
+      const delta = Number(movimento.deltaCents) || 0;
+      const sinal = delta < 0 ? '−' : '+';
+      const tipo = movimento.eventType === 'topup'
+        ? 'Recarga Pix'
+        : movimento.eventType === 'refund_review' ? 'Ajuste em análise' : 'Movimentação';
+      const data = movimento.createdAt && !Number.isNaN(Date.parse(movimento.createdAt))
+        ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(movimento.createdAt))
+        : 'data indisponível';
+      return `🛒 ${tipo} · ${sinal}${reais(Math.abs(delta))} · ${data}`;
+    }).join('\n')
+    : 'Nenhuma movimentação ainda.';
+
+  return embed('Meu Extrato', `Conta: **@${nomeSeguro}** · Dados atualizados da sua carteira.`, {
+    cor: config.CORES.neutro,
+    campos: [
+      { name: 'SALDO ATUAL', value: `**${reais(extrato.balanceCents)}**`, inline: true },
+      { name: 'TOTAL DE ENTRADAS', value: `+ **${reais(extrato.totalEntriesCents)}**`, inline: true },
+      { name: 'TOTAL DE SAÍDAS', value: `− **${reais(extrato.totalExitsCents)}**`, inline: true },
+      { name: 'STATUS DA CARTEIRA', value: `**${String(extrato.status || 'Normal').replace(/[\r\n]/g, ' ').slice(0, 40)}**`, inline: true },
+      { name: 'ÚLTIMAS MOVIMENTAÇÕES', value: historico.slice(0, 1024), inline: false },
+    ],
+    rodape: 'Dados privados da sua carteira · Fonte: Supabase',
+  }).setImage(`attachment://${BANNER_EXTRATO_NOME}`);
 }
 
 const comandos = [
@@ -144,6 +174,7 @@ module.exports = {
   CHAVE_CANAL_RECARGA,
   embedPainelRecarga,
   embedSalaInfinita,
+  embedExtratoCarteira,
   componentesRecarga,
   componentesSalaInfinita,
   componentesExtrato,

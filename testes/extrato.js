@@ -95,29 +95,25 @@ test('migration retorna totais globais do usuário, últimas seis linhas e restr
   assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.royal_wallet_statement\(text, text\) TO service_role/);
 });
 
-test('Canvas gera banner PNG do Extrato com os dados dinâmicos e até três movimentações', async () => {
-  const { loadImage } = require('canvas');
-  const renderer = require('../src/util/imageGenerator');
+test('embed privado apresenta dados do Supabase e anexa o banner original sem transformações', () => {
   const ui = require('../src/comandos/recarga');
   const extrato = {
-    balanceCents: 850,
-    totalEntriesCents: 1000,
-    totalExitsCents: 150,
+    balanceCents: 2510,
+    totalEntriesCents: 4000,
+    totalExitsCents: 1490,
     status: 'Normal',
-    movements: Array.from({ length: 5 }, (_, i) => ({
-      eventType: 'topup', deltaCents: 1000 + i, createdAt: '2026-11-16T18:30:00Z',
-    })),
+    movements: [{ eventType: 'topup', deltaCents: 500, createdAt: '2026-11-16T18:30:00Z' }],
   };
-  const imagem = await renderer.gerarBannerExtrato({ username: 'usuario_teste', extrato });
-  assert.match(renderer.formatarLinhaMovimento(extrato.movements[0]), /^🛒 Recarga Pix · \+R\$ 10,00 · /);
-  assert.ok(Buffer.isBuffer(imagem));
-  assert.equal(imagem.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
-  const carregada = await loadImage(imagem);
-  assert.equal(carregada.width, 1420);
-  assert.equal(carregada.height, 575);
-  const imagemDiferente = await renderer.gerarBannerExtrato({ username: 'outra_pessoa', extrato: { ...extrato, balanceCents: 9900 } });
-  assert.notDeepEqual(imagemDiferente, imagem);
-  assert.equal(ui.BANNER_NOME, 'recarga-royal-ap.png');
+  const card = ui.embedExtratoCarteira(extrato).toJSON();
+  assert.equal(card.title, 'Meu Extrato');
+  assert.equal(card.image.url, 'attachment://extrato-royal-ap.png');
+  assert.equal(card.fields[0].value, '**R$ 25,10**');
+  assert.equal(card.fields[1].value, '+ **R$ 40,00**');
+  assert.equal(card.fields[2].value, '− **R$ 14,90**');
+  assert.equal(card.fields[3].value, '**Normal**');
+  assert.match(card.fields[4].value, /^🛒 Recarga Pix · \+R\$ 5,00 · /);
+  assert.ok(fs.existsSync(ui.BANNER_EXTRATO_PATH));
+  assert.equal(ui.BANNER_NOME, 'recarga-royal-ap.jpg');
   const buttons = ui.componentesExtrato().flatMap((row) => row.toJSON().components);
   assert.deepEqual(buttons.map((button) => button.custom_id), ['ap:extratovoltar', 'ap:extratoatualizar']);
 });

@@ -129,12 +129,14 @@ test('/recarga publica, fixa e registra no Supabase o painel com banner e três 
 
   await comando(registro, 'recarga').executar(i, { db: banco(fake.client) });
 
-  assert.ok(fs.existsSync(path.join(__dirname, '../assets/recarga-royal-ap.png')));
+  assert.ok(fs.existsSync(path.join(__dirname, '../assets/recarga-royal-ap.jpg')));
   assert.equal(publicado.files.length, 1);
-  assert.equal(publicado.files[0].name, 'recarga-royal-ap.png');
+  assert.equal(publicado.files[0].name, 'recarga-royal-ap.jpg');
   const embed = publicado.embeds[0].toJSON();
-  assert.equal(embed.image.url, 'attachment://recarga-royal-ap.png');
-  assert.equal(embed.footer.text, 'Operado por Royal AP · Suporte Royal AP');
+  assert.equal(embed.image.url, 'attachment://recarga-royal-ap.jpg');
+  assert.equal(embed.description, undefined);
+  assert.equal(embed.fields, undefined);
+  assert.equal(embed.footer, undefined);
   assert.equal(publicado.components.length, 1);
   const botoes = publicado.components[0].toJSON().components;
   assert.deepEqual(botoes.map((botao) => [botao.label, botao.emoji.name, botao.style]), [
