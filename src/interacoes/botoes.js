@@ -707,7 +707,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Não encontrei o código Pix deste plano na sua conta.');
           return true;
         }
-        const limpo = String(codigo).replace(/[\r\n\s]/g, '');
+        const limpo = String(codigo).replace(/[\s`]/gu, '');
         if (limpo.length > 2000) {
           await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code ou procure a administração.');
           return true;
@@ -749,7 +749,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Não encontrei o código Pix desta recarga na sua carteira.');
           return true;
         }
-        const limpo = String(codigo).replace(/[\s`]/g, '');
+        const limpo = String(codigo).replace(/[\s`]/gu, '');
         if (limpo.length > 2000) {
           await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code exibido ou procure a administração.');
           return true;
@@ -826,7 +826,7 @@ async function handleBotao(interaction, ctx) {
           guildId: interaction.guildId,
           userId: interaction.user.id,
         });
-        const codigo = String(pedido?.pix_copy_paste || '').replace(/[\s`]/g, '');
+        const codigo = String(pedido?.pix_copy_paste || '').replace(/[\s`]/gu, '');
         if (!codigo) {
           await responderErro(interaction, 'Não encontrei o código Pix deste pedido. Confirme se o pedido pertence à sua conta ou gere um novo atendimento.');
           return true;
@@ -836,7 +836,7 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         await responderPrivado(interaction, {
-          content: `\`\`\`\n${codigo}\n\`\`\``,
+          content: codigo,
           allowedMentions: { parse: [] },
         });
         return true;

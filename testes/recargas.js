@@ -138,7 +138,7 @@ test('submissão do modal devolve QR, copia-e-cola e verificar pagamento em resp
   assert.ok(deferPayload.flags);
   assert.match(payload.embeds[0].toJSON().description, /R\$ 12,34/);
   assert.match(payload.embeds[0].toJSON().description, /\*\*Bônus Royal AP \(10%\):\*\* \+R\$ 1,23/);
-  assert.match(payload.embeds[0].toJSON().description, /000201PIX/);
+  assert.doesNotMatch(payload.embeds[0].toJSON().description, /000201PIX|Pix Copia e Cola/);
   assert.equal(payload.files[0].name, 'royal-wallet-topup-qr.png');
   const components = payload.components.flatMap((row) => row.toJSON().components);
   assert.deepEqual(components.map((item) => [item.label, item.custom_id]), [
@@ -198,4 +198,34 @@ test('consulta de código Pix mantém o filtro de servidor e usuário dono', asy
   const code = await recargas.codigoPixUsuario({ topupId: ORDER_ID, guildId: 'guild-a', userId: 'user-a' });
   assert.equal(code, '000201pixcode');
   assert.deepEqual(supabase.codeArgs, { topupId: ORDER_ID, guildId: 'guild-a', userId: 'user-a' });
+});
+
+test('botão Copia e Cola da recarga responde somente o código Pix contínuo, sem espaços ou cercas', async () => {
+  const chamadas = [];
+  const loadOriginal = Module._load;
+  Module._load = function loadRecargasMock(request, parent, isMain) {
+    const filename = Module._resolveFilename(request, parent, isMain);
+    if (filename === path.resolve(__dirname, '../src/servicos/recargas.js')) {
+      return { codigoPixUsuario: async (args) => {
+        assert.deepEqual(args, { topupId: ORDER_ID, guildId: 'guild-a', userId: 'user-a' });
+        return ' 000201\r\nPI X ` CODE  ';
+      } };
+    }
+    return loadOriginal.call(this, request, parent, isMain);
+  };
+  const interaction = {
+    customId: `ap:copiarrecarga:${ORDER_ID}`, guildId: 'guild-a', user: { id: 'user-a' }, deferred: false, replied: false,
+    isMessageComponent: () => true,
+    deferUpdate: async () => { interaction.deferred = true; chamadas.push(['deferUpdate']); },
+    followUp: async (payload) => { chamadas.push(['followUp', payload]); },
+  };
+  try {
+    await botoes.handleBotao(interaction, { db: {}, client: {} });
+  } finally {
+    Module._load = loadOriginal;
+  }
+  const resposta = chamadas.find(([nome]) => nome === 'followUp')[1];
+  assert.equal(resposta.content, '000201PIXCODE');
+  assert.doesNotMatch(resposta.content, /\s|`/);
+  assert.equal(resposta.flags & 64, 64);
 });

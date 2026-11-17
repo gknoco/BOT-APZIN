@@ -472,7 +472,27 @@ test('compra válida preserva quantidade e cupom, defer privado e somente botão
     assert.equal(componentes[1].label, 'Verificar pagamento');
     assert.equal(JSON.stringify(payload.embeds).includes('link-externo'), false);
     assert.match(payload.embeds[0].toJSON().description, /R\$ 0,14/);
+    assert.match(payload.embeds[0].toJSON().description, /\*\*quantidade:\*\* 5 salas/);
+    assert.doesNotMatch(payload.embeds[0].toJSON().description, /Pacote selecionado|000201/);
+    assert.doesNotMatch(payload.embeds[0].toJSON().description, /Pix Copia e Cola/);
     assert.equal(payload.files.length, 1);
+  });
+});
+
+test('compra pelo seletor mantém o campo Pacote selecionado e não usa quantidade avulsa', async () => {
+  const interaction = interacao('ap:modalcompra:5', { email: 'nome+ap@example.com', cupom: '' });
+  await comMocks([
+    [vendas, { exigirCargoCompra: async () => true }],
+    [compras, { criarPedidoPix: async () => ({
+      order: { id: ID_PEDIDO, rooms_quantity: 5, amount_cents: 15, discount_cents: 0, status: 'pending' },
+      payment: { qrBase64: Buffer.from('qr-simulado').toString('base64'), qrCode: '000201PACOTE', expiresAt: '2026-12-01T00:00:00.000Z' },
+    }) }],
+  ], async () => {
+    await modais.handleModal(interaction, ctx);
+    const description = ultimoPayload(interaction).embeds[0].toJSON().description;
+    assert.match(description, /\*\*Pacote selecionado:\*\* 5 salas/);
+    assert.doesNotMatch(description, /\*\*quantidade:\*\*/);
+    assert.doesNotMatch(description, /000201PACOTE|Pix Copia e Cola/);
   });
 });
 
@@ -507,13 +527,14 @@ test('handler antigo de verificação permanece compatível com pagamentos pende
   }
 });
 
-test('Copia e Cola consulta pedido por ID, guild e dono e entrega somente o código bruto em bloco efêmero', async () => {
-  const pedidos = [{ id: ID_PEDIDO, guild_id: 'guild-a', user_id: 'user-a', pix_copy_paste: '000201CODIGO_PIX_TESTE', status: 'pending' }];
+test('Copia e Cola consulta pedido por ID, guild e dono e entrega somente o código bruto em uma linha efêmera', async () => {
+  const pedidos = [{ id: ID_PEDIDO, guild_id: 'guild-a', user_id: 'user-a', pix_copy_paste: ' 000201\r\nCODIGO_PIX_TESTE ` ', status: 'pending' }];
   const consultas = [];
   await comMocks([[supabase, { obterCliente: () => clientePedidos(pedidos, consultas) }]], async () => {
     const interaction = interacao(`ap:copiarpix:${ID_PEDIDO}`);
     await botoes.handleBotao(interaction, ctx);
-    assert.equal(ultimoPayload(interaction).content, '```\n000201CODIGO_PIX_TESTE\n```');
+    assert.equal(ultimoPayload(interaction).content, '000201CODIGO_PIX_TESTE');
+    assert.doesNotMatch(ultimoPayload(interaction).content, /\s|`/);
     assert.equal(ultimoPayload(interaction).flags & EFEMERO, EFEMERO);
     assert.deepEqual(consultas[0].filtros, [['id', ID_PEDIDO], ['guild_id', 'guild-a'], ['user_id', 'user-a']]);
     for (const alteracao of [{ user: { id: 'user-b' } }, { guildId: 'guild-b' }]) {
@@ -525,14 +546,17 @@ test('Copia e Cola consulta pedido por ID, guild e dono e entrega somente o cód
   });
 });
 
-test('Copia e Cola sanitiza quebra de bloco e limita tamanho seguro', async () => {
-  for (const codigo of ['00`01\r\n02', 'a'.repeat(1701)]) {
+test('Copia e Cola remove qualquer formatação/whitespace e limita tamanho seguro', async () => {
+  for (const codigo of ['00`01\r\n 02', 'a'.repeat(1701)]) {
     await comMocks([[vendasDb, { obterPixPedidoUsuario: async () => ({ pix_copy_paste: codigo }) }]], async () => {
       const interaction = interacao(`ap:copiarpix:${ID_PEDIDO}`);
       await botoes.handleBotao(interaction, ctx);
       const payload = ultimoPayload(interaction);
       if (codigo.length > 1700) assert.match(texto(payload), /limite seguro/);
-      else assert.equal(payload.content, '```\n000102\n```');
+      else {
+        assert.equal(payload.content, '000102');
+        assert.doesNotMatch(payload.content, /\s|`/);
+      }
       assert.equal(payload.flags & EFEMERO, EFEMERO);
     });
   }

@@ -410,7 +410,7 @@ async function aplicarPlanoInfinito(interaction, db, plan) {
   if (!codigo || codigo.length > 3000) throw new Error('O código Pix retornado não pode ser exibido com segurança. Procure a administração.');
   const expiraEm = payment.expiresAt || resultado.order.expires_at;
   const card = embed(`Pix · Sala Infinita ${plano.nome}`,
-    `**Plano:** ${plano.dias} dias · **Valor:** ${reais(plano.amountCents)}${expiraEm ? `\n**Expira:** ${dataBR(Date.parse(expiraEm))}` : ''}\n\n**Pix Copia e Cola**\n${codigo}`,
+    `**Plano:** ${plano.dias} dias · **Valor:** ${reais(plano.amountCents)}${expiraEm ? `\n**Expira:** ${dataBR(Date.parse(expiraEm))}` : ''}`,
     { cor: config.CORES.neutro, rodape: 'ROYAL AP SALA · Mercado Pago' })
     .setImage('attachment://royal-infinite-qr.png');
   const row = new ActionRowBuilder().addComponents(
@@ -472,7 +472,7 @@ async function aplicarRecarga(interaction) {
   const expiracao = payment.expiresAt || order.expires_at;
   const bonus = Number(order.bonus_cents || 0);
   const credito = Number(order.credit_cents || order.amount_cents);
-  const corpo = `**Valor do Pix:** ${reais(order.amount_cents)}${bonus > 0 ? `\n**Bônus Royal AP (10%):** +${reais(bonus)}` : ''}\n**Crédito na carteira:** ${reais(credito)}${expiracao ? `\n**Expira:** ${dataBR(Date.parse(expiracao))}` : ''}\n\n**Pix Copia e Cola**\n${codigo}`;
+  const corpo = `**Valor do Pix:** ${reais(order.amount_cents)}${bonus > 0 ? `\n**Bônus Royal AP (10%):** +${reais(bonus)}` : ''}\n**Crédito na carteira:** ${reais(credito)}${expiracao ? `\n**Expira:** ${dataBR(Date.parse(expiracao))}` : ''}`;
   const card = embed('Pix de recarga', corpo, {
     cor: config.CORES.ouro,
     rodape: 'Carteira Digital · Mercado Pago · Crédito após aprovação',
@@ -533,10 +533,11 @@ async function aplicarCompraSalas(interaction, partes) {
   const expiracao = payment.expiresAt || order.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const expiracaoTexto = dataBR(Date.parse(expiracao));
   const detalheCupom = Number(order.discount_cents) > 0 ? `**Desconto aplicado:** ${reais(order.discount_cents)}` : null;
+  const descricaoQuantidade = quantidadeFixa === 'custom' ? '**quantidade:**' : '**Pacote selecionado:**';
   const card = embed(
     'PIX GERADO',
     [
-      `**Pacote selecionado:** ${Number(order.rooms_quantity || quantidade)} ${Number(order.rooms_quantity || quantidade) === 1 ? 'sala' : 'salas'}`,
+      `${descricaoQuantidade} ${Number(order.rooms_quantity || quantidade)} ${Number(order.rooms_quantity || quantidade) === 1 ? 'sala' : 'salas'}`,
       `**Valor exato:** ${reais(order.amount_cents)}`,
       detalheCupom,
       `**Expiração:** ${expiracaoTexto}`,
