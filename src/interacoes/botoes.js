@@ -532,7 +532,21 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Você precisa registrar seu Pix antes de entrar no bate-ponto. Vá até o canal <#1543684933522821130> para registrar.');
           return true;
         }
-        await plantao.entrar(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        try {
+          await plantao.adicionarCargo(interaction.guild, interaction.user.id);
+        } catch (erro) {
+          console.error(`[botoes] não consegui adicionar o cargo de plantão na guild ${interaction.guildId}:`, erro);
+          await responderErro(interaction, erro.message);
+          return true;
+        }
+        try {
+          await plantao.entrar(db, { guildId: interaction.guildId, userId: interaction.user.id });
+        } catch (erro) {
+          await plantao.removerCargo(interaction.guild, interaction.user.id).catch((rollback) => {
+            console.error(`[botoes] falha ao desfazer cargo após erro de entrada no Supabase da guild ${interaction.guildId}:`, rollback);
+          });
+          throw erro;
+        }
         await fluxo.notificarPartidasPendentes(client, db, interaction.guildId).catch((erro) => {
           console.error(`[botoes] não consegui publicar partidas pendentes após entrada no plantão da guild ${interaction.guildId}:`, erro);
         });
@@ -545,6 +559,13 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaosair': {
+        try {
+          await plantao.removerCargo(interaction.guild, interaction.user.id);
+        } catch (erro) {
+          console.error(`[botoes] não consegui remover o cargo de plantão na guild ${interaction.guildId}:`, erro);
+          await responderErro(interaction, erro.message);
+          return true;
+        }
         const saiu = await plantao.sair(db, { guildId: interaction.guildId, userId: interaction.user.id });
         await fluxo.ocultarPartidasPendentes(client, db, interaction.guildId).catch((erro) => {
           console.error(`[botoes] não consegui ocultar partidas pendentes após saída do plantão da guild ${interaction.guildId}:`, erro);

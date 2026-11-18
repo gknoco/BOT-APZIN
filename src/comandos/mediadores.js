@@ -81,6 +81,31 @@ const comandos = [
       });
     },
   },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('limparbatepapomediadores')
+      .setDescription('Reseta o plantão e remove o cargo de mediador de plantão')
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    async executar(interaction, { db }) {
+      if (!(await exigirAdmin(interaction, 'Só ADM pode limpar o bate-ponto dos mediadores.'))) return;
+      try {
+        const resultado = await plantao.limparComCargo(interaction.guild, db);
+        const avisoFalhas = resultado.falhas.length
+          ? ` ${resultado.falhas.length} remoção(ões) falharam; verifique a hierarquia/permissões do bot.`
+          : '';
+        return responderPrivado(interaction, {
+          embeds: [embedSucesso(
+            `Bate-ponto resetado com sucesso. ${resultado.removidos}/${resultado.encontrados} cargo(s) de plantão removido(s).${avisoFalhas}`,
+          )],
+        });
+      } catch (erro) {
+        console.error(`[mediadores] falha ao resetar bate-ponto da guild ${interaction.guildId}:`, erro);
+        return responderErro(interaction, erro.message);
+      }
+    },
+  },
 ];
 
 module.exports = { comandos };

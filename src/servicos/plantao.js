@@ -6,11 +6,52 @@
  * Pagamentos (Imagem 4) para registro do PIX individual.
  */
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const config = require('../config');
 const { embed, mencao } = require('../util/embeds');
 
 const agora = () => Date.now();
+const CARGO_PLANTAO_ID = '1572560471402217603';
+
+async function cargoPlantao(guild) {
+  const cargo = guild?.roles?.cache?.get(CARGO_PLANTAO_ID)
+    || await guild?.roles?.fetch?.(CARGO_PLANTAO_ID).catch?.(() => null);
+  if (!cargo) throw new Error(`O cargo de plantão ${CARGO_PLANTAO_ID} não existe neste servidor.`);
+  const bot = guild.members.me || await guild.members.fetchMe();
+  if (!bot.permissions.has(PermissionFlagsBits.ManageRoles)) {
+    throw new Error('O bot precisa da permissão Gerenciar Cargos para administrar o cargo de plantão.');
+  }
+  if (cargo.managed || bot.roles.highest.comparePositionTo(cargo) <= 0) {
+    throw new Error('O cargo do bot precisa estar acima do cargo de plantão na hierarquia do Discord.');
+  }
+  return cargo;
+}
+
+async function adicionarCargo(guild, userId) {
+  const cargo = await cargoPlantao(guild);
+  const membro = await guild.members.fetch(String(userId));
+  if (!membro.roles.cache.has(cargo.id)) await membro.roles.add(cargo, 'Entrada no bate-ponto de mediadores');
+  return true;
+}
+
+async function removerCargo(guild, userId) {
+  const cargo = await cargoPlantao(guild);
+  const membro = await guild.members.fetch(String(userId));
+  if (membro.roles.cache.has(cargo.id)) await membro.roles.remove(cargo, 'Saída do bate-ponto de mediadores');
+  return true;
+}
+
+async function limparComCargo(guild, db) {
+  const cargo = await cargoPlantao(guild);
+  const membros = await guild.members.fetch();
+  const alvos = [...membros.values()].filter((membro) => membro.roles.cache.has(cargo.id));
+  await limpar(db, guild.id);
+  const resultados = await Promise.allSettled(
+    alvos.map((membro) => membro.roles.remove(cargo, 'Reset do bate-ponto de mediadores')),
+  );
+  const falhas = resultados.filter((resultado) => resultado.status === 'rejected');
+  return { encontrados: alvos.length, removidos: resultados.length - falhas.length, falhas };
+}
 
 async function entrar(db, { guildId, userId }) {
   const { data, error } = await db.client.from('royal_plantao').upsert({
@@ -135,6 +176,11 @@ function painelRegistroPix() {
 }
 
 module.exports = {
+  CARGO_PLANTAO_ID,
+  cargoPlantao,
+  adicionarCargo,
+  removerCargo,
+  limparComCargo,
   entrar,
   sair,
   listar,
