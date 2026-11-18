@@ -344,6 +344,7 @@ async function atualizarPartida(client, db, partidaId) {
 
 /** Notifica a staff quando os capitães confirmam a partida; a assunção usa o lock do Supabase. */
 async function notificarPartidaFormada(client, db, partida) {
+  if (partida?.mediador_id) return false;
   const canalId = await obterConfig(db, partida.guild_id, 'canal_partidas_formadas', null);
   if (!canalId) return false;
   const canalBatePonto = await obterConfig(db, partida.guild_id, 'canal_bateponto', null);

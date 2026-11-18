@@ -69,7 +69,7 @@ async function ativas(db, guildId) {
 
 async function pendentes(db, guildId) {
   return listarPaginado(() => cliente(db).from(TABELAS.partidas).select(CAMPOS)
-    .eq('guild_id', String(guildId)).eq('status', STATUS.AGUARDANDO_MEDIADOR)
+    .eq('guild_id', String(guildId)).eq('status', STATUS.AGUARDANDO_MEDIADOR).is('mediador_id', null)
     .order('criado_em').order('id'), 'listar partidas pendentes de mediador');
 }
 
