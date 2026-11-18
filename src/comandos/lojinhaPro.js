@@ -10,6 +10,7 @@ const {
 const royal = require('../servicos/royalSupabase');
 const supabase = require('../servicos/supabase');
 const avisos = require('../servicos/avisosEconomia');
+const { entregarCargo } = require('../servicos/entregaCargo');
 const { EFEMERO, ehAdmin } = require('../util/seguranca');
 const { numeroBR } = require('../util/embeds');
 
@@ -345,8 +346,7 @@ async function comprarItem(i, item, precoConfirmado = item?.price) {
       // Não conceder o cargo previamente consultado se o cadastro tiver mudado.
       const atual = await buscarItem(i.guildId, item.id);
       if (!atual || atual.reward_type !== 'role' || atual.reward_value !== item.reward_value) throw new Error('Cadastro do cargo alterado; requer revisão manual');
-      if (!atual.reward_value || !i.member?.roles?.add) throw new Error('Cargo ou membro indisponível para entrega');
-      await i.member.roles.add(String(atual.reward_value));
+      await entregarCargo({ guild: i.guild, userId: i.user.id, roleId: atual.reward_value });
       const marcado = await royal.marcarCompraEntregue({ guildId: i.guildId, userId: i.user.id, purchaseId: compra.purchase_id });
       if (marcado === false) throw new Error('Não foi possível confirmar o registro da entrega');
       entrega = 'Cargo concedido e entrega registrada.';

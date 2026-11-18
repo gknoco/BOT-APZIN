@@ -127,9 +127,11 @@ function preparar() {
   fsFalso.existe = false;
 }
 function interacao({ id = 'interaction-001', usuario = 'user-a', guild = 'guild-a', componente = null, sub = 'girar', admin = false } = {}) {
+  const role = { id: '123456789012345678', position: 1, managed: false, editable: true };
+  const membro = { roles: { cache: new Map(), async add(cargo) { this.cache.set(cargo.id, true); } } };
   const i = {
     id, guildId: guild, user: { id: usuario }, customId: componente, deferred: false, replied: false,
-    guild: { id: guild, ownerId: 'owner', members: { me: {} }, channels: { cache: new Map() } }, member: { roles: {} },
+    guild: { id: guild, ownerId: 'owner', members: { me: { permissions: { has: (p) => p === PermissionFlagsBits.ManageRoles }, roles: { highest: { position: 5 } } }, cache: new Map([[usuario, membro]]) }, roles: { cache: new Map([[role.id, role], ['role-1', { id: 'role-1', position: 1, managed: false, editable: true }]]) }, channels: { cache: new Map() } }, member: membro,
     memberPermissions: { has: (permission) => admin && permission === PermissionFlagsBits.Administrator },
     channel: { id: 'canal-1', guildId: guild, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }), async send(payload) { chamadas.push('send'); i.publicados.push(payload); return { id: 'mensagem-1', async pin() { chamadas.push('pin'); } }; } },
     options: { getSubcommand: () => sub }, publicados: [], respostas: [],
@@ -316,10 +318,10 @@ test('testa serviço real: ambas RPCs usam o mesmo request_id idempotente', asyn
 });
 
 test('cargo é concedido após giro e marcado somente após a conclusão da entrega', async () => {
-  preparar(); royal.resultado = { spin_id: 'spin-role', prize_name: 'VIP', reward_type: 'role', reward_value: 'role-1' };
+  preparar(); royal.resultado = { spin_id: 'spin-role', prize_name: 'VIP', reward_type: 'role', reward_value: '123456789012345678' };
   let liberar;
   const i = interacao({ componente: 'roletapro:girar' });
-  i.member.roles.add = async (id) => { assert.equal(id, 'role-1'); chamadas.push('role'); await new Promise((resolve) => { liberar = resolve; }); };
+  i.member.roles.add = async (role) => { assert.equal(role.id, '123456789012345678'); chamadas.push('role'); await new Promise((resolve) => { liberar = resolve; }); };
   const promise = roleta.handleComponent(i);
   while (!liberar) await new Promise((resolve) => setImmediate(resolve));
   assert.ok(chamadas.indexOf('defer') < chamadas.indexOf('girar'));
@@ -333,7 +335,7 @@ test('cargo é concedido após giro e marcado somente após a conclusão da entr
 
 test('falha de cargo ou confirmação gera pendência auditada e não esconde o prêmio', async () => {
   for (const falha of ['cargo', 'marcacao']) {
-    preparar(); royal.resultado = { spin_id: 'spin-role', prize_name: 'VIP', reward_type: 'role', reward_value: 'role-1' };
+    preparar(); royal.resultado = { spin_id: 'spin-role', prize_name: 'VIP', reward_type: 'role', reward_value: '123456789012345678' };
     royal.erroMarca = falha === 'marcacao';
     const i = interacao({ componente: 'roletapro:girar' });
     i.member.roles.add = async () => { if (falha === 'cargo') throw new Error('hierarquia'); };
@@ -501,7 +503,7 @@ test('aviso de pendência vem após auditoria, usa protocolo do giro e não alte
     assert.ok(chamadas.lastIndexOf('auditar') < chamadas.indexOf('aviso'));
     assert.doesNotMatch(corpo(i), /staff avisada|aviso enviado/i);
   }
-  preparar(); royal.resultado.reward_type = 'role'; const i = interacao({ componente: 'roletapro:girar' });
+  preparar(); royal.resultado.reward_type = 'role'; royal.resultado.reward_value = '123456789012345678'; const i = interacao({ componente: 'roletapro:girar' });
   i.member.roles.add = async () => {};
   await roleta.handleComponent(i); assert.equal(avisos.chamados.length, 0);
 });

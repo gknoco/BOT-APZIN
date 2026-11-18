@@ -116,11 +116,16 @@ function dbFake() {
 }
 let seq = 0;
 function interacao({ id, user = U1, guild = G1, customId, values, sub, chave, admin = false, roleAdd } = {}) {
+  const membro = {
+    permissions: { has: (p) => p === PermissionFlagsBits.Administrator && admin },
+    roles: { cache: new Map(), add: async (role) => { if (roleAdd) await roleAdd(role.id); } },
+  };
+  const role = { id: '123456789012345678', position: 1, managed: false, editable: true };
   const i = {
     id: id || String(++seq).padStart(18, '0'), guildId: guild, channelId: '555555555555555555', user: { id: user },
     customId, values, deferred: false, replied: false, chamadas: [],
-    member: { permissions: { has: (p) => p === PermissionFlagsBits.Administrator && admin }, roles: { add: roleAdd || (async () => {}) } },
-    guild: { id: guild, members: { me: {} }, channels: { cache: new Map() } },
+    member: membro,
+    guild: { id: guild, members: { me: { permissions: { has: (p) => p === PermissionFlagsBits.ManageRoles }, roles: { highest: { position: 5 } } }, cache: new Map([[user, membro]]) }, roles: { cache: new Map([[role.id, role]]) }, channels: { cache: new Map() } },
     options: { getSubcommand: () => sub, getString: () => chave },
     async deferReply(payload) { i.chamadas.push(['defer', payload]); i.deferred = true; },
     async editReply(payload) { i.chamadas.push(['edit', payload]); i.payload = payload; },
@@ -450,7 +455,7 @@ test('avisos de PIX, físico e cargo pendentes são pós-auditoria e best effort
     assert.ok(db.tables.royal_audit_events.some((a) => a.action === 'shop.purchase'));
     assert.doesNotMatch(texto(i), /staff avisada|aviso enviado/i);
   }
-  const db = dbFake(); db.tables.royal_shop_items[0].reward_type = 'role';
+  const db = dbFake(); Object.assign(db.tables.royal_shop_items[0], { reward_type: 'role', reward_value: '123456789012345678' });
   await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
   assert.equal(avisosChamados.length, 0);
 });

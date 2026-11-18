@@ -15,6 +15,7 @@ const {
 const royal = require('../servicos/royalSupabase');
 const supabase = require('../servicos/supabase');
 const avisos = require('../servicos/avisosEconomia');
+const { entregarCargo } = require('../servicos/entregaCargo');
 const { EFEMERO, ehAdmin } = require('../util/seguranca');
 const { numeroBR } = require('../util/embeds');
 
@@ -168,16 +169,6 @@ async function saldoPrivado(guildId, userId) {
   }
 }
 
-async function entregarCargo(interaction, roleId) {
-  if (!roleId) throw new Error('Cargo de prêmio não configurado.');
-  let membro = interaction.member;
-  if (!membro?.roles?.add && interaction.guild?.members?.fetch) {
-    membro = await interaction.guild.members.fetch(interaction.user.id);
-  }
-  if (!membro?.roles?.add) throw new Error('Não foi possível localizar o membro para entrega.');
-  await membro.roles.add(String(roleId));
-}
-
 async function realizarGiro(interaction) {
   // Feedback privado sem animação nem atraso artificial; o resultado vem apenas da RPC.
   await editarPrivado(interaction, {
@@ -206,7 +197,7 @@ async function realizarGiro(interaction) {
   if (resultado.reward_type === 'role') {
     try {
       // A transação já registrou a pendência; a chamada Discord é externa à RPC.
-      await entregarCargo(interaction, resultado.reward_value);
+      await entregarCargo({ guild: interaction.guild, userId: interaction.user.id, roleId: resultado.reward_value });
       await royal.marcarRecompensaEntregue({
         guildId: interaction.guildId, userId: interaction.user.id, request: interaction.id,
       });

@@ -205,6 +205,9 @@ function painel(i, dom) {
     botao(i, dom, 'estoque', 'Estoque do prêmio'),
     botao(i, dom, 'giros', 'Ajustar giros', ButtonStyle.Primary),
   ));
+  componentes.push(new ActionRowBuilder().addComponents(
+    botao(i, dom, 'excluir', 'Excluir item', ButtonStyle.Danger),
+  ));
   const ids = dom === 'r' ? '\nPara ajustar giros: ative o Modo Desenvolvedor no Discord, clique com o botão direito no usuário e escolha Copiar ID do usuário. Informe apenas os números; o ajuste vale somente neste servidor.' : '';
   return payload(`**Configuração · ${nome}**\nEscolha uma ação. Itens desativados são preservados e continuam no histórico. Após uso, nome e recompensa são imutáveis: crie outro item para alterá-los.\n${nota}${ids}`, componentes);
 }
@@ -239,6 +242,11 @@ function modal(i, dom, acao) {
       campo('operacao', 'Operação: adicionar ou remover', 'adicionar ou remover', 9),
       campo('quantidade', 'Quantidade de giros', 'Inteiro de 1 a 1000000000', 10),
       campo('motivo', 'Motivo para o registro', 'Motivo administrativo do ajuste', 120),
+    );
+  } else if (acao === 'excluir') {
+    m.setTitle(`Excluir ${dom === 'r' ? 'prêmio' : 'produto'}`).addComponents(
+      campo('id', 'ID completo do item', 'UUID exibido em Listar', 36),
+      campo('confirmacao', 'Confirmação', 'EXCLUIR', 7),
     );
   } else if (dom === 'r') {
     m.setTitle(`${acao === 'criar' ? 'Criar prêmio' : 'Editar prêmio'}`);
@@ -289,6 +297,7 @@ async function salvarFormulario(i, dom, acao) {
   const cliente = supabase.obterCliente();
   if (acao === 'config') return salvarConfig(i, dom, cliente, obter);
   if (acao === 'estoque' && dom === 'r') return salvarEstoquePremio(i, cliente, obter);
+  if (acao === 'excluir') return excluirItem(i, dom, cliente, obter);
   const id = acao === 'criar' ? null : uuid(obter('id'));
   const antes = id ? await buscarRegistro(cliente, dom, i.guildId, id) : null;
   let valores;
@@ -389,6 +398,36 @@ async function ajustarGiros(i, obter) {
   return payload(`Ajuste de giros registrado neste servidor para o usuário \`${userId}\`. Saldo após o ajuste: ${String(perfil.spins)}.`);
 }
 
+async function excluirItem(i, dom, cliente, obter) {
+  const id = uuid(obter('id'));
+  if (String(obter('confirmacao') || '').trim().toUpperCase() !== 'EXCLUIR') {
+    falhar('Digite EXCLUIR para confirmar a remoção permanente.');
+  }
+  const antes = await buscarRegistro(cliente, dom, i.guildId, id);
+  const referencias = dom === 'r'
+    ? [['royal_roulette_spins', 'prize_id', id, 'Este prêmio já possui giros registrados; desative-o para preservar o histórico.']]
+    : [
+      ['royal_purchases', 'item_id', id, 'Este produto já possui compras; desative-o para preservar o histórico.'],
+      ['royal_inventory', 'item_id', id, 'Este produto já está no inventário de usuários; desative-o para preservar o histórico.'],
+      ['royal_roulette_prizes', 'reward_value', id, 'Este produto está vinculado a uma premiação ativa da roleta; remova o vínculo antes.'],
+    ];
+  for (const [tabela, campo, valor, mensagem] of referencias) {
+    let consulta = cliente.from(tabela).select('guild_id').eq('guild_id', i.guildId).eq(campo, valor).limit(1);
+    if (tabela === 'royal_roulette_prizes' && dom === 'l') consulta = consulta.eq('active', true);
+    const { data, error } = await consulta;
+    if (error) throw new Error('consulta referências');
+    if (data?.length) falhar(mensagem);
+  }
+  const res = await alterarComAuditoria(cliente, i, 'excluir', dom, id, retrato(antes), null, async () => {
+    const { data, error } = await cliente.from(TABELAS[dom]).delete()
+      .eq('guild_id', i.guildId).eq('id', id).eq('active', antes.active).select('id').maybeSingle();
+    if (error) throw new Error('exclusão');
+    if (!data) falhar('O item mudou durante a operação. Consulte a lista e tente novamente.');
+    return data;
+  });
+  return payload(`Item excluído permanentemente. ID: \`${id}\`${res.aviso}`);
+}
+
 async function salvarEstoquePremio(i, cliente, obter) {
   const id = uuid(obter('id'));
   const entrada = String(obter('estoque') || '').trim().toLowerCase();
@@ -485,11 +524,11 @@ async function handleComponent(i) {
     }
     if (!['r', 'l'].includes(dom) || partes.length < 5 || partes.length > 6) falhar('Controle inválido. Abra /config novamente.');
     if (modalSubmit) {
-      if (partes.length !== 5 || !['m-criar', 'm-editar', 'm-estado', 'm-config', ...(dom === 'r' ? ['m-estoque', 'm-giros'] : [])].includes(acao)) falhar('Formulário inválido.');
+      if (partes.length !== 5 || !['m-criar', 'm-editar', 'm-estado', 'm-config', 'm-excluir', ...(dom === 'r' ? ['m-estoque', 'm-giros'] : [])].includes(acao)) falhar('Formulário inválido.');
       const resposta = await salvarFormulario(i, dom, acao.slice(2));
       await responderPrivado(i, resposta);
     } else if (i.isButton?.()) {
-      if (['criar', 'editar', 'estado', 'config', ...(dom === 'r' ? ['estoque', 'giros'] : [])].includes(acao) && partes.length === 5) {
+      if (['criar', 'editar', 'estado', 'config', 'excluir', ...(dom === 'r' ? ['estoque', 'giros'] : [])].includes(acao) && partes.length === 5) {
         // showModal precisa ser a primeira resposta ao clique, sem defer ou I/O.
         await i.showModal(modal(i, dom, acao));
       } else if (acao === 'lista' && partes.length === 6 && /^(0|[1-9]\d{0,3})$/.test(extra)) {
