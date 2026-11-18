@@ -151,30 +151,35 @@ async function requisitar(caminho, { metodo = 'GET', corpo, idempotencyKey } = {
   }
 }
 
+function montarPayloadPix({ order, email, description }) {
+  const transactionAmount = Number((Number(order.amount_cents) / 100).toFixed(2));
+  if (!Number.isFinite(transactionAmount) || transactionAmount < 0.01) {
+    throw new ErroMercadoPago('O valor do Pix precisa ser de pelo menos R$ 0,01.', { code: 'mp_amount_invalid', definitive: true });
+  }
+  if (!validarEmailPix(email)) {
+    throw new ErroMercadoPago('Informe um e-mail válido do pagador.', { code: 'mp_email_invalid', definitive: true });
+  }
+  const descricao = String(description || `${Number(order.rooms_quantity)} sala(s) automatizada(s) · Royal Sala`)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 250);
+  return {
+    transaction_amount: transactionAmount,
+    payment_method_id: 'pix',
+    description: descricao || 'Compra de salas Royal Sala',
+    external_reference: String(order.id),
+    payer: { email: String(email) },
+    date_of_expiration: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    notification_url: config.MP_WEBHOOK_URL,
+  };
+}
+
 async function criarPix({ order, payerEmail, description }) {
   exigirAmbiente();
   if (!order?.id || !Number.isInteger(Number(order.amount_cents)) || Number(order.amount_cents) < 1) {
     throw new ErroMercadoPago('Pedido inválido para gerar Pix.', { code: 'mp_order_invalid', definitive: true });
   }
   const email = String(payerEmail || '').trim().toLowerCase();
-  if (!validarEmailPix(email)) {
-    throw new ErroMercadoPago('Informe um e-mail válido do pagador.', { code: 'mp_email_invalid', definitive: true });
-  }
-  const transactionAmount = Number((Number(order.amount_cents) / 100).toFixed(2));
-  if (!Number.isFinite(transactionAmount) || transactionAmount < 0.01) {
-    throw new ErroMercadoPago('O valor do Pix precisa ser de pelo menos R$ 0,01.', { code: 'mp_amount_invalid', definitive: true });
-  }
-  const descricao = String(description || `${Number(order.rooms_quantity)} sala(s) automatizada(s) · Royal Sala`)
-    .replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 250);
-  const corpo = {
-    transaction_amount: transactionAmount,
-    payment_method_id: 'pix',
-    description: descricao || 'Compra de salas Royal Sala',
-    external_reference: String(order.id),
-    payer: { email },
-    date_of_expiration: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    notification_url: config.MP_WEBHOOK_URL,
-  };
+  const corpo = montarPayloadPix({ order, email, description });
+  const transactionAmount = corpo.transaction_amount;
   // A chave é o UUID persistido do pedido e fica estável em qualquer retry da mesma compra.
   let pagamento;
   try {
@@ -238,6 +243,7 @@ module.exports = {
   validarEmailPix,
   assinaturaValida,
   requisitar,
+  montarPayloadPix,
   criarPix,
   buscarPagamento,
 };
