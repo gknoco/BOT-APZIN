@@ -17,90 +17,189 @@ const paineis = require('../servicos/paineis');
 const { exigirStaff, exigirAdmin, responderPrivado } = require('../util/seguranca');
 const { embed, embedSucesso } = require('../util/embeds');
 
+// Estas listas servem apenas para organizar o registro, nunca para filtrar
+// comandos: qualquer nome ainda não categorizado aparece em "Outros comandos".
 const CATEGORIAS_AJUDA = [
   { titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
   { titulo: '🎮 Filas e partidas', nomes: [...config.MODOS.map((modo) => modo.comando), 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
   { titulo: '👥 Mediação e PIX', nomes: ['mediadores', 'painel_mediadores', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
   { titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
-  { titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar'] },
+  { titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar', 'recarga'] },
   { titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
   { titulo: '🛡️ Moderação e administração', nomes: ['blacklist', 'limpar', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
-  { titulo: '⚙️ Configuração e comunidade', nomes: ['boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'setcargo', 'versiculododia', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
+  { titulo: '⚙️ Configuração e comunidade', nomes: ['config', 'boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'setcargo', 'versiculododia', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
 ];
 
-function formatarComandoAjuda(comando) {
-  const json = comando.data.toJSON();
-  const opcoes = Array.isArray(json.options) ? json.options : [];
-  const subcomandos = opcoes.filter((opcao) => opcao.type === 1 || opcao.type === 2);
-  const linhas = [`**/${json.name}** — ${json.description}`];
-  for (const sub of subcomandos) {
-    if (sub.type === 1) linhas.push(`  · /${json.name} ${sub.name} — ${sub.description}`);
-    else for (const aninhado of sub.options || []) {
-      if (aninhado.type === 1) linhas.push(`  · /${json.name} ${sub.name} ${aninhado.name} — ${aninhado.description}`);
-    }
-  }
-  return linhas.join('\n');
+const TIPOS_OPCAO = {
+  3: 'texto', 4: 'inteiro', 5: 'sim/não', 6: 'usuário', 7: 'canal',
+  8: 'cargo', 9: 'usuário ou cargo', 10: 'número', 11: 'anexo',
+};
+const TIPOS_CANAL = {
+  0: 'texto', 2: 'voz', 4: 'categoria', 5: 'anúncios', 10: 'tópico de anúncios',
+  11: 'tópico público', 12: 'tópico privado', 13: 'palco', 14: 'diretório', 15: 'fórum', 16: 'mídia',
+};
+const LIMITE_DESCRICAO_AJUDA = 3800;
+const TAMANHO_BLOCO_MENU = 25;
+
+function definicaoAjuda(comando) {
+  const dados = comando.data || comando;
+  return typeof dados.toJSON === 'function' ? dados.toJSON() : dados;
 }
 
-// Uma descrição nunca ultrapassa 3.800 caracteres; cada resposta da ajuda
-// contém apenas uma página, abaixo dos 6.000 caracteres totais do Discord.
-function dividirAjuda(linhas, limite = 3800) {
-  const paginas = [];
-  let atual = '';
-  for (const bloco of linhas) {
-    for (const linha of String(bloco).split('\n')) {
-      for (let inicio = 0; inicio < linha.length || inicio === 0; inicio += limite) {
-        const parte = linha.slice(inicio, inicio + limite);
-        if (atual && atual.length + parte.length + 1 > limite) {
-          paginas.push(atual);
-          atual = '';
-        }
-        atual += `${atual ? '\n' : ''}${parte}`;
+function codigoAjuda(valor) {
+  return `\`${String(valor).replace(/`/g, '\\`')}\``;
+}
+
+function linhasOpcaoAjuda(opcao) {
+  const detalhes = [opcao.required ? 'obrigatória' : 'opcional', TIPOS_OPCAO[opcao.type] || `tipo ${opcao.type}`];
+  if (opcao.min_value !== undefined) detalhes.push(`mín. ${opcao.min_value}`);
+  if (opcao.max_value !== undefined) detalhes.push(`máx. ${opcao.max_value}`);
+  if (opcao.min_length !== undefined) detalhes.push(`mín. ${opcao.min_length} caracteres`);
+  if (opcao.max_length !== undefined) detalhes.push(`máx. ${opcao.max_length} caracteres`);
+  if (opcao.autocomplete) detalhes.push('autocompletar');
+  if (opcao.channel_types?.length) {
+    detalhes.push(`canais: ${opcao.channel_types.map((tipo) => TIPOS_CANAL[tipo] || `tipo ${tipo}`).join(', ')}`);
+  }
+  const linhas = [`  • ${codigoAjuda(opcao.name)} · ${detalhes.join(' · ')} — ${opcao.description}`];
+  for (const escolha of opcao.choices || []) {
+    // Repetir o nome mantém a escolha identificável mesmo após uma quebra de página.
+    linhas.push(`    ↳ ${codigoAjuda(opcao.name)}: ${codigoAjuda(escolha.value)} — ${escolha.name}`);
+  }
+  return linhas;
+}
+
+// Cada seção tem o caminho completo para que uma continuação nunca perca o
+// contexto do comando, grupo ou subcomando ao mudar de página.
+function secoesComandoAjuda(comando) {
+  const json = definicaoAjuda(comando);
+  const secoes = [{ cabecalho: `**/${json.name}** — ${json.description}`, linhas: [] }];
+  function adicionarOpcoes(opcoes, caminho, secao) {
+    for (const opcao of opcoes || []) {
+      if (opcao.type === 1 || opcao.type === 2) {
+        const caminhoCompleto = `${caminho} ${opcao.name}`;
+        const prefixo = opcao.type === 2 ? '  · Grupo' : '  ·';
+        const proxima = { cabecalho: `${prefixo} /${caminhoCompleto} — ${opcao.description}`, linhas: [] };
+        secoes.push(proxima);
+        adicionarOpcoes(opcao.options, caminhoCompleto, proxima);
+      } else {
+        secao.linhas.push(...linhasOpcaoAjuda(opcao));
       }
     }
-    if (atual.length < limite) atual += '\n';
   }
-  if (atual.trim()) paginas.push(atual.trim());
+  adicionarOpcoes(json.options, json.name, secoes[0]);
+  return secoes;
+}
+
+function formatarComandoAjuda(comando) {
+  return secoesComandoAjuda(comando)
+    .map((secao) => [secao.cabecalho, ...secao.linhas].join('\n')).join('\n');
+}
+
+// Não dividir um par substituto UTF-16 (por exemplo, emoji) entre páginas.
+function partesLinhaAjuda(linha, limite) {
+  if (limite < 2) throw new RangeError('O limite de paginação deve ser de pelo menos 2 caracteres.');
+  if (!linha.length) return [''];
+  const partes = [];
+  for (let inicio = 0; inicio < linha.length;) {
+    let fim = Math.min(inicio + limite, linha.length);
+    if (fim < linha.length && /[\uD800-\uDBFF]/.test(linha[fim - 1]) && /[\uDC00-\uDFFF]/.test(linha[fim])) fim -= 1;
+    partes.push(linha.slice(inicio, fim));
+    inicio = fim;
+  }
+  return partes;
+}
+
+// Cada resposta contém uma única página e fica abaixo dos limites do Discord.
+function dividirAjuda(blocos, limite = LIMITE_DESCRICAO_AJUDA) {
+  if (!Number.isInteger(limite) || limite < 2) throw new RangeError('Limite de paginação inválido.');
+  const paginas = [];
+  let atual = '';
+  function adicionar(linha) {
+    if (atual && atual.length + 1 + linha.length > limite) {
+      paginas.push(atual);
+      atual = '';
+    }
+    atual += `${atual ? '\n' : ''}${linha}`;
+  }
+  for (const bloco of blocos) {
+    if (atual) adicionar('');
+    for (const linha of String(bloco).split('\n')) {
+      for (const parte of partesLinhaAjuda(linha, limite)) adicionar(parte);
+    }
+  }
+  if (atual) paginas.push(atual);
   return paginas;
 }
 
-function ajudaEmbeds(listaComandos = require('./index').comandos) {
-  const porNome = new Map(listaComandos.map((comando) => [comando.data.name, comando]));
-  const usados = new Set();
+function dividirSecoesAjuda(secoes) {
+  const paginas = [];
+  let atual = '';
+  for (const secao of secoes) {
+    const cabecalho = secao.cabecalho;
+    // Nomes e descrições registrados no Discord são muito menores que o limite.
+    // Ainda assim, um cabeçalho artificialmente enorme não trava a paginação.
+    if (cabecalho.length > LIMITE_DESCRICAO_AJUDA - 3) {
+      if (atual) paginas.push(atual);
+      paginas.push(...dividirAjuda([cabecalho, ...secao.linhas]));
+      atual = '';
+      continue;
+    }
+    const partes = [];
+    let fragmento = cabecalho;
+    const espacoLinha = LIMITE_DESCRICAO_AJUDA - cabecalho.length - 1;
+    for (const linha of secao.linhas) {
+      for (const parte of partesLinhaAjuda(linha, espacoLinha)) {
+        if (fragmento.length + 1 + parte.length > LIMITE_DESCRICAO_AJUDA) {
+          partes.push(fragmento);
+          fragmento = cabecalho;
+        }
+        fragmento += `\n${parte}`;
+      }
+    }
+    partes.push(fragmento);
+    for (const parte of partes) {
+      if (atual && atual.length + 2 + parte.length > LIMITE_DESCRICAO_AJUDA) {
+        paginas.push(atual);
+        atual = '';
+      }
+      atual += `${atual ? '\n\n' : ''}${parte}`;
+    }
+  }
+  if (atual) paginas.push(atual);
+  return paginas;
+}
+
+function ajudaEmbeds(listaComandos = require('./index').definicoes()) {
+  const categorias = CATEGORIAS_AJUDA.map((categoria) => ({ ...categoria, secoes: [] }));
+  const outras = { titulo: '📚 Outros comandos', secoes: [] };
+  // O mesmo JSON usado no registro de slash commands é a fonte da ajuda.
+  for (const comando of listaComandos) {
+    const json = definicaoAjuda(comando);
+    const categoria = categorias.find((item) => item.nomes.includes(json.name)) || outras;
+    categoria.secoes.push(...secoesComandoAjuda(json));
+  }
   const saida = [];
-  const adicionarCategoria = (titulo, linhas, cor) => {
-    const paginas = dividirAjuda(linhas);
+  for (const categoria of [...categorias, outras]) {
+    const paginas = dividirSecoesAjuda(categoria.secoes);
     paginas.forEach((descricao, indice) => {
       const parte = paginas.length > 1 ? ` · ${indice + 1}/${paginas.length}` : '';
-      saida.push(embed(`${titulo}${parte}`, descricao, { cor }));
+      saida.push(embed(`${categoria.titulo}${parte}`, descricao, {
+        cor: categoria === outras ? config.CORES.neutro : config.CORES.principal,
+      }));
     });
-  };
-  for (const categoria of CATEGORIAS_AJUDA) {
-    const linhas = categoria.nomes
-      .map((nome) => porNome.get(nome))
-      .filter((comando) => {
-        if (!comando || usados.has(comando.data.name)) return false;
-        usados.add(comando.data.name);
-        return true;
-      })
-      .map(formatarComandoAjuda);
-    if (linhas.length) adicionarCategoria(categoria.titulo, linhas, config.CORES.principal);
   }
-  const restantes = listaComandos.filter((comando) => !usados.has(comando.data.name));
-  if (restantes.length) {
-    adicionarCategoria('📚 Outros comandos', restantes.map(formatarComandoAjuda), config.CORES.neutro);
-  }
+  if (!saida.length) saida.push(embed('❓ Central de ajuda', 'Nenhum comando está registrado.'));
   return saida;
 }
 
 function ajudaPagina(paginas, indice = 0, desativado = false) {
-  const pagina = Math.max(0, Math.min(paginas.length - 1, indice));
-  const inicioMenu = Math.floor(pagina / 25) * 25;
+  const pagina = Math.max(0, Math.min(paginas.length - 1, Number.isInteger(indice) ? indice : 0));
+  const inicioMenu = Math.floor(pagina / TAMANHO_BLOCO_MENU) * TAMANHO_BLOCO_MENU;
   const menu = new StringSelectMenuBuilder()
     .setCustomId('ajuda:categoria')
-    .setPlaceholder('Selecione uma categoria')
+    .setPlaceholder('Selecione uma categoria ou página')
     .setDisabled(desativado)
-    .addOptions(paginas.slice(inicioMenu, inicioMenu + 25).map((item, deslocamento) => ({
+    .addOptions(paginas.slice(inicioMenu, inicioMenu + TAMANHO_BLOCO_MENU).map((item, deslocamento) => ({
       label: item.toJSON().title.slice(0, 100),
       value: String(inicioMenu + deslocamento),
       default: inicioMenu + deslocamento === pagina,
@@ -111,8 +210,18 @@ function ajudaPagina(paginas, indice = 0, desativado = false) {
     new ButtonBuilder().setCustomId('ajuda:proxima').setLabel('Próxima').setStyle(ButtonStyle.Secondary)
       .setDisabled(desativado || pagina === paginas.length - 1),
   );
+  if (paginas.length > TAMANHO_BLOCO_MENU) {
+    botoes.addComponents(
+      new ButtonBuilder().setCustomId('ajuda:bloco_anterior').setLabel('Categorias anteriores').setStyle(ButtonStyle.Secondary)
+        .setDisabled(desativado || inicioMenu === 0),
+      new ButtonBuilder().setCustomId('ajuda:bloco_proximo').setLabel('Mais categorias').setStyle(ButtonStyle.Secondary)
+        .setDisabled(desativado || inicioMenu + TAMANHO_BLOCO_MENU >= paginas.length),
+    );
+  }
+  const faixaMenu = paginas.length > TAMANHO_BLOCO_MENU
+    ? `\nMenu: páginas ${inicioMenu + 1}–${Math.min(inicioMenu + TAMANHO_BLOCO_MENU, paginas.length)}.` : '';
   return {
-    content: `**Central de ajuda · ORG Royal AP**\nPágina ${pagina + 1} de ${paginas.length}. Selecione uma categoria ou navegue pelos botões.\nComandos administrativos continuam sujeitos às permissões da equipe.`,
+    content: `**Central de ajuda · ORG Royal AP**\nPágina ${pagina + 1} de ${paginas.length}. Selecione uma categoria ou navegue pelos botões.${faixaMenu}\nAs opções indicam se são obrigatórias ou opcionais. Comandos administrativos dependem das permissões da equipe.`,
     embeds: [paginas[pagina]],
     components: [new ActionRowBuilder().addComponents(menu), botoes],
     allowedMentions: { parse: [] },
@@ -127,13 +236,17 @@ async function mostrarAjuda(interaction) {
   const coletor = mensagem.createMessageComponentCollector({
     time: 10 * 60 * 1000,
     filter: (clique) => String(clique.user.id) === String(interaction.user.id) &&
-      ['ajuda:categoria', 'ajuda:anterior', 'ajuda:proxima'].includes(clique.customId),
+      ['ajuda:categoria', 'ajuda:anterior', 'ajuda:proxima', 'ajuda:bloco_anterior', 'ajuda:bloco_proximo'].includes(clique.customId),
   });
   coletor.on('collect', async (clique) => {
     try {
       if (clique.customId === 'ajuda:categoria') {
         const escolhida = Number(clique.values?.[0]);
         if (Number.isInteger(escolhida) && escolhida >= 0 && escolhida < paginas.length) pagina = escolhida;
+      } else if (clique.customId === 'ajuda:bloco_anterior') {
+        pagina = Math.max(0, (Math.floor(pagina / TAMANHO_BLOCO_MENU) - 1) * TAMANHO_BLOCO_MENU);
+      } else if (clique.customId === 'ajuda:bloco_proximo') {
+        pagina = Math.min(paginas.length - 1, (Math.floor(pagina / TAMANHO_BLOCO_MENU) + 1) * TAMANHO_BLOCO_MENU);
       } else {
         pagina = Math.max(0, Math.min(paginas.length - 1, pagina + (clique.customId === 'ajuda:proxima' ? 1 : -1)));
       }
@@ -189,7 +302,7 @@ const comandos = [
 
       return responderPrivado(interaction, {
         embeds: [
-          embed('🎛️ Painel geral · ORG Royal AP', 'Controle rápido do servidor. Use os botões abaixo.', {
+          embed('🎛️ Painel geral · ORG Royal AP', 'Acompanhe a operação do servidor e acesse os atalhos abaixo.', {
             cor: config.CORES.principal,
             campos: [
               { name: 'Salas em andamento', value: String(emAndamento), inline: true },
@@ -242,7 +355,7 @@ const comandos = [
 
         return responderPrivado(interaction, {
           embeds: [
-            embed('🤖 Status do bot', 'Tudo certo por aqui.', {
+            embed('🤖 Status do bot', 'Indicadores atuais do bot e do servidor.', {
               cor: config.CORES.sucesso,
               campos: [
                 { name: 'Latência', value: `${Math.round(client.ws.ping)} ms`, inline: true },

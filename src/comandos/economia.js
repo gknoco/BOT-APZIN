@@ -62,7 +62,7 @@ const comandos = [
       const perfil = await royal.ajustarPerfil({
         guildId: interaction.guildId,
         userId: alvo.id,
-        deltas: { wins: quantidade },
+        deltas: { wins: quantidade, coins: quantidade },
         reason: 'vitória manual',
         actorId: interaction.user.id,
         request: interaction.id,
@@ -77,7 +77,7 @@ const comandos = [
         detail: `+${quantidade} vitória(s)`,
       });
       return responderPrivado(interaction, {
-        embeds: [embedSucesso(`+${quantidade} vitória(s) para ${mencao(alvo.id)}.\nAgora: **${perfil.wins}V / ${perfil.losses}D**.`)],
+        embeds: [embedSucesso(`+${quantidade} vitória(s) e +${quantidade} ${config.MOEDA} para ${mencao(alvo.id)}.\nAgora: **${perfil.wins}V / ${perfil.losses}D**.`)],
       });
     },
   },
@@ -99,7 +99,7 @@ const comandos = [
       const perfil = await royal.ajustarPerfil({
         guildId: interaction.guildId,
         userId: alvo.id,
-        deltas: { wins: 1, apostado: centavos, ganho: centavos },
+        deltas: { wins: 1, coins: 1, apostado: centavos, ganho: centavos },
         reason: 'vitória manual',
         actorId: interaction.user.id,
         request: interaction.id,
@@ -119,7 +119,8 @@ const comandos = [
         embeds: [
           embedSucesso(
             `Vitória registrada para ${mencao(alvo.id)}${centavos ? ` (R$ ${(centavos / 100).toFixed(2).replace('.', ',')})` : ''}.\n` +
-              `Perfil: **${perfil.wins}V / ${perfil.losses}D** · ${aproveitamento}% de aproveitamento.`,
+              `Perfil: **${perfil.wins}V / ${perfil.losses}D** · ${aproveitamento}% de aproveitamento.\n` +
+              `Recompensa: **+1 ${config.MOEDA}**.`,
           ),
         ],
       });
@@ -130,6 +131,7 @@ const comandos = [
     data: new SlashCommandBuilder()
       .setName('loja')
       .setDescription('Loja de moedas da ORG')
+      .addSubcommand((sub) => sub.setName('painel').setDescription('Publica o painel permanente da lojinha'))
       .addSubcommand((sub) =>
         sub
           .setName('addcoins')
@@ -154,6 +156,7 @@ const comandos = [
 
     async executar(interaction, { db, client }) {
       const sub = interaction.options.getSubcommand();
+      if (sub === 'painel') return require('./lojinhaPro').publicarPainel(interaction, { db, client });
       const alvo = interaction.options.getUser('usuario');
       const quantidade = interaction.options.getInteger('quantidade');
 

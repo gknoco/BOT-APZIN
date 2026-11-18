@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 process.env.DISCORD_TOKEN = 'test.token.value';
 const comandos = require('../src/comandos');
 const utilidades = require('../src/comandos/utilidades');
@@ -65,7 +66,10 @@ test('ROYAL SALA registra os comandos pedidos e o painel inclui Usar Saldo junto
 test('/ajuda lista todos os comandos e subcomandos registrados', () => {
   const embeds = utilidades.ajudaEmbeds(comandos.comandos);
   const texto = embeds.map((item) => item.toJSON().description || '').join('\n');
-  assert.ok(embeds.length <= 10, 'Discord permite no máximo dez embeds por resposta');
+  assert.ok(embeds.length > 0);
+  for (let pagina = 0; pagina < embeds.length; pagina += 1) {
+    assert.equal(utilidades.ajudaPagina(embeds, pagina).embeds.length, 1, 'Cada resposta contém apenas um embed');
+  }
   for (const comando of comandos.comandos) {
     const json = comando.data.toJSON();
     assert.ok(texto.includes(`**/${json.name}**`), `comando ausente da ajuda: /${json.name}`);
@@ -76,6 +80,11 @@ test('/ajuda lista todos os comandos e subcomandos registrados', () => {
       }
     }
   }
+});
+
+test('auditoria completa da ajuda verifica opções, paginação e navegação', () => {
+  const resultado = spawnSync(process.execPath, ['--test', path.join(__dirname, 'ajuda-cobertura.js')], { encoding: 'utf8' });
+  assert.equal(resultado.status, 0, `${resultado.stdout || ''}\n${resultado.stderr || ''}`);
 });
 
 test('expiração configurável de painéis mantém o padrão de trinta minutos', () => {

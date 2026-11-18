@@ -10,6 +10,9 @@ const comandos = require('../comandos');
 const { handleBotao } = require('../interacoes/botoes');
 const { handleSelect } = require('../interacoes/selects');
 const { handleModal } = require('../interacoes/modais');
+const roletaPro = require('../comandos/roletaPro');
+const lojinhaPro = require('../comandos/lojinhaPro');
+const configEconomia = require('../comandos/configEconomia');
 const convites = require('../servicos/convites');
 const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
@@ -147,6 +150,21 @@ function montar(client, db) {
       }
       // /ajuda possui seu próprio coletor local para paginação.
       if (String(interaction.customId || '').startsWith('ajuda:')) return;
+      // Custom IDs estáveis permitem que painéis públicos continuem operando
+      // após reinicializações, sem depender de coletores em memória.
+      const customId = String(interaction.customId || '');
+      if (customId.startsWith('roletapro:')) {
+        await roletaPro.handleComponent(interaction, ctx);
+        return;
+      }
+      if (customId.startsWith('lojinhapro:')) {
+        await lojinhaPro.handleComponent(interaction, ctx);
+        return;
+      }
+      if (customId.startsWith('configeco:')) {
+        await configEconomia.handleComponent(interaction, ctx);
+        return;
+      }
       if (interaction.isButton()) {
         const tratado = await handleBotao(interaction, ctx);
         if (!tratado) {
