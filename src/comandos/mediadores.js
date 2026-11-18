@@ -11,6 +11,7 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const mediadores = require('../servicos/mediadores');
 const plantao = require('../servicos/plantao');
 const persistenciaSupabase = require('../servicos/supabase');
+const { obterConfig } = require('../db');
 const { exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embedSucesso } = require('../util/embeds');
 
@@ -53,6 +54,9 @@ const comandos = [
       }
 
       const chaveCanal = tipo === 'registro' ? 'canal_configpix' : 'canal_bateponto';
+      if (tipo === 'fila' && String(await obterConfig(db, interaction.guildId, 'canal_partidas_formadas', '') || '') === String(canal.id)) {
+        return responderErro(interaction, 'O painel de bate-ponto não pode ser publicado no canal configurado para partidas formadas. Escolha outro canal.');
+      }
       await persistenciaSupabase.definirConfig(interaction.guildId, chaveCanal, canal.id);
       const painel = tipo === 'registro' ? plantao.painelRegistroPix() : await plantao.painel(db, interaction.guildId);
       const mensagem = await canal.send(painel).catch((erro) => {

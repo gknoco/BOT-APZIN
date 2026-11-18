@@ -346,6 +346,11 @@ async function atualizarPartida(client, db, partidaId) {
 async function notificarPartidaFormada(client, db, partida) {
   const canalId = await obterConfig(db, partida.guild_id, 'canal_partidas_formadas', null);
   if (!canalId) return false;
+  const canalBatePonto = await obterConfig(db, partida.guild_id, 'canal_bateponto', null);
+  if (String(canalBatePonto || '') === String(canalId)) {
+    console.error('[fluxo] publicação bloqueada: canal de filas coincide com o canal de bate-ponto.');
+    return false;
+  }
   const chaveExecucao = `${partida.guild_id}:${partida.id}`;
   if (notificacoesEmAndamento.has(chaveExecucao)) return false;
   notificacoesEmAndamento.add(chaveExecucao);

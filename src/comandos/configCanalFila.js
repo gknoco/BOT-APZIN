@@ -8,7 +8,7 @@ const {
   ActionRowBuilder,
   PermissionFlagsBits,
 } = require('discord.js');
-const { definirConfig } = require('../db');
+const { obterConfig, definirConfig } = require('../db');
 const { ehAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 
 const comando = {
@@ -38,6 +38,10 @@ const comando = {
 async function salvarCanalFila(db, guildId, canalId) {
   const valor = String(canalId || '').trim();
   if (!/^\d{17,20}$/.test(valor)) throw new Error('Informe um ID de canal Discord válido.');
+  const canalBatePonto = await obterConfig(db, guildId, 'canal_bateponto', null);
+  if (String(canalBatePonto || '') === valor) {
+    throw new Error('O canal de partidas formadas não pode ser o mesmo canal do bate-ponto. Escolha outro canal.');
+  }
   await definirConfig(db, guildId, 'canal_partidas_formadas', valor);
   return valor;
 }
