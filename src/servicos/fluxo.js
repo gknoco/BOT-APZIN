@@ -502,9 +502,13 @@ async function ocultarPartidasPendentes(client, db, guildId) {
 async function concederAcessoPartida(client, db, partidaId, userId) {
   const partida = await partidas.buscar(db, partidaId);
   if (!partida) return false;
-  const canal = client.channels.cache.get(String(partida.canal_id)) || await client.channels.fetch(String(partida.canal_id)).catch(() => null);
-  if (!canal?.permissionOverwrites?.edit) return false;
-  await canal.permissionOverwrites.edit(String(userId), {
+  const matchChannel = client.channels.cache.get(String(partida.canal_id))
+    || await client.channels.fetch(String(partida.canal_id)).catch((erro) => {
+      console.error(`[fluxo] não consegui buscar a sala privada ${partida.canal_id}:`, erro);
+      return null;
+    });
+  if (!matchChannel?.permissionOverwrites?.edit || !matchChannel?.send) return false;
+  await matchChannel.permissionOverwrites.edit(String(userId), {
     ViewChannel: true,
     SendMessages: true,
     ReadMessageHistory: true,
@@ -513,12 +517,15 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
   const jogadores = await partidas.jogadores(db, partidaId);
   const idsMencionados = [String(userId), ...jogadores.map((linha) => String(linha.user_id))];
   try {
-    await canal.send({
-      content: `✅ O mediador ${mencao(userId)} aceitou a fila de vocês! Ele enviará a chave Pix nos próximos segundos.\n${jogadores.map((linha) => mencao(linha.user_id)).join(' ')}`,
+    // Esta é uma mensagem pública dentro da sala privada, não uma resposta
+    // efêmera ao botão de aceite no canal administrativo.
+    await matchChannel.send({
+      content: `✅ O mediador ${mencao(userId)} aceitou a fila de vocês e assumiu a sala! Ele enviará a chave Pix nos próximos segundos.\n${jogadores.map((linha) => mencao(linha.user_id)).join(' ')}`,
       allowedMentions: { users: idsMencionados },
     });
   } catch (erro) {
     console.error(`[fluxo] aceite confirmado, mas não consegui enviar aviso na sala privada ${partida.canal_id}:`, erro);
+    return false;
   }
   return true;
 }
