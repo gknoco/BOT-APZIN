@@ -1,6 +1,6 @@
 'use strict';
 
-/** Comandos da staff: PIX, comissões, painel do mediador e análise. */
+/** Comandos da staff: PIX, taxas fixas, painel do mediador e análise. */
 
 const {
   ActionRowBuilder,
@@ -59,10 +59,7 @@ const comandos = [
       .addStringOption((opcao) =>
         opcao.setName('chave').setDescription('Sua chave PIX (CPF, e-mail, telefone ou aleatória)').setRequired(true),
       )
-      .addStringOption((opcao) => opcao.setName('titular').setDescription('Nome de quem recebe'))
-      .addNumberOption((opcao) =>
-        opcao.setName('comissao').setDescription('Sua comissão em % (padrão 5)').setMinValue(0).setMaxValue(50),
-      ),
+      .addStringOption((opcao) => opcao.setName('titular').setDescription('Nome de quem recebe')),
 
     async executar(interaction, { db, client }) {
       if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
@@ -71,30 +68,27 @@ const comandos = [
 
       const chave = interaction.options.getString('chave');
       const titular = interaction.options.getString('titular');
-      const porcento = interaction.options.getNumber('comissao');
-      const comissao = porcento === null || porcento === undefined ? undefined : porcento / 100;
 
       const registro = await staffSupabase.registrarPix({
         guildId: interaction.guildId,
         userId: interaction.user.id,
         chave,
         titular,
-        comissao,
       });
 
       await auditoria.registrar(db, client, {
         guildId: interaction.guildId,
         autorId: interaction.user.id,
         acao: 'PIX de mediador atualizado',
-        detalhe: `${mencao(interaction.user.id)} · comissão ${(registro.comissao * 100).toFixed(1)}%`,
+        detalhe: `${mencao(interaction.user.id)} · taxa fixa de R$ 0,10 por capitão`,
       });
 
       return responderPrivado(interaction, {
         embeds: [
           embedSucesso(
-            `Sua chave PIX foi salva e vai aparecer nas salas que você assumir.\n` +
+              `Sua chave PIX foi salva e vai aparecer nas salas que você assumir.\n` +
               `**Chave:** \`${registro.pix_chave}\`\n` +
-              `**Comissão:** ${(registro.comissao * 100).toFixed(1)}%\n\n` +
+              '**Taxa do mediador:** R$ 0,10 por capitão\n\n' +
               '_A chave fica visível apenas para os jogadores das suas salas._',
           ),
         ],
@@ -178,7 +172,7 @@ const comandos = [
   {
     data: new SlashCommandBuilder()
       .setName('receita_mediadores')
-      .setDescription('Relatório de comissões dos mediadores')
+      .setDescription('Relatório das taxas fixas dos mediadores')
       .addIntegerOption((opcao) =>
         opcao.setName('dias').setDescription('Período em dias (padrão 30)').setMinValue(1).setMaxValue(365),
       ),
@@ -195,17 +189,17 @@ const comandos = [
               (linha) =>
                 `${mencao(linha.mediador_id)}\n` +
                 `┄ ${linha.partidas} partida(s) · movimentado ${reais(linha.movimentado)}\n` +
-                `┄ comissão: **${reais(Math.round(linha.comissao))}**`,
+                `┄ taxa fixa recebida: **${reais(Math.round(linha.taxa_mediador || 0))}**`,
             )
             .join('\n\n')
         : 'Nenhuma partida finalizada com mediador nesse período.';
 
-      const total = linhas.reduce((soma, linha) => soma + Math.round(linha.comissao), 0);
+      const total = linhas.reduce((soma, linha) => soma + Math.round(linha.taxa_mediador || 0), 0);
       return responderPrivado(interaction, {
         embeds: [
           embed(`💼 Receita dos mediadores · últimos ${dias} dias`, corpo, {
             cor: config.CORES.ouro,
-            rodape: `Total de comissões: ${reais(total)}`,
+            rodape: `Total de taxas fixas: ${reais(total)}`,
           }),
         ],
       });
@@ -240,9 +234,9 @@ const comandos = [
             { name: 'Salas em andamento', value: String(ativas.length), inline: true },
             { name: 'Aguardando você', value: String(pendentes), inline: true },
             {
-              name: 'Sua comissão',
+              name: 'Taxa do mediador',
               value: registroPix
-                ? `${(registroPix.comissao * 100).toFixed(1)}%`
+                ? 'R$ 0,10 por capitão'
                 : 'sem PIX cadastrado',
               inline: true,
             },

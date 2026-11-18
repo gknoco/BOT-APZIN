@@ -88,9 +88,9 @@ async function confirmar(db, id, userId) {
   return rpc(db, 'royal_operacional_confirmar_partida', { p_id: String(id), p_user_id: String(userId) });
 }
 
-async function assumir(db, id, mediadorId, comissao) {
+async function assumir(db, id, mediadorId) {
   return alterar(db, id, 'assumir', {
-    mediador_id: String(mediadorId), comissao: Number.isFinite(Number(comissao)) ? Number(comissao) : 0,
+    mediador_id: String(mediadorId), comissao: 0,
   });
 }
 

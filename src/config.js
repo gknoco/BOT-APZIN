@@ -192,7 +192,6 @@ const config = {
   /** Botão "Abrir Free Fire" que acompanha o ID/senha da sala. */
   FREE_FIRE_LINK: texto(process.env.FREE_FIRE_LINK, 'https://ff.garena.com/'),
 
-  COMISSAO_PADRAO: numero(process.env.COMISSAO_PADRAO, 0.05, 0, 0.5),
   MOEDA: texto(process.env.MOEDA, 'Royal Coin'),
 
   LIMITES: {

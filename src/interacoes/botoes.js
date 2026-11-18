@@ -234,7 +234,8 @@ async function assumirSala(interaction, { db, client }, partidaId) {
   }
 
   try {
-    const partida = await partidas.assumir(db, partidaId, interaction.user.id, registro.comissao);
+    // O modelo atual usa taxa fixa por capitão; não há comissão percentual.
+    const partida = await partidas.assumir(db, partidaId, interaction.user.id);
     await fluxo.atualizarPartida(client, db, partidaId);
     await auditoria.registrar(db, client, {
       guildId: interaction.guildId,
@@ -630,7 +631,7 @@ async function handleBotao(interaction, ctx) {
               .map(
                 (linha) =>
                   `${mencao(linha.user_id)} — ${linha.pix_chave ? 'PIX cadastrado' : '**sem PIX**'} · ` +
-                  `${(linha.comissao * 100).toFixed(1)}%${linha.ativo ? '' : ' · inativo'}`,
+                  `taxa fixa de R$ 0,10 por capitão${linha.ativo ? '' : ' · inativo'}`,
               )
               .join('\n')
           : 'Nenhum mediador cadastrado ainda. Use `/registrar_pix`.';
@@ -674,7 +675,7 @@ async function handleBotao(interaction, ctx) {
         const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
         const corpo = registro?.pix_chave
           ? `**Chave PIX:** \`${registro.pix_chave}\`\n**Titular:** ${registro.pix_titular || '—'}\n` +
-            `**Cidade:** ${registro.pix_cidade || '—'}\n**Comissão:** ${(registro.comissao * 100).toFixed(1)}%`
+            `**Cidade:** ${registro.pix_cidade || '—'}\n**Taxa do mediador:** R$ 0,10 por capitão`
           : 'Você ainda não cadastrou PIX. Clique em **Configurar Pix**.';
         await responderVerificacaoPix(interaction, { embeds: [embed('💠 Seu cadastro PIX', corpo)] });
         return true;
@@ -1042,7 +1043,7 @@ async function handleBotao(interaction, ctx) {
         const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
         const corpo = registro?.pix_chave
           ? `**Chave:** \`${registro.pix_chave}\`\n**Titular:** ${registro.pix_titular || '—'}\n` +
-            `**Comissão:** ${(registro.comissao * 100).toFixed(1)}%\n**Status:** ${registro.ativo ? 'ativo' : 'inativo'}`
+            `**Taxa do mediador:** R$ 0,10 por capitão\n**Status:** ${registro.ativo ? 'ativo' : 'inativo'}`
           : 'Você ainda não cadastrou PIX. Use `/registrar_pix chave:SuaChave`.';
         await responderPrivado(interaction, { embeds: [embed('💸 Meu PIX', corpo)] });
         return true;

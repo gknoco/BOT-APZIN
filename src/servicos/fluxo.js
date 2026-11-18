@@ -29,7 +29,9 @@ const { STATUS } = partidas;
 const notificacoesEmAndamento = new Set();
 
 const NOME_TIME = { 1: 'Equipe 1', 2: 'Equipe 2' };
+const TAXA_MEDIADOR_CENTAVOS = 10;
 const nomeTime = (time) => NOME_TIME[Number(time)] || `Equipe ${time}`;
+const valorPorCapitao = (partida) => Math.trunc(Number(partida?.preco) || 0) + TAXA_MEDIADOR_CENTAVOS;
 
 function textoJogadores(lista) {
   return [1, 2]
@@ -57,8 +59,7 @@ function embedPartida(partida, lista) {
   // Card de abertura da sala: "Aguardando" + aposta + premiação + jogadores.
   // Sem textão de instruções — o fluxo anda pelos botões.
   if (partida.status === STATUS.CONFIRMANDO) {
-    const comissao = Number(partida.comissao) > 0 ? Number(partida.comissao) : config.COMISSAO_PADRAO;
-    const premio = Math.round(Number(partida.preco) * 2 * (1 - comissao));
+    const premio = Math.trunc(Number(partida.preco) || 0) * 2;
     const jogadores = lista.length
       ? lista
           .map((linha, indice) => `${indice + 1}. ${mencao(linha.user_id)}${linha.confirmou ? ' ✅' : ''}`)
@@ -100,7 +101,7 @@ function embedPartida(partida, lista) {
       cor = config.CORES.aviso;
       campos.push({
         name: 'PIX do mediador',
-        value: 'aparece aqui quando o mediador assumir a sala',
+        value: `**Valor por capitão (1 por time):** ${reais(valorPorCapitao(partida))}\naparece aqui quando o mediador enviar a chave PIX`,
         inline: false,
       });
       break;
@@ -112,7 +113,7 @@ function embedPartida(partida, lista) {
       cor = config.CORES.aviso;
       campos.push({
         name: 'PIX do mediador',
-        value: 'consulte a mensagem de pagamento enviada pelo mediador nesta sala',
+        value: `**Valor por capitão (1 por time):** ${reais(valorPorCapitao(partida))}\nconsulte a mensagem de pagamento enviada pelo mediador nesta sala`,
         inline: false,
       });
       break;
@@ -588,7 +589,7 @@ async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }
     `💸 **PIX do mediador** — ${mencao(mediadorId)}`,
     `**Chave:** \`${chave}\``,
     titular ? `**Titular:** ${titular}` : null,
-    `**Valor por capitão (1 por time):** ${reais(partida.preco)}`,
+    `**Valor por capitão (1 por time):** ${reais(valorPorCapitao(partida))}`,
     '',
     'Enviem o comprovante **nesta sala**. O mediador libera a sala depois de conferir.',
   ]
@@ -830,5 +831,7 @@ module.exports = {
   encerrarPartida,
   aplicarWO,
   cancelarPartida,
+  TAXA_MEDIADOR_CENTAVOS,
+  valorPorCapitao,
   definirConfig,
 };

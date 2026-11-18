@@ -40,7 +40,7 @@ const comandos = [
       if (registroStaff?.pix_chave) {
         campos.push({
           name: 'Mediador',
-          value: `Comissão ${(registroStaff.comissao * 100).toFixed(0)}%${registroStaff.ativo ? '' : ' · inativo'}`,
+          value: `Taxa fixa: R$ 0,10 por capitão${registroStaff.ativo ? '' : ' · inativo'}`,
           inline: true,
         });
       }
