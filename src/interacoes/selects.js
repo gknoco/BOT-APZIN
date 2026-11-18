@@ -19,7 +19,7 @@ const vendasUI = require('../comandos/vendas');
 const { responderPrivado, responderErro, ehAdmin } = require('../util/seguranca');
 const { embed, reais, listaUsuarios } = require('../util/embeds');
 
-const ACOES = ['preco', 'medcargos', 'medfila', 'medpix', 'compraspacote', 'comprascargos', 'comprascanal'];
+const ACOES = ['preco', 'medcargos', 'medfila', 'medpix', 'compraspacote', 'comprascargos', 'comprascanal', 'addsalasadm'];
 
 /** Confirma o clique na hora (vale para string, cargo, canal, usuário…). */
 async function confirmarClique(interaction) {
@@ -81,6 +81,12 @@ async function handleSelect(interaction, ctx) {
     }
     const { abrirModalCompra } = require('./modais');
     await abrirModalCompra(interaction, quantidade);
+    return true;
+  }
+
+  if (acao === 'addsalasadm') {
+    const { modalQuantidade } = require('../comandos/addsalas');
+    await interaction.showModal(modalQuantidade(String(interaction.values?.[0] || '')));
     return true;
   }
 

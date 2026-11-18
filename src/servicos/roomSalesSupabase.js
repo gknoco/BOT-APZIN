@@ -168,6 +168,13 @@ async function liquidarUsoSala({ requestId, status, roomId, sessionId, errorCode
   });
 }
 
+async function concederSalas({ guildId, userId, requestId, quantity, actorId }) {
+  return rpc('royal_room_admin_grant', {
+    p_guild_id: String(guildId), p_user_id: String(userId), p_request_id: String(requestId),
+    p_rooms_quantity: Math.trunc(Number(quantity)), p_actor_id: String(actorId),
+  });
+}
+
 async function estatisticasSalas(guildId, userId) {
   return rpc('royal_room_stats', { p_guild_id: String(guildId), p_user_id: String(userId) });
 }
@@ -201,5 +208,6 @@ module.exports = {
   reservarSala,
   liquidarUsoSala,
   estatisticasSalas,
+  concederSalas,
   reconciliarUso,
 };

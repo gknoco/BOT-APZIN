@@ -53,7 +53,7 @@ async function salvarVersiculos(db, guildId, canalId, horario) {
 }
 async function salvarAnuncios(db, guildId, valor) {
   const configuracao = {
-    canal_principal_id: validarCanal(valor.canal_principal_id),
+    canal_principal_id: limpar(valor.canal_principal_id) ? validarCanal(valor.canal_principal_id) : null,
     link: validarLink(valor.link),
     canais_divulgacao: validarCanais(valor.canais_divulgacao),
     horario: validarHora(valor.horario),
@@ -91,7 +91,7 @@ async function apagarMensagemAnterior(client, canalId, mensagemId) {
 }
 async function enviarAnuncios(client, db, guildId, config) {
   const mensagens = { ...(config.mensagens || {}) };
-  const canais = [...new Set([config.canal_principal_id, ...config.canais_divulgacao])];
+  const canais = [...new Set([config.canal_principal_id, ...(config.canais_divulgacao || [])].filter(Boolean))];
   for (const canalId of canais) {
     await apagarMensagemAnterior(client, canalId, mensagens[canalId]);
     const canal = await buscarCanal(client, canalId);

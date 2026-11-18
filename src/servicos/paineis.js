@@ -24,6 +24,19 @@ const config = require('../config');
 const { embed, reais, mencao, tituloCurto, listaUsuarios } = require('../util/embeds');
 const filasServico = require('./filas');
 
+const CHAVE_VISUAL = 'filas_visual';
+async function obterVisual(db, guildId) {
+  const valor = await require('./supabase').obterConfig(guildId, CHAVE_VISUAL, db?.client);
+  try { return valor ? JSON.parse(valor) : {}; } catch { return {}; }
+}
+async function salvarVisual(db, guildId, tipo, valor) {
+  const atual = await obterVisual(db, guildId);
+  if (valor === null) delete atual[`${tipo}_url`];
+  else atual[`${tipo}_url`] = String(valor);
+  await require('./supabase').definirConfig(guildId, CHAVE_VISUAL, JSON.stringify(atual), db?.client);
+  return atual;
+}
+
 /** Preços do maior para o menor: é essa a ordem em que as mensagens saem. */
 const PRECOS_ENVIO = [...config.PRECOS].sort((a, b) => b - a);
 
@@ -154,33 +167,22 @@ function jogadoresDaFaixa(modo, preco, entradas = []) {
  * UMA mensagem da fila: card minimalista com o título do modo + valor e o
  * campo Jogadores. Sem textão explicativo e sem rodapé pesado.
  */
-function mensagemPreco(modo, preco, entradas = []) {
+function mensagemPreco(modo, preco, entradas = [], visual = {}) {
   const jogadores = jogadoresDaFaixa(modo, preco, entradas);
+  const card = embed(`${tituloCurto(modo)} | Zenith - Hub`, null, {
+    cor: 0xed4245,
+    campos: [
+      { name: '⦿  Modo:', value: `${modo.titulo} · ${modo.time}v${modo.time}`, inline: false },
+      { name: '◉  Valor:', value: reais(preco), inline: false },
+      { name: '♙  Jogadores:', value: jogadores.length ? jogadores.join('\n') : 'Nenhum jogador na fila.', inline: false },
+    ],
+    rodape: 'Zenith - Hub · Entre na fila pelos botões abaixo',
+  });
+  if (visual.avatar_url) card.setThumbnail(visual.avatar_url);
+  if (visual.banner_url) card.setImage(visual.banner_url);
 
   return {
-    embeds: [
-      embed(`${tituloCurto(modo)} | Zenith - Hub`, null, {
-        cor: 0xed4245,
-        campos: [
-          {
-            name: '⦿  Modo:',
-            value: `${modo.titulo} · ${modo.time}v${modo.time}`,
-            inline: false,
-          },
-          {
-            name: '◉  Valor:',
-            value: reais(preco),
-            inline: false,
-          },
-          {
-            name: '♙  Jogadores:',
-            value: jogadores.length ? jogadores.join('\n') : 'Nenhum jogador na fila.',
-            inline: false,
-          },
-        ],
-        rodape: 'Zenith - Hub · Entre na fila pelos botões abaixo',
-      }),
-    ],
+    embeds: [card],
     components: componentesEntrada(modo, preco, { sair: jogadores.length > 0 }),
   };
 }
@@ -288,8 +290,10 @@ async function apagarMensagens(canal, antigas = [], manter = new Set()) {
  */
 async function publicarFila(db, canal, { guildId, modo, entradas = [] }) {
   const antigas = await mensagensSalvas(db, { guildId, modo: modo.id });
+  const visual = await obterVisual(db, guildId);
   const enviadas = [];
-  for (const { preco, payload } of mensagensFila(modo, entradas)) {
+  for (const { preco } of mensagensFila(modo, entradas)) {
+    const payload = mensagemPreco(modo, preco, entradas, visual);
     const mensagem = await canal.send(payload);
     enviadas.push({ preco, mensagemId: mensagem.id });
   }
@@ -311,6 +315,7 @@ async function atualizar(client, db, { guildId, modo, preco = null }) {
   if (!modoInfo) return false;
 
   const entradas = await filasServico.listar(db, { guildId, modo: modoInfo.id });
+  const visual = await obterVisual(db, guildId);
   const linhas = await mensagensSalvas(db, { guildId, modo: modoInfo.id });
 
   if (linhas.length) {
@@ -340,7 +345,7 @@ async function atualizar(client, db, { guildId, modo, preco = null }) {
           problemas.push(`mensagem ${linha.mensagem_id} é de outro bot`);
           continue;
         }
-        await mensagem.edit(mensagemPreco(modoInfo, Number(linha.preco), entradas));
+        await mensagem.edit(mensagemPreco(modoInfo, Number(linha.preco), entradas, visual));
         editadas += 1;
       } catch (erro) {
         problemas.push(erro.message);
@@ -445,4 +450,6 @@ module.exports = {
   obter,
   todos,
   atualizar,
+  obterVisual,
+  salvarVisual,
 };

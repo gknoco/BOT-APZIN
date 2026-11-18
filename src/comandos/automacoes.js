@@ -38,7 +38,7 @@ const comandoAnuncios = {
     if (!automacoes.ehAdmin(interaction)) return responderErro(interaction, 'Somente administradores podem configurar automações.');
     return interaction.showModal(new ModalBuilder().setCustomId('ap:modalanuncioauto').setTitle('Anúncio automático diário')
       .addComponents(
-        campo('canal_principal_id', 'ID do Canal Principal', 'ID do canal principal de envio', 20),
+        campo('canal_principal_id', 'ID do Canal Principal (opcional)', 'Deixe vazio para usar apenas os canais de divulgação', 20, false),
         campo('link', 'Link do Servidor', 'https://discord.gg/seuconvite', 500),
         campo('canais_divulgacao', 'IDs dos Canais (vírgula)', '82828287889298,7383992928287', 500),
         campo('horario', 'Horário Diário (HH:MM)', 'Ex.: 18:30', 5),

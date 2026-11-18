@@ -34,6 +34,8 @@ const modulos = [
   require('./recarga'),
   require('./resgates'),
   require('./automacoes'),
+  require('./painelFilas'),
+  require('./addsalas'),
 ];
 
 // Preserva os demais comandos do módulo legado, substituindo apenas as duas

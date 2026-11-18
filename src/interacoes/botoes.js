@@ -19,6 +19,7 @@ const vendasDb = require('../servicos/roomSalesSupabase');
 const extratoCarteira = require('../servicos/extratoCarteira');
 const vendasUI = require('../comandos/vendas');
 const recargaUI = require('../comandos/recarga');
+const { validarPixPayload } = require('../servicos/pixPayload');
 const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
 const { MessageFlags } = require('discord.js');
 const {
@@ -323,7 +324,7 @@ async function handleBotao(interaction, ctx) {
   // "regras" e "liberar" abrem modal: showModal precisa ser a PRIMEIRA resposta,
   // por isso esses dois não podem ser adiados.
   const abreModal =
-    acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' ||
+    acao === 'filasavatar' || acao === 'filasbanner' || acao === 'addsalas' || acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' ||
     acao === 'comprarsaldo' ||
     acao === 'recargapix' || acao === 'recargasemanal' || acao === 'recargamensal';
   const painelRecargaPrivado = mensagemEfemera(interaction) &&
@@ -456,6 +457,21 @@ async function handleBotao(interaction, ctx) {
 
       case 'fechar':
         return await fecharSala(interaction, { ...ctx, db }, args[0]);
+
+      case 'filasavatar':
+      case 'filasbanner': {
+        if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Só administradores podem alterar o visual das filas.'); return true; }
+        const { abrirModalVisualFilas } = require('./modais');
+        await abrirModalVisualFilas(interaction, acao === 'filasavatar' ? 'avatar' : 'banner');
+        return true;
+      }
+
+      case 'addsalas': {
+        if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem distribuir salas.'); return true; }
+        const { selectAdm } = require('../comandos/addsalas');
+        await selectAdm(interaction);
+        return true;
+      }
 
       case 'regras':
       case 'liberar': {
@@ -707,7 +723,8 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Não encontrei o código Pix deste plano na sua conta.');
           return true;
         }
-        const limpo = String(codigo).replace(/[\s`]/gu, '');
+        const limpo = validarPixPayload(codigo);
+        if (!limpo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
         if (limpo.length > 2000) {
           await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code ou procure a administração.');
           return true;
@@ -749,7 +766,8 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Não encontrei o código Pix desta recarga na sua carteira.');
           return true;
         }
-        const limpo = String(codigo).replace(/[\s`]/gu, '');
+        const limpo = validarPixPayload(codigo);
+        if (!limpo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
         if (limpo.length > 2000) {
           await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code exibido ou procure a administração.');
           return true;
@@ -826,7 +844,8 @@ async function handleBotao(interaction, ctx) {
           guildId: interaction.guildId,
           userId: interaction.user.id,
         });
-        const codigo = String(pedido?.pix_copy_paste || '').replace(/[\s`]/gu, '');
+        const codigo = validarPixPayload(pedido?.pix_copy_paste || '');
+        if (!codigo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
         if (!codigo) {
           await responderErro(interaction, 'Não encontrei o código Pix deste pedido. Confirme se o pedido pertence à sua conta ou gere um novo atendimento.');
           return true;

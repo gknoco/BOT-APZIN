@@ -22,9 +22,15 @@ const recargas = require('../servicos/recargas');
 const salaInfinita = require('../servicos/salaInfinita');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
+const paineis = require('../servicos/paineis');
 const automacoes = require('../servicos/automacoesDiscord');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
+
+function abrirModalVisualFilas(interaction, tipo) {
+  return interaction.showModal(new ModalBuilder().setCustomId(`ap:modalfilas:${tipo}`).setTitle(`Configurar ${tipo}`)
+    .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('url').setLabel('URL da imagem ou EXCLUSIR').setPlaceholder('https://... ou EXCLUSIR').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500))));
+}
 
 async function responderPainelPrivadoTemporario(interaction, payload) {
   const mensagem = await responderPrivado(interaction, payload);
@@ -657,7 +663,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto'].includes(tipo);
+    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
@@ -717,6 +723,26 @@ async function handleModal(interaction, { db, client }) {
   }
 
   try {
+    if (tipo === 'modalfilas') {
+      if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem alterar as filas.'); return true; }
+      const tipoVisual = String(partes[2]);
+      const valor = String(interaction.fields.getTextInputValue('url') || '').trim();
+      if (!['avatar', 'banner'].includes(tipoVisual) || (!/^https?:\/\/\S+$/i.test(valor) && valor !== 'EXCLUSIR')) throw new Error('Informe uma URL http(s) válida ou EXCLUSIR.');
+      const salvo = await paineis.salvarVisual(db, interaction.guildId, tipoVisual, valor === 'EXCLUSIR' ? null : valor);
+      await responderPrivado(interaction, { content: `✅ ${tipoVisual} das filas ${valor === 'EXCLUSIR' ? 'removido' : 'salvo'} com sucesso.` });
+      return true;
+    }
+    if (tipo === 'modaladdsalas') {
+      if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem distribuir salas.'); return true; }
+      const quantidade = Number(interaction.fields.getTextInputValue('quantidade'));
+      const admId = String(partes[2] || '');
+      if (!/^\d{13,20}$/.test(admId) || !Number.isInteger(quantidade) || quantidade < 1 || quantidade > 100000) throw new Error('Informe uma quantidade inteira entre 1 e 100000.');
+      const resultado = await vendasDb.concederSalas({ guildId: interaction.guildId, userId: admId, requestId: `admin-grant:${interaction.id}`, quantity: quantidade, actorId: interaction.user.id });
+      const membro = await interaction.guild.members.fetch(admId).catch(() => null);
+      await membro?.send(`✅ Você recebeu **${quantidade} sala(s)** para criação de salas Nix no servidor **${interaction.guild.name}**.`).catch(() => {});
+      await responderPrivado(interaction, { content: `✅ ${quantidade} sala(s) creditada(s) para <@${admId}>. Saldo atual: **${resultado?.balance_rooms ?? 'atualizado'}**.` });
+      return true;
+    }
     // Modais do /botperfil (nome, avatar, descrição e status do bot).
     if (String(tipo || '').startsWith('modalbot')) return await aplicarPerfilBot(interaction, client, tipo);
     if (tipo === 'modalpix') return await aplicarPix(interaction, db);
@@ -782,6 +808,7 @@ module.exports = {
   abrirModalCompraSaldo,
   abrirModalRecarga,
   abrirModalPlanoInfinito,
+  abrirModalVisualFilas,
   aplicarPlanoInfinito,
   aplicarRecarga,
   CAMPOS_BOT,
