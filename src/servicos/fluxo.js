@@ -264,16 +264,11 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
   // categoria de filas pelo nome antes de criar na raiz do servidor.
   const categoria = await resolverCategoria(guild, db, 'categoria_filas', config.CATEGORIA_FILAS_ID);
   const A = PermissionFlagsBits;
-  const botId = String(client.user?.id || guild.members.me?.id || '');
-  if (!botId) throw new Error('Não consegui identificar o usuário do bot para criar a sala privada.');
-  const cargosValidos = (await mediadores.mencoes(db, guild.id))
-    .map(String)
-    .filter((id, indice, lista) => lista.indexOf(id) === indice && guild.roles.cache.has(id));
   const permissoes = [
     { id: guild.roles.everyone.id, deny: [A.ViewChannel] },
     {
-      id: botId,
-      allow: [A.ViewChannel, A.SendMessages, A.EmbedLinks, A.ReadMessageHistory, A.ManageMessages],
+      id: client.user.id,
+      allow: [A.ViewChannel, A.SendMessages, A.EmbedLinks, A.ReadMessageHistory, A.ManageChannels, A.ManageMessages],
     },
     ...jogadores.map((userId) => ({
       id: String(userId),
@@ -281,7 +276,7 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
     })),
   ];
   // Só mediadores e ADM veem a sala de aposta.
-  for (const cargo of cargosValidos) {
+  for (const cargo of await mediadores.mencoes(db, guild.id)) {
     permissoes.push({
       id: cargo,
       allow: [A.ViewChannel, A.SendMessages, A.ReadMessageHistory, A.EmbedLinks],
