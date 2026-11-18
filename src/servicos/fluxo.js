@@ -406,8 +406,7 @@ async function notificarPartidaFormada(client, db, partida) {
 /** Publica, quando um mediador entra no plantão, todas as partidas já formadas. */
 async function notificarPartidasPendentes(client, db, guildId) {
   if (!(await plantao.listar(db, guildId)).length) return 0;
-  const pendentes = (await partidas.ativas(db, guildId))
-    .filter((partida) => partida.status === STATUS.AGUARDANDO_MEDIADOR);
+  const pendentes = await partidas.pendentes(db, guildId);
   let publicadas = 0;
   for (const partida of pendentes) {
     if (await notificarPartidaFormada(client, db, partida)) publicadas += 1;
@@ -418,8 +417,7 @@ async function notificarPartidasPendentes(client, db, guildId) {
 /** Remove painéis pendentes quando o último mediador deixa o plantão. */
 async function ocultarPartidasPendentes(client, db, guildId) {
   if ((await plantao.listar(db, guildId)).length) return 0;
-  const pendentes = (await partidas.ativas(db, guildId))
-    .filter((partida) => partida.status === STATUS.AGUARDANDO_MEDIADOR);
+  const pendentes = await partidas.pendentes(db, guildId);
   let removidas = 0;
   for (const partida of pendentes) {
     const chaveMensagem = `partida_aceite_mensagem_${partida.id}`;

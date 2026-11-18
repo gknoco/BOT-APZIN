@@ -67,6 +67,12 @@ async function ativas(db, guildId) {
     .eq('guild_id', String(guildId)).in('status', [...ATIVOS]).order('criado_em').order('id'), 'listar partidas ativas');
 }
 
+async function pendentes(db, guildId) {
+  return listarPaginado(() => cliente(db).from(TABELAS.partidas).select(CAMPOS)
+    .eq('guild_id', String(guildId)).eq('status', STATUS.AGUARDANDO_MEDIADOR)
+    .order('criado_em').order('id'), 'listar partidas pendentes de mediador');
+}
+
 /** RPC específica de transições da partida; não interpreta SQL nem replica SQLite. */
 async function alterar(db, id, acao, dados = {}) {
   return rpc(db, 'royal_operacional_alterar_partida', { p_id: String(id), p_acao: acao, p_dados: dados });
@@ -128,5 +134,5 @@ async function cancelar(db, { partidaId, autorId = null, motivo = 'cancelada pel
 }
 
 module.exports = { STATUS, ATIVOS, criar, buscar, jogadores, confirmados, definirMensagem, porCanal,
-  ativas, ativasDoJogador, definirRegras, confirmar, assumir, marcarPago, liberarSala,
+  ativas, pendentes, ativasDoJogador, definirRegras, confirmar, assumir, marcarPago, liberarSala,
   darGo, finalizar, aplicarWO, cancelar };
