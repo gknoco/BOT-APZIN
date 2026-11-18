@@ -520,7 +520,7 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
     // Esta é uma mensagem pública dentro da sala privada, não uma resposta
     // efêmera ao botão de aceite no canal administrativo.
     await matchChannel.send({
-      content: `✅ O mediador ${mencao(userId)} aceitou a fila de vocês e assumiu a sala! Ele enviará a chave Pix nos próximos segundos.\n${jogadores.map((linha) => mencao(linha.user_id)).join(' ')}`,
+      content: `✅ O mediador <@${userId}> aceitou a fila de vocês e assumiu a sala! Ele enviará a chave Pix nos próximos segundos.\n${jogadores.map((linha) => `<@${linha.user_id}>`).join(' ')}`,
       allowedMentions: { users: idsMencionados },
     });
   } catch (erro) {
