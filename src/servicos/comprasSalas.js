@@ -20,6 +20,19 @@ function resumoErro(error) {
   return String(error?.code || (error?.status ? `mp_http_${error.status}` : error?.name || 'mp_processing_error')).slice(0, 80);
 }
 
+function mensagemFalhaMercadoPago(error) {
+  if (error?.code === 'mp_config_missing' || error?.code === 'mp_webhook_url_invalid' || error?.code === 'mp_token_missing') {
+    return 'A integração do Mercado Pago está incompleta. A administração precisa revisar as credenciais e a URL do webhook.';
+  }
+  if (error?.definitive) {
+    const detalhe = String(error.apiCause?.[0]?.description || error.apiMessage || '').replace(/[\r\n]/g, ' ').trim().slice(0, 240);
+    return detalhe
+      ? `O Mercado Pago rejeitou a cobrança: ${detalhe}`
+      : 'O Mercado Pago rejeitou a cobrança. Confira o e-mail informado e tente novamente.';
+  }
+  return 'O resultado da solicitação ao Mercado Pago ficou incerto. Não repita o pagamento; aguarde o webhook ou procure a administração.';
+}
+
 async function criarPedidoPix({ guildId, userId, requestId, quantity, couponCode, payerEmail }) {
   const email = String(payerEmail || '').trim().toLowerCase();
   if (!validarEmailPix(email)) throw new Error(MENSAGEM_EMAIL_INVALIDO);
@@ -51,9 +64,9 @@ async function criarPedidoPix({ guildId, userId, requestId, quantity, couponCode
       console.error('[compras-salas] não consegui atualizar o pedido após falha MP:', dbError.message);
     });
     if (status === 'manual_review') {
-      throw new Error('O resultado da solicitação ao Mercado Pago ficou incerto. Não repita o pagamento; aguarde o webhook ou procure a administração.');
+      throw new Error(mensagemFalhaMercadoPago(error));
     }
-    throw new Error(error.message || 'Não consegui criar o Pix. Confira as credenciais Mercado Pago no Railway.');
+    throw new Error(mensagemFalhaMercadoPago(error));
   }
 
   if (payment.status === 'approved') {
@@ -132,6 +145,7 @@ module.exports = {
   validarEmailPix,
   textoPagamentoAprovado,
   resumoErro,
+  mensagemFalhaMercadoPago,
   criarPedidoPix,
   aplicarPagamentoVerificado,
   processarPagamento,

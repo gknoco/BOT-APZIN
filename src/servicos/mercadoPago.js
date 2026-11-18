@@ -8,12 +8,15 @@ const API = 'https://api.mercadopago.com';
 const TIMEOUT_MS = 12000;
 
 class ErroMercadoPago extends Error {
-  constructor(message, { status = 0, definitive = false, code = 'mp_error' } = {}) {
+  constructor(message, { status = 0, definitive = false, code = 'mp_error', apiMessage = null, apiCause = null, details = null } = {}) {
     super(message);
     this.name = 'ErroMercadoPago';
     this.status = status;
     this.definitive = definitive;
     this.code = code;
+    this.apiMessage = apiMessage;
+    this.apiCause = apiCause;
+    this.details = details;
   }
 }
 
@@ -109,20 +112,40 @@ async function requisitar(caminho, { metodo = 'GET', corpo, idempotencyKey } = {
     let data = {};
     try { data = texto ? JSON.parse(texto) : {}; } catch { data = {}; }
     if (!response.ok) {
-      throw new ErroMercadoPago(`Mercado Pago respondeu HTTP ${response.status}.`, {
+      const apiMessage = typeof data?.message === 'string' ? data.message.slice(0, 300) : null;
+      const apiCause = Array.isArray(data?.cause)
+        ? data.cause.slice(0, 5).map((cause) => ({
+          code: cause?.code,
+          description: typeof cause?.description === 'string' ? cause.description.slice(0, 300) : undefined,
+        }))
+        : null;
+      const erro = new ErroMercadoPago(`Mercado Pago respondeu HTTP ${response.status}.`, {
         status: response.status,
         definitive: response.status >= 400 && response.status < 500,
         code: `mp_http_${response.status}`,
+        apiMessage,
+        apiCause,
+        details: { status: response.status, message: apiMessage, cause: apiCause },
       });
+      console.error('[mercado-pago] resposta de erro da API:', JSON.stringify({
+        endpoint: caminho,
+        status: response.status,
+        code: erro.code,
+        message: apiMessage,
+        cause: apiCause,
+      }));
+      throw erro;
     }
     return data;
   } catch (error) {
     if (error instanceof ErroMercadoPago) throw error;
     const abortado = error?.name === 'AbortError';
-    throw new ErroMercadoPago(abortado ? 'Tempo limite ao falar com o Mercado Pago.' : 'Falha de rede ao falar com o Mercado Pago.', {
+    const erro = new ErroMercadoPago(abortado ? 'Tempo limite ao falar com o Mercado Pago.' : 'Falha de rede ao falar com o Mercado Pago.', {
       code: abortado ? 'mp_timeout' : 'mp_network_error',
       definitive: false,
     });
+    console.error('[mercado-pago] falha de transporte:', JSON.stringify({ endpoint: caminho, code: erro.code, message: error?.message || erro.message }));
+    throw erro;
   } finally {
     clearTimeout(timer);
   }
@@ -137,21 +160,42 @@ async function criarPix({ order, payerEmail, description }) {
   if (!validarEmailPix(email)) {
     throw new ErroMercadoPago('Informe um e-mail válido do pagador.', { code: 'mp_email_invalid', definitive: true });
   }
+  const transactionAmount = Number((Number(order.amount_cents) / 100).toFixed(2));
+  if (!Number.isFinite(transactionAmount) || transactionAmount < 0.01) {
+    throw new ErroMercadoPago('O valor do Pix precisa ser de pelo menos R$ 0,01.', { code: 'mp_amount_invalid', definitive: true });
+  }
+  const descricao = String(description || `${Number(order.rooms_quantity)} sala(s) automatizada(s) · Royal Sala`)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 250);
   const corpo = {
-    transaction_amount: Number((Number(order.amount_cents) / 100).toFixed(2)),
+    transaction_amount: transactionAmount,
     payment_method_id: 'pix',
-    description: String(description || `${Number(order.rooms_quantity)} sala(s) automatizada(s) · Royal Sala`).slice(0, 250),
+    description: descricao || 'Compra de salas Royal Sala',
     external_reference: String(order.id),
     payer: { email },
     date_of_expiration: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     notification_url: config.MP_WEBHOOK_URL,
   };
   // A chave é o UUID persistido do pedido e fica estável em qualquer retry da mesma compra.
-  const pagamento = await requisitar('/v1/payments', {
-    metodo: 'POST',
-    corpo,
-    idempotencyKey: String(order.id),
-  });
+  let pagamento;
+  try {
+    pagamento = await requisitar('/v1/payments', {
+      metodo: 'POST',
+      corpo,
+      idempotencyKey: String(order.id),
+    });
+  } catch (erro) {
+    console.error('[mercado-pago] falha ao criar Pix:', JSON.stringify({
+      code: erro.code,
+      status: erro.status,
+      definitive: erro.definitive,
+      apiMessage: erro.apiMessage,
+      apiCause: erro.apiCause,
+      orderId: String(order.id),
+      transactionAmount,
+      payerDomain: email.split('@')[1] || null,
+    }));
+    throw erro;
+  }
   const transacao = pagamento?.point_of_interaction?.transaction_data || {};
   if (!pagamento?.id || !transacao.qr_code || !transacao.qr_code_base64) {
     throw new ErroMercadoPago('O pagamento foi criado, mas o Mercado Pago não retornou o Pix copia e cola; verifique o status antes de tentar novamente.', {
