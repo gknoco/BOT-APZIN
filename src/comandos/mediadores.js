@@ -10,6 +10,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const mediadores = require('../servicos/mediadores');
 const plantao = require('../servicos/plantao');
+const plantaoModalidade = require('../servicos/plantaoModalidade');
 const persistenciaSupabase = require('../servicos/supabase');
 const { obterConfig } = require('../db');
 const { exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
@@ -107,5 +108,38 @@ const comandos = [
     },
   },
 ];
+
+const paineisEspeciais = [
+  ['painelbatepontossmobile', 'ss_mobile', 'Publica o painel de bate-ponto SS Mobile'],
+  ['painelbatepontossemu', 'ss_emu', 'Publica o painel de bate-ponto SS EMU'],
+].flatMap(([nome, modalidade, descricao]) => [
+  {
+    data: new SlashCommandBuilder().setName(nome).setDescription(descricao),
+    async executar(interaction, { db }) {
+      if (!(await exigirAdmin(interaction, 'Só ADM pode publicar este painel de bate-ponto.'))) return;
+      if (!interaction.channel?.send) return responderErro(interaction, 'Use este comando em um canal de texto.');
+      const mensagem = await interaction.channel.send(await plantaoModalidade.painel(db, interaction.guildId, modalidade));
+      await mensagem.pin?.().catch(() => {});
+      return responderPrivado(interaction, {
+        embeds: [embedSucesso(`Painel ${plantaoModalidade.obterModalidade(modalidade).label} publicado e fixado neste canal.`)],
+      });
+    },
+  },
+  {
+    data: new SlashCommandBuilder()
+      .setName(nome.replace('painel', 'limpar'))
+      .setDescription(`Limpa o plantão ${plantaoModalidade.obterModalidade(modalidade).label} e remove o cargo específico`),
+    async executar(interaction, { db }) {
+      if (!(await exigirAdmin(interaction, 'Só ADM pode limpar este plantão.'))) return;
+      const resultado = await plantaoModalidade.limparComCargo(interaction.guild, db, modalidade);
+      const aviso = resultado.falhas.length ? ` ${resultado.falhas.length} remoção(ões) falharam por permissão.` : '';
+      return responderPrivado(interaction, {
+        embeds: [embedSucesso(`Plantão ${plantaoModalidade.obterModalidade(modalidade).label} resetado. ${resultado.removidos}/${resultado.encontrados} cargo(s) removido(s).${aviso}`)],
+      });
+    },
+  },
+]);
+
+comandos.push(...paineisEspeciais);
 
 module.exports = { comandos };

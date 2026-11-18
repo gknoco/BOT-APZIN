@@ -10,6 +10,7 @@ const persistenciaSupabase = require('../servicos/supabase');
 const filas = require('../servicos/filas');
 const paineis = require('../servicos/paineis');
 const plantao = require('../servicos/plantao');
+const plantaoModalidade = require('../servicos/plantaoModalidade');
 const salas = require('../servicos/salas');
 const mediadores = require('../servicos/mediadores');
 const auditoria = require('../servicos/auditoria');
@@ -315,6 +316,59 @@ async function fecharSala(interaction, { db, client }, partidaId) {
   return true;
 }
 
+async function tratarPlantaoModalidade(interaction, { db }, modalidade, acao) {
+  const dados = plantaoModalidade.obterModalidade(modalidade);
+  if (!plantaoModalidade.autorizado(interaction.member, modalidade)) {
+    await responderErro(interaction, `Você precisa do cargo <@&${dados.cargoAcesso}> para usar o plantão ${dados.label}.`);
+    return true;
+  }
+
+  if (acao === `${dados.prefixo}status`) {
+    await interaction.editReply(await plantaoModalidade.painel(db, interaction.guildId, modalidade));
+    return true;
+  }
+
+  if (acao === `${dados.prefixo}entrar`) {
+    const cadastroPix = await staffSupabase.obter(interaction.guildId, interaction.user.id);
+    if (!cadastroPix?.pix_chave) {
+      await responderErro(interaction, 'Você precisa registrar seu Pix antes de entrar neste plantão.');
+      return true;
+    }
+    try {
+      await plantaoModalidade.adicionarCargo(interaction.guild, interaction.user.id, modalidade);
+      try {
+        await plantaoModalidade.entrar(db, interaction.guildId, interaction.user.id, modalidade);
+      } catch (erro) {
+        await plantaoModalidade.removerCargo(interaction.guild, interaction.user.id, modalidade).catch((rollback) => {
+          console.error(`[botoes] rollback do cargo ${dados.label} falhou:`, rollback.message);
+        });
+        throw erro;
+      }
+      await interaction.editReply(await plantaoModalidade.painel(db, interaction.guildId, modalidade));
+      await responderPrivado(interaction, { embeds: [embedSucesso(`Você entrou no plantão ${dados.label}.`)] });
+    } catch (erro) {
+      console.error(`[botoes] entrada no plantão ${dados.label}:`, erro);
+      await responderErro(interaction, erro.message);
+    }
+    return true;
+  }
+
+  if (acao === `${dados.prefixo}sair`) {
+    try {
+      await plantaoModalidade.removerCargo(interaction.guild, interaction.user.id, modalidade);
+      const saiu = await plantaoModalidade.sair(db, interaction.guildId, interaction.user.id, modalidade);
+      await interaction.editReply(await plantaoModalidade.painel(db, interaction.guildId, modalidade));
+      await responderPrivado(interaction, { embeds: [embedSucesso(saiu ? `Você saiu do plantão ${dados.label}.` : `Você não estava no plantão ${dados.label}.`)] });
+    } catch (erro) {
+      console.error(`[botoes] saída do plantão ${dados.label}:`, erro);
+      await responderErro(interaction, erro.message);
+    }
+    return true;
+  }
+
+  return false;
+}
+
 async function handleBotao(interaction, ctx) {
   const partes = String(interaction.customId || '').split(':');
   if (partes[0] !== 'ap') return false;
@@ -346,6 +400,16 @@ async function handleBotao(interaction, ctx) {
 
   try {
     switch (acao) {
+      case 'ssmobileentrar':
+      case 'ssmobilesair':
+      case 'ssmobilestatus':
+        return tratarPlantaoModalidade(interaction, ctx, 'ss_mobile', acao);
+
+      case 'ssemuentrar':
+      case 'ssemusair':
+      case 'ssemustatus':
+        return tratarPlantaoModalidade(interaction, ctx, 'ss_emu', acao);
+
       case 'entrar':
       case 'gelo':
         await entrarNaFilaBotao(interaction, ctx, args[0], args[1], args[2]);
