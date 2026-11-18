@@ -71,4 +71,27 @@ function validarPixPayload(valor) {
     return false;
   }
 }
-module.exports = { crc16Ccitt, limparPayload, normalizarPixPayload, validarPixPayload, montarTLV };
+
+/**
+ * Valida o payload exatamente como recebido, sem trim, replace ou recálculo.
+ * O qr_code do Mercado Pago deve ser repassado byte a byte ao usuário.
+ */
+function validarPixPayloadExato(valor) {
+  try {
+    if (typeof valor !== 'string' || !valor || valor.length > 1200 || /[`\r\n]/.test(valor)) return false;
+    const campos = lerTLV(valor);
+    const ids = new Set(campos.map((campo) => campo.id));
+    const campo00 = campos.find((campo) => campo.id === '00');
+    const campo26 = campos.find((campo) => campo.id === '26');
+    const crc = campos[campos.length - 1];
+    if (!ids.has('00') || !ids.has('26') || !campo00 || campo00.valor !== '01' || !crc || crc.id !== '63' || crc.valor.length !== 4) return false;
+    const subcampos = lerTLV(campo26.valor);
+    const gui = subcampos.find((campo) => campo.id === '00');
+    if (!gui || gui.valor !== 'BR.GOV.BCB.PIX') return false;
+    const semCrc = valor.slice(0, -8);
+    return crc.valor === crc16Ccitt(`${semCrc}6304`);
+  } catch {
+    return false;
+  }
+}
+module.exports = { crc16Ccitt, limparPayload, normalizarPixPayload, validarPixPayload, validarPixPayloadExato, montarTLV };

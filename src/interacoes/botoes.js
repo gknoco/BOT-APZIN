@@ -19,7 +19,7 @@ const vendasDb = require('../servicos/roomSalesSupabase');
 const extratoCarteira = require('../servicos/extratoCarteira');
 const vendasUI = require('../comandos/vendas');
 const recargaUI = require('../comandos/recarga');
-const { validarPixPayload } = require('../servicos/pixPayload');
+const { validarPixPayloadExato } = require('../servicos/pixPayload');
 const { embed, embedSucesso, embedErro, reais, mencao, mencaoCargo, dataBR } = require('../util/embeds');
 const { MessageFlags } = require('discord.js');
 const {
@@ -724,7 +724,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Não encontrei o código Pix deste plano na sua conta.');
           return true;
         }
-        const limpo = validarPixPayload(codigo);
+        const limpo = validarPixPayloadExato(codigo) ? codigo : null;
         if (!limpo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
         if (limpo.length > 2000) {
           await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code ou procure a administração.');
@@ -767,7 +767,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Não encontrei o código Pix desta recarga na sua carteira.');
           return true;
         }
-        const limpo = validarPixPayload(codigo);
+        const limpo = validarPixPayloadExato(codigo) ? codigo : null;
         if (!limpo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
         if (limpo.length > 2000) {
           await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code exibido ou procure a administração.');
@@ -845,7 +845,8 @@ async function handleBotao(interaction, ctx) {
           guildId: interaction.guildId,
           userId: interaction.user.id,
         });
-        const codigo = validarPixPayload(pedido?.pix_copy_paste || '');
+        const codigoOriginal = pedido?.pix_copy_paste || '';
+        const codigo = validarPixPayloadExato(codigoOriginal) ? codigoOriginal : null;
         if (!codigo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
         if (!codigo) {
           await responderErro(interaction, 'Não encontrei o código Pix deste pedido. Confirme se o pedido pertence à sua conta ou gere um novo atendimento.');
