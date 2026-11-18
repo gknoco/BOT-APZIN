@@ -20,6 +20,7 @@ const filas = require('./filas');
 const partidas = require('./partidas');
 const paineis = require('./paineis');
 const mediadores = require('./mediadores');
+const plantao = require('./plantao');
 const blacklist = require('./blacklist');
 const auditoria = require('./auditoria');
 const royalSupabase = require('./royalSupabase');
@@ -351,6 +352,7 @@ async function notificarPartidaFormada(client, db, partida) {
   try {
     const canal = client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null);
     if (!canal?.send) return false;
+    if (!(await plantao.listar(db, partida.guild_id)).length) return false;
     const chaveMensagem = `partida_aceite_mensagem_${partida.id}`;
     const mensagemSalva = await obterConfig(db, partida.guild_id, chaveMensagem, null);
     if (mensagemSalva) {
@@ -405,6 +407,30 @@ async function notificarPartidasPendentes(client, db, guildId) {
     if (await notificarPartidaFormada(client, db, partida)) publicadas += 1;
   }
   return publicadas;
+}
+
+/** Remove painéis pendentes quando o último mediador deixa o plantão. */
+async function ocultarPartidasPendentes(client, db, guildId) {
+  if ((await plantao.listar(db, guildId)).length) return 0;
+  const pendentes = (await partidas.ativas(db, guildId))
+    .filter((partida) => partida.status === STATUS.AGUARDANDO_MEDIADOR);
+  let removidas = 0;
+  for (const partida of pendentes) {
+    const chaveMensagem = `partida_aceite_mensagem_${partida.id}`;
+    const mensagemId = await obterConfig(db, guildId, chaveMensagem, null);
+    if (!mensagemId) continue;
+    const canalId = await obterConfig(db, guildId, 'canal_partidas_formadas', null);
+    const canal = canalId
+      ? (client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null))
+      : null;
+    const mensagem = await canal?.messages?.fetch?.(String(mensagemId)).catch?.(() => null);
+    if (mensagem) {
+      await mensagem.delete().catch(() => {});
+      removidas += 1;
+    }
+    await definirConfig(db, guildId, chaveMensagem, null);
+  }
+  return removidas;
 }
 
 async function concederAcessoPartida(client, db, partidaId, userId) {
@@ -671,6 +697,7 @@ module.exports = {
   atualizarPartida,
   notificarPartidaFormada,
   notificarPartidasPendentes,
+  ocultarPartidasPendentes,
   concederAcessoPartida,
   entrarNaFila,
   anunciarPix,
