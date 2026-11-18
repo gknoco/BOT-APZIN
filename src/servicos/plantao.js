@@ -137,20 +137,20 @@ function componentes() {
 async function embedFila(db, guildId) {
   const fila = await listar(db, guildId);
   const corpo = [
-    '**Seja bem-vindo(a) ao painel de mediação ORG ⚡ Royal AP!**',
+    'Painel exclusivo de plantão para mediadores',
     '',
-    `**Status atual:** ${fila.length} mediador(es) na fila`,
+    `Status atual: ${fila.length} mediador(es) online`,
     fila.length
       ? ''
-      : '⚠️ **Atenção** — Nenhum mediador na fila no momento.',
+      : '⚠️ Nenhum mediador online neste plantão.',
     fila.length ? fila.map((linha, indice) => `**${indice + 1}.** ${mencao(linha.user_id)}`).join('\n') : '',
     '',
-    'Clique no botão abaixo para entrar ou sair da fila de mediação.',
+    'Apenas membros com o cargo <@&1543684028719173732> podem interagir com este painel.',
   ]
     .filter((linha) => linha !== '')
     .join('\n');
 
-  return embed('👤 Fila de Mediadores', corpo, { cor: config.CORES.principal, rodape: 'ORG Royal AP · mediação' });
+  return embed('🛡️ Plantão de Mediadores', corpo, { cor: config.CORES.principal, rodape: 'ORG Royal AP · mediação' });
 }
 
 const painel = async (db, guildId) => ({ embeds: [await embedFila(db, guildId)], components: componentes() });
