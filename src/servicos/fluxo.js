@@ -389,6 +389,21 @@ async function notificarPartidaFormada(client, db, partida) {
       });
       if (mensagemExistente) return true;
     }
+    // Repara referências ausentes/stale e bloqueia duplicatas criadas por
+    // reinício do processo ou por chamadas concorrentes que não salvaram a
+    // configuração antes de uma nova varredura.
+    const mensagensRecentes = await canal.messages.fetch({ limit: 100 }).catch((erro) => {
+      console.error(`[fluxo] falha ao procurar painéis duplicados da partida ${partida.id}:`, erro);
+      return null;
+    });
+    const customIdPainel = `ap:assumirnotificacao:${partida.id}`;
+    const painelExistente = [...(mensagensRecentes?.values?.() || [])].find((mensagem) =>
+      mensagem.components?.some((linha) => linha.components?.some((componente) => componente.customId === customIdPainel)));
+    if (painelExistente) {
+      await definirConfig(db, partida.guild_id, chaveMensagem, painelExistente.id);
+      console.warn(`[fluxo] painel já existente da partida ${partida.id} reutilizado: ${painelExistente.id}.`);
+      return true;
+    }
     const guild = canal.guild || client.guilds.cache.get(String(partida.guild_id));
     const jogadores = await partidas.jogadores(db, partida.id);
     const nomes = await Promise.all(jogadores.map(async (linhaJogador) => {
@@ -496,7 +511,34 @@ async function ocultarPartidasPendentes(client, db, guildId) {
       }
     }
   }
-  return removidas;
+  return true;
+}
+
+/** Remove imediatamente o painel administrativo de uma partida aceita. */
+async function removerPainelNotificacao(client, db, guildId, partidaId, mensagem = null) {
+  const canalId = await obterConfig(db, guildId, 'canal_partidas_formadas', null);
+  const chaveMensagem = `partida_aceite_mensagem_${partidaId}`;
+  const mensagemId = await obterConfig(db, guildId, chaveMensagem, null);
+  const alvos = [mensagem];
+  if (canalId && mensagemId && (!mensagem || String(mensagem.id) !== String(mensagemId))) {
+    const canal = client.channels.cache.get(String(canalId))
+      || await client.channels.fetch(String(canalId)).catch((erro) => {
+        console.error(`[fluxo] não consegui buscar canal de filas ${canalId} para apagar painel aceito:`, erro);
+        return null;
+      });
+    const salvo = await canal?.messages?.fetch?.(String(mensagemId)).catch((erro) => {
+      if (erro?.code !== 10008) console.error(`[fluxo] não consegui buscar painel aceito ${mensagemId}:`, erro);
+      return null;
+    });
+    if (salvo) alvos.push(salvo);
+  }
+  for (const alvo of alvos.filter(Boolean)) {
+    await alvo.delete().catch((erro) => {
+      if (erro?.code !== 10008) console.error(`[fluxo] não consegui apagar painel aceito ${alvo.id}:`, erro);
+    });
+  }
+  await definirConfig(db, guildId, chaveMensagem, null);
+  return true;
 }
 
 async function concederAcessoPartida(client, db, partidaId, userId) {
@@ -781,6 +823,7 @@ module.exports = {
   notificarPartidaFormada,
   notificarPartidasPendentes,
   ocultarPartidasPendentes,
+  removerPainelNotificacao,
   concederAcessoPartida,
   entrarNaFila,
   anunciarPix,

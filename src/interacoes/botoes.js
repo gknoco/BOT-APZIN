@@ -410,10 +410,14 @@ async function handleBotao(interaction, ctx) {
         await assumirSala(interaction, ctx, args[0]);
         const atual = await partidas.buscar(db, args[0]);
         if (atual?.mediador_id === interaction.user.id) {
+          // O painel do canal administrativo desaparece assim que o lock do
+          // Supabase confirma o mediador, sem esperar o aviso da sala privada.
+          await interaction.message?.delete?.().catch?.(() => {});
+          await fluxo.removerPainelNotificacao(client, db, interaction.guildId, args[0])
+            .catch((erro) => console.error(`[botoes] não consegui remover o painel aceito ${args[0]}:`, erro));
           const avisoPublicado = await fluxo.concederAcessoPartida(client, db, args[0], interaction.user.id);
           if (avisoPublicado) {
             if (interaction.channel?.isThread?.()) await interaction.channel.delete('Partida aceita por um ADM de plantão').catch(() => {});
-            else await interaction.message?.delete?.().catch?.(() => {});
           } else {
             console.error(`[botoes] aceite ${args[0]} concluído, mas o aviso público não foi publicado na sala privada.`);
           }
