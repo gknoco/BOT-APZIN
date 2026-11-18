@@ -546,10 +546,10 @@ async function handleBotao(interaction, ctx) {
 
       case 'plantaosair': {
         const saiu = await plantao.sair(db, { guildId: interaction.guildId, userId: interaction.user.id });
-        await interaction.editReply(await plantao.painel(db, interaction.guildId));
         await fluxo.ocultarPartidasPendentes(client, db, interaction.guildId).catch((erro) => {
-          console.error('[botoes] não consegui ocultar partidas pendentes após saída do plantão:', erro.message);
+          console.error(`[botoes] não consegui ocultar partidas pendentes após saída do plantão da guild ${interaction.guildId}:`, erro);
         });
+        await interaction.editReply(await plantao.painel(db, interaction.guildId));
         await responderPrivado(interaction, {
           embeds: [embedSucesso(saiu ? 'Você saiu do plantão.' : 'Você não estava no plantão.')],
         });

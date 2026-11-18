@@ -445,22 +445,49 @@ async function notificarPartidasPendentes(client, db, guildId) {
 /** Remove painéis pendentes quando o último mediador deixa o plantão. */
 async function ocultarPartidasPendentes(client, db, guildId) {
   if ((await plantao.listar(db, guildId)).length) return 0;
+  const canalId = await obterConfig(db, guildId, 'canal_partidas_formadas', null);
+  const canalBatePonto = await obterConfig(db, guildId, 'canal_bateponto', null);
+  if (!canalId || String(canalId) === String(canalBatePonto || '')) return 0;
   const pendentes = await partidas.pendentes(db, guildId);
   let removidas = 0;
   for (const partida of pendentes) {
     const chaveMensagem = `partida_aceite_mensagem_${partida.id}`;
     const mensagemId = await obterConfig(db, guildId, chaveMensagem, null);
     if (!mensagemId) continue;
-    const canalId = await obterConfig(db, guildId, 'canal_partidas_formadas', null);
-    const canal = canalId
-      ? (client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null))
-      : null;
-    const mensagem = await canal?.messages?.fetch?.(String(mensagemId)).catch?.(() => null);
+    const canal = client.channels.cache.get(String(canalId))
+      || await client.channels.fetch(String(canalId)).catch((erro) => {
+        console.error(`[fluxo] não consegui buscar canal de filas ${canalId} para limpeza:`, erro);
+        return null;
+      });
+    const mensagem = await canal?.messages?.fetch?.(String(mensagemId)).catch?.((erro) => {
+      if (erro?.code !== 10008) console.error(`[fluxo] não consegui verificar painel ${mensagemId} para limpeza:`, erro);
+      return null;
+    });
     if (mensagem) {
-      await mensagem.delete().catch(() => {});
+      await mensagem.delete().catch((erro) => console.error(`[fluxo] não consegui apagar painel ${mensagemId}:`, erro));
       removidas += 1;
     }
     await definirConfig(db, guildId, chaveMensagem, null);
+  }
+  const canal = client.channels.cache.get(String(canalId))
+    || await client.channels.fetch(String(canalId)).catch((erro) => {
+      console.error(`[fluxo] não consegui buscar canal de filas ${canalId} para limpar painéis órfãos:`, erro);
+      return null;
+    });
+  if (canal?.messages?.fetch) {
+    const mensagens = await canal.messages.fetch({ limit: 100 }).catch((erro) => {
+      console.error(`[fluxo] não consegui varrer painéis órfãos no canal ${canalId}:`, erro);
+      return null;
+    });
+    for (const mensagem of mensagens?.values?.() || []) {
+      const ehPainelAceite = mensagem.components?.some((linha) =>
+        linha.components?.some((componente) => String(componente.customId || '').startsWith('ap:assumirnotificacao:')));
+      if (ehPainelAceite) {
+        await mensagem.delete().then(() => { removidas += 1; }).catch((erro) => {
+          console.error(`[fluxo] não consegui apagar painel órfão ${mensagem.id}:`, erro);
+        });
+      }
+    }
   }
   return removidas;
 }
