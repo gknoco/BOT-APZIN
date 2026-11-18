@@ -12,6 +12,11 @@ const { embed, mencao } = require('../util/embeds');
 
 const agora = () => Date.now();
 const CARGO_PLANTAO_ID = '1572560471402217603';
+const CARGO_MEDIADOR_ACESSO = '1543684028719173732';
+
+function autorizado(member) {
+  return Boolean(member?.roles?.cache?.has(CARGO_MEDIADOR_ACESSO));
+}
 
 async function cargoPlantao(guild) {
   const cargo = guild?.roles?.cache?.get(CARGO_PLANTAO_ID)
@@ -177,6 +182,8 @@ function painelRegistroPix() {
 
 module.exports = {
   CARGO_PLANTAO_ID,
+  CARGO_MEDIADOR_ACESSO,
+  autorizado,
   cargoPlantao,
   adicionarCargo,
   removerCargo,

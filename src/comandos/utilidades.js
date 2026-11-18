@@ -22,7 +22,7 @@ const { embed, embedSucesso } = require('../util/embeds');
 const CATEGORIAS_AJUDA = [
   { titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
   { titulo: '🎮 Filas e partidas', nomes: [...config.MODOS.map((modo) => modo.comando), 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
-  { titulo: '👥 Mediação e PIX', nomes: ['mediadores', 'painel_mediadores', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
+  { titulo: '👥 Mediação e PIX', nomes: ['mediadores', 'resgitropixmediador', 'painelbatepontomediadores', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
   { titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
   { titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar', 'recarga'] },
   { titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },

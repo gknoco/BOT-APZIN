@@ -589,6 +589,10 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaoentrar': {
+        if (!plantao.autorizado(interaction.member)) {
+          await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para usar este bate-ponto.`);
+          return true;
+        }
         // Exige um dos CARGOS configurados (Mediador/ADM). Só cai na permissão
         // de Administrador quando nenhum cargo foi configurado ainda.
         const cargosMed = await mediadores.cargos(db, interaction.guildId);
@@ -632,6 +636,10 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaosair': {
+        if (!plantao.autorizado(interaction.member)) {
+          await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para usar este bate-ponto.`);
+          return true;
+        }
         try {
           await plantao.removerCargo(interaction.guild, interaction.user.id);
         } catch (erro) {
@@ -651,6 +659,10 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaostatus': {
+        if (!plantao.autorizado(interaction.member)) {
+          await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para visualizar este bate-ponto.`);
+          return true;
+        }
         await interaction.editReply(await plantao.painel(db, interaction.guildId));
         return true;
       }
@@ -728,6 +740,10 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'pixregistrar': {
+        if (!plantao.autorizado(interaction.member)) {
+          await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para configurar o PIX.`);
+          return true;
+        }
         // showModal deve ser o primeiro ACK e precisa chegar dentro de 3s.
         // A autorização é conferida obrigatoriamente no submit em aplicarPix.
         const { abrirModalPix } = require('./modais');
@@ -736,6 +752,10 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'pixverificar': {
+        if (!plantao.autorizado(interaction.member)) {
+          await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para consultar o PIX.`);
+          return true;
+        }
         const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
         const corpo = registro?.pix_chave
           ? `**Chave PIX:** \`${registro.pix_chave}\`\n**Titular:** ${registro.pix_titular || '—'}\n` +
