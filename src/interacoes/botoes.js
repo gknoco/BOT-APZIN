@@ -259,7 +259,7 @@ async function enviarPix(interaction, { db, client }, partidaId) {
   if (!registro?.pix_chave) {
     return responderErro(interaction, 'Você ainda não cadastrou PIX. Use `/registrar_pix`.');
   }
-  if (partida.mediador_id && partida.mediador_id !== interaction.user.id && !ehAdmin(interaction.member)) {
+  if (partida.mediador_id && partida.mediador_id !== interaction.user.id) {
     return responderErro(interaction, 'Essa sala é de outro mediador.');
   }
 
@@ -403,6 +403,10 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Somente administradores podem aceitar uma partida formada.');
           return true;
         }
+        if (!(await plantao.ativo(db, { guildId: interaction.guildId, userId: interaction.user.id }))) {
+          await responderErro(interaction, 'Você precisa estar ativo no bate-ponto para aceitar uma partida formada.');
+          return true;
+        }
         await assumirSala(interaction, ctx, args[0]);
         const atual = await partidas.buscar(db, args[0]);
         if (atual?.mediador_id === interaction.user.id) {
@@ -520,6 +524,11 @@ async function handleBotao(interaction, ctx) {
             interaction,
             'Você não tem nenhum dos cargos configurados para mediação (Mediador/ADM). Fale com a administração.',
           );
+          return true;
+        }
+        const cadastroPix = await staffSupabase.obter(interaction.guildId, interaction.user.id);
+        if (!cadastroPix?.pix_chave) {
+          await responderErro(interaction, 'Você precisa registrar seu Pix antes de entrar no bate-ponto. Vá até o canal <#1543684933522821130> para registrar.');
           return true;
         }
         await plantao.entrar(db, { guildId: interaction.guildId, userId: interaction.user.id });

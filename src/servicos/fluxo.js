@@ -365,7 +365,6 @@ async function notificarPartidaFormada(client, db, partida) {
           { name: 'Categoria / Plataforma', value: variante ? `${variante.nome} · ${partida.gelo}` : String(partida.gelo), inline: true },
           { name: 'Valor da aposta', value: reais(partida.preco), inline: true },
           { name: 'Jogadores', value: nomes.map((nome, indice) => `${indice + 1}. **${String(nome).slice(0, 80)}**`).join('\n') || '`não informado`', inline: false },
-          { name: 'Sala privada', value: `<#${partida.canal_id}>`, inline: false },
         ],
         rodape: `Partida ${partida.id} · ORG Royal AP`,
       });

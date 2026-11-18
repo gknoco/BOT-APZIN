@@ -55,6 +55,13 @@ async function posicao(db, { guildId, userId }) {
   return indice === -1 ? null : indice + 1;
 }
 
+async function ativo(db, { guildId, userId }) {
+  const { data, error } = await db.client.from('royal_plantao').select('user_id')
+    .eq('guild_id', String(guildId)).eq('user_id', String(userId)).maybeSingle();
+  if (error) throw new Error(`Não consegui validar o plantão no Supabase: ${error.message}`);
+  return Boolean(data?.user_id);
+}
+
 async function limpar(db, guildId) {
   const { count, error } = await db.client.from('royal_plantao').delete({ count: 'exact' })
     .eq('guild_id', String(guildId));
@@ -133,6 +140,7 @@ module.exports = {
   listar,
   total,
   posicao,
+  ativo,
   limpar,
   proximo,
   componentes,
