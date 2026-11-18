@@ -2,7 +2,6 @@
 
 const crypto = require('crypto');
 const config = require('../config');
-const { validarPixPayloadExato } = require('./pixPayload');
 
 const API = 'https://api.mercadopago.com';
 const TIMEOUT_MS = 12000;
@@ -210,11 +209,13 @@ async function criarPix({ order, payerEmail, description }) {
     });
   }
   const qrCode = transacao.qr_code;
-  if (typeof qrCode !== 'string' || !validarPixPayloadExato(qrCode)) {
-    throw new ErroMercadoPago('O Mercado Pago retornou um Pix EMV inválido ou sem CRC verificável.', {
+  // O Mercado Pago é a autoridade do payload EMV. Não recalcular CRC nem rejeitar
+  // localmente um código que a API retornou com o pagamento criado.
+  if (typeof qrCode !== 'string' || !qrCode || qrCode.length > 3000) {
+    throw new ErroMercadoPago('O Mercado Pago retornou um Pix copia e cola vazio ou fora do limite seguro.', {
       status: 201,
       definitive: false,
-      code: 'mp_qr_invalid_emv',
+      code: 'mp_qr_invalid',
     });
   }
   return {
