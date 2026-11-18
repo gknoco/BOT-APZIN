@@ -9,6 +9,7 @@ const {
   ChannelType,
   StringSelectMenuBuilder,
   SlashCommandBuilder,
+  PermissionFlagsBits,
 } = require('discord.js');
 const config = require('../config');
 const persistenciaSupabase = require('../servicos/supabase');
@@ -20,15 +21,33 @@ const { embed, embedSucesso } = require('../util/embeds');
 // Estas listas servem apenas para organizar o registro, nunca para filtrar
 // comandos: qualquer nome ainda não categorizado aparece em "Outros comandos".
 const CATEGORIAS_AJUDA = [
-  { titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
-  { titulo: '🎮 Filas e partidas', nomes: [...config.MODOS.map((modo) => modo.comando), 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
-  { titulo: '👥 Mediação e PIX', nomes: ['mediadores', 'resgitropixmediador', 'painelbatepontomediadores', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
-  { titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
-  { titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar', 'recarga'] },
-  { titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
-  { titulo: '🛡️ Moderação e administração', nomes: ['blacklist', 'limpar', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
-  { titulo: '⚙️ Configuração e comunidade', nomes: ['config', 'boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'setcargo', 'versiculododia', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
+  { id: 'inicio', titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
+  { id: 'filas', titulo: '🎮 Filas e partidas', nomes: [...config.MODOS.map((modo) => modo.comando), 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
+  { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'resgitropixmediador', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixsss', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
+  { id: 'perfil', titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
+  { id: 'feedback', titulo: '💬 Comunidade e suporte', nomes: ['reportarbug', 'sugestao', 'versiculododia'] },
+  { id: 'compras', titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar', 'recarga'] },
+  { id: 'salas', titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
+  { id: 'moderacao', titulo: '🛡️ Moderação e administração', avancada: true, nomes: ['blacklist', 'limpar', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
+  { id: 'configuracao', titulo: '⚙️ Configuração e comunidade', avancada: true, nomes: ['config', 'boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'setcargo', 'configpainelajuda', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
 ];
+
+const GUIA_AJUDA = {
+  ajuda: ['Abre esta central interativa com categorias, páginas e busca visual.', '`/ajuda`', 'Disponível para todos os membros.'],
+  reportarbug: ['Envia um reporte estruturado para a equipe técnica, com passos de reprodução e print opcional.', '`/reportarbug bug:<descrição> passos:<passo a passo> print:<imagem opcional>`', 'Use o canal configurado de reportes; não exige cargo.'],
+  sugestao: ['Publica uma sugestão para votação da comunidade com reações 👍 e 👎.', '`/sugestao ideia:<sua sugestão>`', 'Use o canal configurado de sugestões; não exige cargo.'],
+  convites: ['Mostra seus convites totais, saídas e convites reais atribuídos pelo InviteTracker.', '`/convites` ou `/convites usuario:<membro>`', 'Consulta pública; o rastreamento depende dos convites e do canal de logs configurados.'],
+  resgitropixmediador: ['Publica o painel para cadastrar ou consultar a chave PIX usada pelo mediador.', '`/resgitropixmediador`', 'Exige o cargo de acesso dos mediadores e publicação em canal de texto.'],
+  painelbatepontomediadores: ['Publica o bate-ponto geral, com Entrar, Sair e Atualizar para mediadores.', '`/painelbatepontomediadores`', 'Exige o cargo de acesso dos mediadores; o PIX cadastrado é obrigatório para entrar.'],
+  painelbatepontossmobile: ['Publica o plantão exclusivo da equipe SS Mobile.', '`/painelbatepontossmobile`', 'A publicação é administrativa; interação exige o cargo SS Mobile.'],
+  painelbatepontossemu: ['Publica o plantão exclusivo da equipe SS EMU.', '`/painelbatepontossemu`', 'A publicação é administrativa; interação exige o cargo SS EMU.'],
+  painelpixsss: ['Publica o painel de cadastro e gestão de PIX para SS Mobile e SS EMU.', '`/painelpixsss`', 'Exige o cargo SS Mobile ou SS EMU; os dados são vinculados ao servidor e usuário no Supabase.'],
+  configpainelajuda: ['Define quais cargos podem visualizar categorias avançadas desta central.', '`/configpainelajuda acao:configurar categoria:<categoria> cargo:<cargo>`', 'Exige Administrator. Use `acao:listar` para consultar ou `acao:remover` para retirar um cargo.'],
+  reportarbug: ['Envia um reporte estruturado para a equipe técnica, com passos de reprodução e print opcional.', '`/reportarbug bug:<descrição> passos:<passo a passo> print:<imagem opcional>`', 'Use o canal configurado de reportes; não exige cargo.'],
+};
+
+const CATEGORIA_POR_ID = new Map(CATEGORIAS_AJUDA.map((categoria) => [categoria.id, categoria]));
+const chaveCargosAjuda = (id) => `ajuda:cargos:${id}`;
 
 const TIPOS_OPCAO = {
   3: 'texto', 4: 'inteiro', 5: 'sim/não', 6: 'usuário', 7: 'canal',
@@ -72,7 +91,16 @@ function linhasOpcaoAjuda(opcao) {
 // contexto do comando, grupo ou subcomando ao mudar de página.
 function secoesComandoAjuda(comando) {
   const json = definicaoAjuda(comando);
-  const secoes = [{ cabecalho: `**/${json.name}** — ${json.description}`, linhas: [] }];
+  const modo = config.MODOS.find((item) => item.comando === json.name);
+  const guia = GUIA_AJUDA[json.name] || (modo ? [
+    `Publica ou consulta o painel da fila **${modo.nome || json.name}**, permitindo que jogadores entrem, saiam e acompanhem a partida.`,
+    `/${json.name}`,
+    'Use em um canal de filas configurado; o valor e a modalidade são definidos pelos botões do painel.',
+  ] : null);
+  const secoes = [{
+    cabecalho: `**/${json.name}** — ${json.description}`,
+    linhas: guia ? [`> **O que faz:** ${guia[0]}`, `> **Requisitos:** ${guia[2]}`, `**Como usar:**\n\`\`\`\n${guia[1]}\n\`\`\``, '━━━━━━━━━━━━━━━━━━━━'] : [],
+  }];
   function adicionarOpcoes(opcoes, caminho, secao) {
     for (const opcao of opcoes || []) {
       if (opcao.type === 1 || opcao.type === 2) {
@@ -169,8 +197,10 @@ function dividirSecoesAjuda(secoes) {
   return paginas;
 }
 
-function ajudaEmbeds(listaComandos = require('./index').definicoes()) {
-  const categorias = CATEGORIAS_AJUDA.map((categoria) => ({ ...categoria, secoes: [] }));
+function ajudaEmbeds(listaComandos = require('./index').definicoes(), filtroCategorias = null) {
+  const categorias = CATEGORIAS_AJUDA
+    .filter((categoria) => !filtroCategorias || filtroCategorias.has(categoria.id))
+    .map((categoria) => ({ ...categoria, secoes: [] }));
   const outras = { titulo: '📚 Outros comandos', secoes: [] };
   // O mesmo JSON usado no registro de slash commands é a fonte da ajuda.
   for (const comando of listaComandos) {
@@ -228,8 +258,20 @@ function ajudaPagina(paginas, indice = 0, desativado = false) {
   };
 }
 
-async function mostrarAjuda(interaction) {
-  const paginas = ajudaEmbeds();
+async function filtroAjudaPorCargo(interaction, db) {
+  const filtro = new Set(CATEGORIAS_AJUDA.filter((categoria) => !categoria.avancada).map((categoria) => categoria.id));
+  const configuracoes = await persistenciaSupabase.listarConfigs(interaction.guildId, 'ajuda:cargos:', db?.client);
+  for (const categoria of CATEGORIAS_AJUDA.filter((item) => item.avancada)) {
+    const registro = configuracoes.find((item) => item.chave === chaveCargosAjuda(categoria.id));
+    let cargos = [];
+    try { cargos = JSON.parse(registro?.valor || '[]'); } catch { cargos = []; }
+    if (!cargos.length || cargos.some((id) => interaction.member?.roles?.cache?.has(String(id)))) filtro.add(categoria.id);
+  }
+  return filtro;
+}
+
+async function mostrarAjuda(interaction, db) {
+  const paginas = ajudaEmbeds(undefined, await filtroAjudaPorCargo(interaction, db));
   let pagina = 0;
   const mensagem = await responderPrivado(interaction, ajudaPagina(paginas, pagina));
   if (typeof mensagem?.createMessageComponentCollector !== 'function') return mensagem;
@@ -276,8 +318,63 @@ const comandos = [
   {
     data: new SlashCommandBuilder().setName('ajuda').setDescription('Explica como o bot funciona e todos os comandos'),
 
-    async executar(interaction) {
-      return mostrarAjuda(interaction);
+    async executar(interaction, { db }) {
+      return mostrarAjuda(interaction, db);
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('configpainelajuda')
+      .setDescription('Configura cargos autorizados para categorias avançadas da ajuda')
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .addStringOption((opcao) => opcao
+        .setName('acao')
+        .setDescription('Operação da configuração')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Configurar/adicionar cargo', value: 'configurar' },
+          { name: 'Remover cargo', value: 'remover' },
+          { name: 'Listar configurações', value: 'listar' },
+        ))
+      .addStringOption((opcao) => opcao
+        .setName('categoria')
+        .setDescription('Categoria avançada da central de ajuda')
+        .addChoices(...CATEGORIAS_AJUDA.filter((item) => item.avancada).map((item) => ({ name: item.titulo.slice(0, 100), value: item.id }))))
+      .addRoleOption((opcao) => opcao.setName('cargo').setDescription('Cargo que poderá visualizar a categoria')),
+
+    async executar(interaction, { db }) {
+      if (!(await exigirAdmin(interaction, 'Somente administradores podem configurar o painel de ajuda.'))) return;
+      const acao = interaction.options.getString('acao', true);
+      if (acao === 'listar') {
+        const registros = await persistenciaSupabase.listarConfigs(interaction.guildId, 'ajuda:cargos:', db.client);
+        const linhas = CATEGORIAS_AJUDA.filter((item) => item.avancada).map((categoria) => {
+          const registro = registros.find((item) => item.chave === chaveCargosAjuda(categoria.id));
+          let ids = [];
+          try { ids = JSON.parse(registro?.valor || '[]'); } catch { ids = []; }
+          return `**${categoria.titulo}**\n${ids.length ? ids.map((id) => `<@&${id}>`).join(', ') : '_Visível para todos até ser configurada._'}`;
+        });
+        return responderPrivado(interaction, { embeds: [embed('🔐 Acesso por cargo · Central de ajuda', linhas.join('\n\n'), { cor: config.CORES.principal, rodape: 'Configuração persistida no Supabase' })] });
+      }
+
+      const categoriaId = interaction.options.getString('categoria');
+      const cargo = interaction.options.getRole('cargo');
+      const categoria = CATEGORIA_POR_ID.get(categoriaId);
+      if (!categoria?.avancada) return responderErro(interaction, 'Escolha uma categoria avançada válida.');
+      if (!cargo) return responderErro(interaction, 'Informe o cargo que será autorizado.');
+
+      const atual = await persistenciaSupabase.obterConfig(interaction.guildId, chaveCargosAjuda(categoria.id), db.client);
+      let cargos = [];
+      try { cargos = JSON.parse(atual || '[]'); } catch { cargos = []; }
+      cargos = [...new Set(cargos.map(String))];
+      if (acao === 'configurar') {
+        if (!cargos.includes(cargo.id)) cargos.push(cargo.id);
+      } else {
+        cargos = cargos.filter((id) => id !== cargo.id);
+      }
+      if (cargos.length) await persistenciaSupabase.definirConfig(interaction.guildId, chaveCargosAjuda(categoria.id), JSON.stringify(cargos), db.client);
+      else await persistenciaSupabase.removerConfig(interaction.guildId, chaveCargosAjuda(categoria.id), db.client);
+      return responderPrivado(interaction, { embeds: [embedSucesso(`${acao === 'configurar' ? 'Cargo autorizado' : 'Cargo removido'} para **${categoria.titulo}**: ${cargo}.`)] });
     },
   },
 
