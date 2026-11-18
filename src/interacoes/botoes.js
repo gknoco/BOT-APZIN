@@ -411,7 +411,8 @@ async function handleBotao(interaction, ctx) {
         const atual = await partidas.buscar(db, args[0]);
         if (atual?.mediador_id === interaction.user.id) {
           await fluxo.concederAcessoPartida(client, db, args[0], interaction.user.id);
-          await interaction.message?.delete?.().catch?.(() => {});
+          if (interaction.channel?.isThread?.()) await interaction.channel.delete('Partida aceita por um ADM de plantão').catch(() => {});
+          else await interaction.message?.delete?.().catch?.(() => {});
         }
         return true;
       }

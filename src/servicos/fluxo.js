@@ -20,6 +20,7 @@ const filas = require('./filas');
 const partidas = require('./partidas');
 const paineis = require('./paineis');
 const mediadores = require('./mediadores');
+const plantao = require('./plantao');
 const blacklist = require('./blacklist');
 const auditoria = require('./auditoria');
 const royalSupabase = require('./royalSupabase');
@@ -346,7 +347,21 @@ async function notificarPartidaFormada(client, db, partida) {
   if (!canalId) return false;
   try {
     const canal = client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null);
-    if (!canal?.send) return false;
+    if (!canal?.threads?.create) return false;
+    const plantonistas = await plantao.listar(db, partida.guild_id);
+    if (!plantonistas.length) return false;
+    const thread = await canal.threads.create({
+      name: `aceite-${String(partida.id).slice(0, 20)}`,
+      type: ChannelType.PrivateThread,
+      invitable: false,
+      autoArchiveDuration: 60,
+      reason: 'Painel privado de aceite para staff de plantão',
+    });
+    for (const plantonista of plantonistas) {
+      await thread.members.add(String(plantonista.user_id)).catch((erro) => {
+        console.error(`[fluxo] não consegui adicionar plantonista à thread privada:`, erro.message);
+      });
+    }
     const guild = canal.guild || client.guilds.cache.get(String(partida.guild_id));
     const jogadores = await partidas.jogadores(db, partida.id);
     const nomes = await Promise.all(jogadores.map(async (linhaJogador) => {
@@ -355,7 +370,6 @@ async function notificarPartidaFormada(client, db, partida) {
     }));
     const modo = config.modoPorId(partida.modo);
     const variante = config.varianteDoModo(modo, partida.gelo);
-    const cargos = await mediadores.mencoes(db, partida.guild_id);
     const painel = embed('🎯 Partida formada · aguardando ADM',
       'Os jogadores confirmaram a partida. Apenas um administrador pode assumir esta sala.', {
         cor: config.CORES.aviso,
@@ -372,11 +386,10 @@ async function notificarPartidaFormada(client, db, partida) {
       .setLabel('Aceitar')
       .setEmoji('👑')
       .setStyle(ButtonStyle.Success);
-    await canal.send({
-      content: cargos.length ? cargos.map((id) => mencaoCargo(id)).join(' ') : undefined,
+    await thread.send({
       embeds: [painel],
       components: [linha(botao)],
-      allowedMentions: { roles: cargos.map(String) },
+      allowedMentions: { parse: [] },
     });
     return true;
   } catch (erro) {
