@@ -22,6 +22,7 @@ const recargas = require('../servicos/recargas');
 const salaInfinita = require('../servicos/salaInfinita');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
+const automacoes = require('../servicos/automacoesDiscord');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
@@ -656,7 +657,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita'].includes(tipo);
+    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
@@ -723,6 +724,21 @@ async function handleModal(interaction, { db, client }) {
     if (tipo === 'modalcomprasaldo') return await aplicarCompraSaldo(interaction);
     if (tipo === 'modalrecarga') return await aplicarRecarga(interaction);
     if (tipo === 'modalinfinita') return await aplicarPlanoInfinito(interaction, db, partidaId);
+    if (tipo === 'modalanuncioauto') {
+      if (!automacoes.ehAdmin(interaction)) {
+        await responderErro(interaction, 'Somente administradores podem configurar automações.');
+        return true;
+      }
+      const obter = (id) => interaction.fields.getTextInputValue(id);
+      const salvo = await automacoes.salvarAnuncios(db, interaction.guildId, {
+        canal_principal_id: obter('canal_principal_id'),
+        link: obter('link'),
+        canais_divulgacao: obter('canais_divulgacao'),
+        horario: obter('horario'),
+      });
+      await responderPrivado(interaction, { content: `✅ Anúncio automático salvo para **${salvo.horario}** (horário de Brasília), com ${salvo.canais_divulgacao.length} canal(is) de divulgação. O link será enviado como mensagem limpa para renderizar o convite do Discord.` });
+      return true;
+    }
 
     if (tipo === 'modalregras') {
       const texto = interaction.fields.getTextInputValue('regra');

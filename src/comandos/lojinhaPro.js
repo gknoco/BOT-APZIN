@@ -385,10 +385,8 @@ const comando = {
   data: new SlashCommandBuilder().setName('lojinha').setDescription('Lojinha persistente da ORG Royal AP')
     .addSubcommand((s) => s.setName('listar').setDescription('Abre o catálogo de produtos disponíveis'))
     .addSubcommand((s) => s.setName('comprar').setDescription('Compra um produto pelo ID ou slug')
-      .addStringOption((o) => o.setName('item').setDescription('ID ou slug do produto').setRequired(true)))
-    .addSubcommand((s) => s.setName('painel').setDescription('Publica o painel da lojinha (ADM)')),
+      .addStringOption((o) => o.setName('item').setDescription('ID ou slug do produto').setRequired(true))),
   async executar(i, ctx = {}) {
-    if (i.options.getSubcommand() === 'painel') return publicarPainel(i, ctx);
     await adiar(i);
     if (!dadosObrigatorios(i)) return erroPrivado(i, 'Use este comando em um servidor.');
     const sub = i.options.getSubcommand();

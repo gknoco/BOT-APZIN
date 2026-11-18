@@ -21,6 +21,7 @@ const membros = require('./membros');
 const mediadores = require('../servicos/mediadores');
 const { embedErro } = require('../util/embeds');
 const { responderPrivado } = require('../util/seguranca');
+const automacoes = require('../servicos/automacoesDiscord');
 
 // Compartilhado entre chamadas repetidas de montar(client, db): uma mesma
 // interação nunca pode iniciar dois handlers concorrentes (p.ex. dois modais).
@@ -128,6 +129,7 @@ function montar(client, db) {
     for (const guild of conectado.guilds.cache.values()) {
       await convites.atualizarCache(guild).catch(() => {});
     }
+    automacoes.iniciar(conectado, db);
   }
 
   client.on(Events.InteractionCreate, async (interaction) => {

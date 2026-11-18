@@ -33,6 +33,7 @@ const modulos = [
   require('./vendas'),
   require('./recarga'),
   require('./resgates'),
+  require('./automacoes'),
 ];
 
 // Preserva os demais comandos do módulo legado, substituindo apenas as duas

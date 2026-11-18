@@ -131,7 +131,6 @@ const comandos = [
     data: new SlashCommandBuilder()
       .setName('loja')
       .setDescription('Loja de moedas da ORG')
-      .addSubcommand((sub) => sub.setName('painel').setDescription('Publica o painel permanente da lojinha'))
       .addSubcommand((sub) =>
         sub
           .setName('addcoins')
@@ -156,7 +155,6 @@ const comandos = [
 
     async executar(interaction, { db, client }) {
       const sub = interaction.options.getSubcommand();
-      if (sub === 'painel') return require('./lojinhaPro').publicarPainel(interaction, { db, client });
       const alvo = interaction.options.getUser('usuario');
       const quantidade = interaction.options.getInteger('quantidade');
 

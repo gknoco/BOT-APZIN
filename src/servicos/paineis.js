@@ -159,15 +159,26 @@ function mensagemPreco(modo, preco, entradas = []) {
 
   return {
     embeds: [
-      embed(`${tituloCurto(modo)} | ${reais(preco)}`, null, {
-        cor: config.CORES.principal,
+      embed(`${tituloCurto(modo)} | Zenith - Hub`, null, {
+        cor: 0xed4245,
         campos: [
           {
-            name: 'Jogadores',
+            name: '⦿  Modo:',
+            value: `${modo.titulo} · ${modo.time}v${modo.time}`,
+            inline: false,
+          },
+          {
+            name: '◉  Valor:',
+            value: reais(preco),
+            inline: false,
+          },
+          {
+            name: '♙  Jogadores:',
             value: jogadores.length ? jogadores.join('\n') : 'Nenhum jogador na fila.',
             inline: false,
           },
         ],
+        rodape: 'Zenith - Hub · Entre na fila pelos botões abaixo',
       }),
     ],
     components: componentesEntrada(modo, preco, { sair: jogadores.length > 0 }),
