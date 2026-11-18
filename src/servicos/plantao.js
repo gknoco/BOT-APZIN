@@ -177,6 +177,29 @@ function painelRegistroPix() {
   };
 }
 
+/** Central de PIX exclusiva para equipes SS Mobile e SS EMU. */
+function painelPixSS() {
+  const corpo = [
+    'Painel exclusivo de registro e gestão de PIX para SS Mobile e SS EMU.',
+    '',
+    '🏷️ **Chave PIX:** CPF, E-mail, Telefone ou Chave Aleatória',
+    '👤 **Nome Completo:** Titular da conta bancária',
+    '💬 **Cidade:** Cidade de registro da conta',
+    '',
+    '⚠️ **Importante:** mantenha seus dados atualizados para receber as taxas de atendimento.',
+    '',
+    'Apenas membros com cargo SS Mobile ou SS EMU podem interagir com este painel.',
+  ].join('\n');
+  const linha = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('ap:pixsssregistrar').setLabel('Configurar Pix').setEmoji('💠').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('ap:pixsssverificar').setLabel('Verificar Cadastro').setEmoji('ℹ️').setStyle(ButtonStyle.Secondary),
+  );
+  return {
+    embeds: [embed('💳 Central de Pagamentos: SS', corpo, { cor: config.CORES.principal, rodape: 'ORG Royal AP · PIX SS' })],
+    components: [linha],
+  };
+}
+
 module.exports = {
   CARGO_PLANTAO_ID,
   CARGO_MEDIADOR_ACESSO,
@@ -197,4 +220,5 @@ module.exports = {
   embedFila,
   painel,
   painelRegistroPix,
+  painelPixSS,
 };

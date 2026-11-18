@@ -89,6 +89,10 @@ async function responderVerificacaoPix(interaction, payload) {
   return responderPrivado(interaction, corpo);
 }
 
+function autorizadoPixSS(member) {
+  return plantaoModalidade.autorizado(member, 'ss_mobile') || plantaoModalidade.autorizado(member, 'ss_emu');
+}
+
 /**
  * Mensagem PÚBLICA na sala: quem confirmou, quem falta e a marcação da
  * @STAFF / @MEDIADOR — exatamente o texto combinado com a ORG.
@@ -380,7 +384,7 @@ async function handleBotao(interaction, ctx) {
   // "regras" e "liberar" abrem modal: showModal precisa ser a PRIMEIRA resposta,
   // por isso esses dois não podem ser adiados.
   const abreModal =
-    acao === 'filasavatar' || acao === 'filasbanner' || acao === 'addsalas' || acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'comprar' ||
+    acao === 'filasavatar' || acao === 'filasbanner' || acao === 'addsalas' || acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'pixsssregistrar' || acao === 'comprar' ||
     acao === 'comprarsaldo' ||
     acao === 'recargapix' || acao === 'recargasemanal' || acao === 'recargamensal';
   const painelRecargaPrivado = mensagemEfemera(interaction) &&
@@ -762,6 +766,30 @@ async function handleBotao(interaction, ctx) {
             `**Cidade:** ${registro.pix_cidade || '—'}\n**Taxa do mediador:** R$ 0,10 por capitão`
           : 'Você ainda não cadastrou PIX. Clique em **Configurar Pix**.';
         await responderVerificacaoPix(interaction, { embeds: [embed('💠 Seu cadastro PIX', corpo)] });
+        return true;
+      }
+
+      case 'pixsssregistrar': {
+        if (!autorizadoPixSS(interaction.member)) {
+          await responderErro(interaction, 'Apenas membros com cargo SS Mobile ou SS EMU podem configurar o PIX.');
+          return true;
+        }
+        const { abrirModalPix } = require('./modais');
+        await abrirModalPix(interaction, true);
+        return true;
+      }
+
+      case 'pixsssverificar': {
+        if (!autorizadoPixSS(interaction.member)) {
+          await responderErro(interaction, 'Apenas membros com cargo SS Mobile ou SS EMU podem consultar o PIX.');
+          return true;
+        }
+        const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
+        const corpo = registro?.pix_chave
+          ? `**Chave PIX:** \`${registro.pix_chave}\`\n**Titular:** ${registro.pix_titular || '—'}\n` +
+            `**Cidade:** ${registro.pix_cidade || '—'}\n**Taxa de atendimento:** R$ 0,10 por capitão`
+          : 'Você ainda não cadastrou PIX. Clique em **Configurar Pix**.';
+        await responderVerificacaoPix(interaction, { embeds: [embed('💠 Seu cadastro PIX SS', corpo)] });
         return true;
       }
 

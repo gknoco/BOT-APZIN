@@ -25,6 +25,7 @@ const vendasUI = require('../comandos/vendas');
 const paineis = require('../servicos/paineis');
 const automacoes = require('../servicos/automacoesDiscord');
 const configCanalFila = require('../comandos/configCanalFila');
+const plantaoModalidade = require('../servicos/plantaoModalidade');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
@@ -219,11 +220,11 @@ async function aplicarPerfilBot(interaction, client, tipo) {
  * "Invalid string length"). Por isso os textos abaixo são curtos e os limites
  * de cada campo ficam bem abaixo do máximo permitido (4000).
  */
-async function abrirModalPix(interaction) {
+async function abrirModalPix(interaction, ss = false) {
   try {
     const modal = new ModalBuilder()
-      .setCustomId('ap:modalpix')
-      .setTitle('Registrar PIX de mediador')
+      .setCustomId(ss ? 'ap:modalpixss' : 'ap:modalpix')
+      .setTitle(ss ? 'Registrar PIX de SS' : 'Registrar PIX de mediador')
       .addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
@@ -614,9 +615,12 @@ async function aplicarCompraSaldo(interaction) {
   return true;
 }
 
-async function aplicarPix(interaction, db) {
-  if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
-    await responderErro(interaction, 'Só mediadores/ADM registram PIX de recebimento.');
+async function aplicarPix(interaction, db, ss = false) {
+  const autorizado = ss
+    ? plantaoModalidade.autorizado(interaction.member, 'ss_mobile') || plantaoModalidade.autorizado(interaction.member, 'ss_emu')
+    : await staffSupabase.temCargoMediador(interaction.guildId, interaction.member);
+  if (!autorizado) {
+    await responderErro(interaction, ss ? 'Apenas membros com cargo SS Mobile ou SS EMU podem registrar PIX.' : 'Só mediadores/ADM registram PIX de recebimento.');
     return true;
   }
 
@@ -664,7 +668,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila'].includes(tipo);
+    ['modalpix', 'modalpixss', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
@@ -757,6 +761,7 @@ async function handleModal(interaction, { db, client }) {
     // Modais do /botperfil (nome, avatar, descrição e status do bot).
     if (String(tipo || '').startsWith('modalbot')) return await aplicarPerfilBot(interaction, client, tipo);
     if (tipo === 'modalpix') return await aplicarPix(interaction, db);
+    if (tipo === 'modalpixss') return await aplicarPix(interaction, db, true);
     if (tipo === 'modalcompra') return await aplicarCompraSalas(interaction, partes);
     if (tipo === 'modalcomprasaldo') return await aplicarCompraSaldo(interaction);
     if (tipo === 'modalrecarga') return await aplicarRecarga(interaction);

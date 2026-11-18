@@ -71,6 +71,19 @@ const comandos = [
   },
   {
     data: new SlashCommandBuilder()
+      .setName('painelpixsss')
+      .setDescription('Publica o painel de registro e gestão de PIX para SS Mobile e SS EMU'),
+    async executar(interaction) {
+      const autorizado = plantaoModalidade.autorizado(interaction.member, 'ss_mobile')
+        || plantaoModalidade.autorizado(interaction.member, 'ss_emu');
+      if (!autorizado) {
+        return responderErro(interaction, 'Apenas membros com cargo SS Mobile ou SS EMU podem usar este painel.');
+      }
+      return publicarPainel(interaction, plantao.painelPixSS(), 'Painel PIX SS publicado com sucesso.');
+    },
+  },
+  {
+    data: new SlashCommandBuilder()
       .setName('limparbatepapomediadores')
       .setDescription('Reseta o plantão e remove o cargo de mediador de plantão')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
