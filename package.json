@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "test": "node testes/rodar.js && node --test testes/vendas.js && node --test testes/recargas.js && node --test testes/sala-infinita.js && node --test testes/extrato.js && node testes/comandos-polish.js && node testes/servicos.js && node testes/operacional.js && node --test testes/permissoes.js",
+    "test": "node testes/rodar.js && node --test testes/vendas.js && node --test testes/recargas.js && node --test testes/sala-infinita.js && node --test testes/extrato.js && node testes/comandos-polish.js && node testes/servicos.js && node testes/operacional.js && node --test testes/permissoes.js && node --test testes/roleta-pro.js testes/lojinha-pro.js testes/config-economia.js testes/integracao-economia-pro.js testes/avisos-economia.js testes/resgates.js testes/compra-preco-confirmado.js",
+    "test:economia:sql": "./scripts/testar-economia-local.sh && python3 testes/roulette_shop_pro.py && python3 testes/compra_preco_confirmado.py",
     "commands:sync": "node scripts/registrar-comandos.js",
     "seed:versiculos": "node scripts/seed-versiculos.js",
     "migrate:supabase": "node scripts/migrar-supabase.js"

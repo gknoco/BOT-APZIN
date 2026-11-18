@@ -56,9 +56,9 @@ const comandos = config.MODOS.map((modo) => ({
     return responderPrivado(interaction, {
       embeds: [
         embedSucesso(
-          `✅ Fila **${modo.titulo}** publicada aqui em <#${canal.id}> com **${enviadas.length} mensagens** ` +
-            '(menor valor por último, embaixo).' +
-            '\n_Quando dois jogadores fecharem a mesma faixa, a sala privada nasce dentro da categoria das filas._',
+          `Fila **${modo.titulo}** publicada em <#${canal.id}> com **${enviadas.length} mensagens** ` +
+            '(menor valor por último).' +
+            '\n_Quando dois jogadores fecharem a mesma faixa, a sala privada será criada na categoria das filas._',
         ),
       ],
     });

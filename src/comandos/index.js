@@ -32,9 +32,19 @@ const modulos = [
   require('./royal'),
   require('./vendas'),
   require('./recarga'),
+  require('./resgates'),
 ];
 
-const comandos = modulos.flatMap((modulo) => modulo.comandos);
+// Preserva os demais comandos do módulo legado, substituindo apenas as duas
+// definições econômicas pelas versões com painéis persistentes.
+const comandos = modulos.flatMap((modulo) => modulo.comandos)
+  .filter((comando) => !['roleta', 'lojinha'].includes(comando.data.name));
+comandos.push(
+  require('./roletaPro').comando,
+  require('./lojinhaPro').comando,
+  require('./configEconomia').comando,
+  ...require('./comandosMestres').comandos,
+);
 const porNome = new Map(comandos.map((comando) => [comando.data.name, comando]));
 const EFEMERO = MessageFlags?.Ephemeral ?? 64;
 

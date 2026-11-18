@@ -62,13 +62,27 @@ async function registrarResultadoPartida({ guildId, matchId, winnerTime, stake, 
   });
 }
 
-async function comprar({ guildId, userId, itemId, request }) {
-  return rpc('royal_buy_item', {
+async function comprar({ guildId, userId, itemId, request, expectedPrice }) {
+  const args = {
     p_guild_id: String(guildId),
     p_user_id: String(userId),
     p_item_id: itemId,
     p_request_id: requestId('buy', request),
-  });
+  };
+  if (expectedPrice === undefined) return rpc('royal_buy_item', args);
+
+  // Numbers imprecisos não podem representar o preço confirmado; para valores
+  // bigint acima de MAX_SAFE_INTEGER, use uma string decimal ou um BigInt.
+  const tipo = typeof expectedPrice;
+  if ((tipo === 'number' && (!Number.isSafeInteger(expectedPrice) || expectedPrice < 0)) ||
+      (tipo === 'string' && !/^\d{1,19}$/.test(expectedPrice)) ||
+      !['number', 'string', 'bigint'].includes(tipo)) {
+    throw new Error('Preço esperado inválido');
+  }
+  const valor = BigInt(expectedPrice);
+  if (valor < 0n || valor > 9223372036854775807n) throw new Error('Preço esperado inválido');
+  args.p_expected_price = tipo === 'number' ? expectedPrice : valor.toString();
+  return rpc('royal_buy_item_confirmed', args);
 }
 
 async function marcarRecompensaEntregue({ guildId, userId, request }) {
