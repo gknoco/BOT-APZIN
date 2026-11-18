@@ -24,6 +24,7 @@ const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
 const paineis = require('../servicos/paineis');
 const automacoes = require('../servicos/automacoesDiscord');
+const configCanalFila = require('../comandos/configCanalFila');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
@@ -663,7 +664,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas'].includes(tipo);
+    ['modalpix', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
@@ -723,6 +724,16 @@ async function handleModal(interaction, { db, client }) {
   }
 
   try {
+    if (tipo === 'modalconfigcanalfila') {
+      if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem configurar o canal de filas.'); return true; }
+      const canalId = await configCanalFila.salvarCanalFila(
+        db,
+        interaction.guildId,
+        interaction.fields.getTextInputValue('canal_id'),
+      );
+      await responderPrivado(interaction, { content: `✅ Canal de partidas formadas salvo: <#${canalId}>.` });
+      return true;
+    }
     if (tipo === 'modalfilas') {
       if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem alterar as filas.'); return true; }
       const tipoVisual = String(partes[2]);

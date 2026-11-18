@@ -36,6 +36,7 @@ const modulos = [
   require('./automacoes'),
   require('./painelFilas'),
   require('./addsalas'),
+  require('./configCanalFila'),
 ];
 
 // Preserva os demais comandos do módulo legado, substituindo apenas as duas

@@ -201,6 +201,7 @@ async function confirmarRegras(interaction, { db, client }, partidaId) {
     });
 
     if (resultado.completo) {
+      if (!resultado.jaConfirmou) await fluxo.notificarPartidaFormada(client, db, resultado.partida);
       return responderPrivado(interaction, {
         embeds: [embedSucesso('Todos confirmaram! ✅\nPartida iniciando — a staff já foi marcada na sala.')],
       });
@@ -396,6 +397,20 @@ async function handleBotao(interaction, ctx) {
       case 'assumir':
         await assumirSala(interaction, ctx, args[0]);
         return true;
+
+      case 'assumirnotificacao': {
+        if (!ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Somente administradores podem aceitar uma partida formada.');
+          return true;
+        }
+        await assumirSala(interaction, ctx, args[0]);
+        const atual = await partidas.buscar(db, args[0]);
+        if (atual?.mediador_id === interaction.user.id) {
+          await fluxo.concederAcessoPartida(client, db, args[0], interaction.user.id);
+          await interaction.message?.delete?.().catch?.(() => {});
+        }
+        return true;
+      }
 
       case 'pix':
         await enviarPix(interaction, ctx, args[0]);

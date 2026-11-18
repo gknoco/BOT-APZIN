@@ -341,6 +341,66 @@ async function atualizarPartida(client, db, partidaId) {
   }
 }
 
+/** Notifica a staff quando os capitães confirmam a partida; a assunção usa o lock do Supabase. */
+async function notificarPartidaFormada(client, db, partida) {
+  const canalId = await obterConfig(db, partida.guild_id, 'canal_partidas_formadas', null);
+  if (!canalId) return false;
+  try {
+    const canal = client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null);
+    if (!canal?.send) return false;
+    const guild = canal.guild || client.guilds.cache.get(String(partida.guild_id));
+    const jogadores = await partidas.jogadores(db, partida.id);
+    const nomes = await Promise.all(jogadores.map(async (linhaJogador) => {
+      const membro = await guild?.members?.fetch?.(linhaJogador.user_id).catch?.(() => null);
+      return membro?.displayName || membro?.user?.username || mencao(linhaJogador.user_id);
+    }));
+    const modo = config.modoPorId(partida.modo);
+    const variante = config.varianteDoModo(modo, partida.gelo);
+    const cargos = await mediadores.mencoes(db, partida.guild_id);
+    const painel = embed('🎯 Partida formada · aguardando ADM',
+      'Os jogadores confirmaram a partida. Apenas um administrador pode assumir esta sala.', {
+        cor: config.CORES.aviso,
+        campos: [
+          { name: 'Modo', value: modo?.titulo || String(partida.modo), inline: true },
+          { name: 'Categoria / Plataforma', value: variante ? `${variante.nome} · ${partida.gelo}` : String(partida.gelo), inline: true },
+          { name: 'Valor da aposta', value: reais(partida.preco), inline: true },
+          { name: 'Jogadores', value: nomes.map((nome, indice) => `${indice + 1}. **${String(nome).slice(0, 80)}**`).join('\n') || '`não informado`', inline: false },
+          { name: 'Sala privada', value: `<#${partida.canal_id}>`, inline: false },
+        ],
+        rodape: `Partida ${partida.id} · ORG Royal AP`,
+      });
+    const botao = new ButtonBuilder()
+      .setCustomId(`ap:assumirnotificacao:${partida.id}`)
+      .setLabel('Aceitar')
+      .setEmoji('👑')
+      .setStyle(ButtonStyle.Success);
+    await canal.send({
+      content: cargos.length ? cargos.map((id) => mencaoCargo(id)).join(' ') : undefined,
+      embeds: [painel],
+      components: [linha(botao)],
+      allowedMentions: { roles: cargos.map(String) },
+    });
+    return true;
+  } catch (erro) {
+    console.error('[fluxo] não consegui notificar partida formada:', erro.message);
+    return false;
+  }
+}
+
+async function concederAcessoPartida(client, db, partidaId, userId) {
+  const partida = await partidas.buscar(db, partidaId);
+  if (!partida) return false;
+  const canal = client.channels.cache.get(String(partida.canal_id)) || await client.channels.fetch(String(partida.canal_id)).catch(() => null);
+  if (!canal?.permissionOverwrites?.edit) return false;
+  await canal.permissionOverwrites.edit(String(userId), {
+    ViewChannel: true,
+    SendMessages: true,
+    ReadMessageHistory: true,
+    EmbedLinks: true,
+  });
+  return true;
+}
+
 /**
  * Manda a chave PIX do mediador na sala e na DM dos jogadores.
  * Usado pelo botão "Enviar PIX" e pelo comando /pix.
@@ -589,6 +649,8 @@ module.exports = {
   criarCanalPartida,
   publicarSala,
   atualizarPartida,
+  notificarPartidaFormada,
+  concederAcessoPartida,
   entrarNaFila,
   anunciarPix,
   encerrarPartida,
