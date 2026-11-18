@@ -527,14 +527,13 @@ test('handler antigo de verificação permanece compatível com pagamentos pende
   }
 });
 
-test('Copia e Cola consulta pedido por ID, guild e dono e entrega somente o código bruto em uma linha efêmera', async () => {
+test('Copia e Cola consulta pedido por ID, guild e dono e entrega o código bruto integral', async () => {
   const pedidos = [{ id: ID_PEDIDO, guild_id: 'guild-a', user_id: 'user-a', pix_copy_paste: ' 000201\r\nCODIGO_PIX_TESTE ` ', status: 'pending' }];
   const consultas = [];
   await comMocks([[supabase, { obterCliente: () => clientePedidos(pedidos, consultas) }]], async () => {
     const interaction = interacao(`ap:copiarpix:${ID_PEDIDO}`);
     await botoes.handleBotao(interaction, ctx);
-    assert.equal(ultimoPayload(interaction).content, '000201CODIGO_PIX_TESTE');
-    assert.doesNotMatch(ultimoPayload(interaction).content, /\s|`/);
+    assert.equal(ultimoPayload(interaction).content, pedidos[0].pix_copy_paste);
     assert.equal(ultimoPayload(interaction).flags & EFEMERO, EFEMERO);
     assert.deepEqual(consultas[0].filtros, [['id', ID_PEDIDO], ['guild_id', 'guild-a'], ['user_id', 'user-a']]);
     for (const alteracao of [{ user: { id: 'user-b' } }, { guildId: 'guild-b' }]) {
@@ -546,17 +545,14 @@ test('Copia e Cola consulta pedido por ID, guild e dono e entrega somente o cód
   });
 });
 
-test('Copia e Cola remove qualquer formatação/whitespace e limita tamanho seguro', async () => {
-  for (const codigo of ['00`01\r\n 02', 'a'.repeat(1701)]) {
+test('Copia e Cola preserva formatação e limita apenas o tamanho do Discord', async () => {
+  for (const codigo of ['00`01\r\n 02', 'a'.repeat(2001)]) {
     await comMocks([[vendasDb, { obterPixPedidoUsuario: async () => ({ pix_copy_paste: codigo }) }]], async () => {
       const interaction = interacao(`ap:copiarpix:${ID_PEDIDO}`);
       await botoes.handleBotao(interaction, ctx);
       const payload = ultimoPayload(interaction);
-      if (codigo.length > 1700) assert.match(texto(payload), /limite seguro/);
-      else {
-        assert.equal(payload.content, '000102');
-        assert.doesNotMatch(payload.content, /\s|`/);
-      }
+      if (codigo.length > 2000) assert.match(texto(payload), /limite seguro/);
+      else assert.equal(payload.content, codigo);
       assert.equal(payload.flags & EFEMERO, EFEMERO);
     });
   }
