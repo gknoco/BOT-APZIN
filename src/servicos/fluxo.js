@@ -346,23 +346,40 @@ async function atualizarPartida(client, db, partidaId) {
 async function notificarPartidaFormada(client, db, partida) {
   if (partida?.mediador_id) return false;
   const canalId = await obterConfig(db, partida.guild_id, 'canal_partidas_formadas', null);
-  if (!canalId) return false;
+  if (!canalId) {
+    console.error(`[fluxo] canal_partidas_formadas não configurado para guild ${partida.guild_id}; execute /configcanalfila.`);
+    return false;
+  }
   const canalBatePonto = await obterConfig(db, partida.guild_id, 'canal_bateponto', null);
   if (String(canalBatePonto || '') === String(canalId)) {
-    console.error('[fluxo] publicação bloqueada: canal de filas coincide com o canal de bate-ponto.');
+    console.error(`[fluxo] publicação bloqueada para guild ${partida.guild_id}: canal de filas ${canalId} coincide com o canal de bate-ponto ${canalBatePonto}.`);
     return false;
   }
   const chaveExecucao = `${partida.guild_id}:${partida.id}`;
   if (notificacoesEmAndamento.has(chaveExecucao)) return false;
   notificacoesEmAndamento.add(chaveExecucao);
   try {
-    const canal = client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null);
-    if (!canal?.send) return false;
-    if (!(await plantao.listar(db, partida.guild_id)).length) return false;
+    const canal = client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch((erro) => {
+      console.error(`[fluxo] não consegui buscar canal_partidas_formadas ${canalId} da guild ${partida.guild_id}:`, erro);
+      return null;
+    });
+    if (!canal?.send) {
+      console.error(`[fluxo] canal_partidas_formadas ${canalId} da guild ${partida.guild_id} não é um canal enviável.`);
+      return false;
+    }
+    const plantonistas = await plantao.listar(db, partida.guild_id);
+    if (!plantonistas.length) {
+      console.warn(`[fluxo] partida ${partida.id} não publicada: nenhum mediador ativo na guild ${partida.guild_id}.`);
+      return false;
+    }
     const chaveMensagem = `partida_aceite_mensagem_${partida.id}`;
     const mensagemSalva = await obterConfig(db, partida.guild_id, chaveMensagem, null);
     if (mensagemSalva) {
-      const mensagemExistente = await canal.messages.fetch(String(mensagemSalva)).catch(() => null);
+      const mensagemExistente = await canal.messages.fetch(String(mensagemSalva)).catch((erro) => {
+        if (erro?.code === 10008) console.warn(`[fluxo] painel salvo ${mensagemSalva} da partida ${partida.id} não existe mais; será reenviado.`);
+        else console.error(`[fluxo] falha ao verificar painel salvo ${mensagemSalva} da partida ${partida.id}:`, erro);
+        return null;
+      });
       if (mensagemExistente) return true;
     }
     const guild = canal.guild || client.guilds.cache.get(String(partida.guild_id));
@@ -397,7 +414,7 @@ async function notificarPartidaFormada(client, db, partida) {
     await definirConfig(db, partida.guild_id, chaveMensagem, mensagem.id);
     return true;
   } catch (erro) {
-    console.error('[fluxo] não consegui notificar partida formada:', erro.message);
+    console.error(`[fluxo] não consegui notificar partida formada ${partida.id} no canal ${canalId}:`, erro);
     return false;
   } finally {
     notificacoesEmAndamento.delete(chaveExecucao);
@@ -406,8 +423,18 @@ async function notificarPartidaFormada(client, db, partida) {
 
 /** Publica, quando um mediador entra no plantão, todas as partidas já formadas. */
 async function notificarPartidasPendentes(client, db, guildId) {
-  if (!(await plantao.listar(db, guildId)).length) return 0;
+  const canalId = await obterConfig(db, guildId, 'canal_partidas_formadas', null);
+  if (!canalId) {
+    console.error(`[fluxo] varredura de pendências abortada: canal_partidas_formadas não configurado para guild ${guildId}.`);
+    return 0;
+  }
+  const plantonistas = await plantao.listar(db, guildId);
+  if (!plantonistas.length) {
+    console.warn(`[fluxo] varredura de pendências sem publicação: plantão vazio na guild ${guildId}.`);
+    return 0;
+  }
   const pendentes = await partidas.pendentes(db, guildId);
+  console.log(`[fluxo] varredura de entrada no plantão: guild ${guildId}, canal ${canalId}, plantonistas ${plantonistas.length}, partidas pendentes ${pendentes.length}.`);
   let publicadas = 0;
   for (const partida of pendentes) {
     if (await notificarPartidaFormada(client, db, partida)) publicadas += 1;
