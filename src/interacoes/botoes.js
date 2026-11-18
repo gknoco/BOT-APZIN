@@ -534,6 +534,9 @@ async function handleBotao(interaction, ctx) {
         }
         await plantao.entrar(db, { guildId: interaction.guildId, userId: interaction.user.id });
         await interaction.editReply(await plantao.painel(db, interaction.guildId));
+        await fluxo.notificarPartidasPendentes(client, db, interaction.guildId).catch((erro) => {
+          console.error('[botoes] não consegui publicar partidas pendentes após entrada no plantão:', erro.message);
+        });
         const posicao = await plantao.posicao(db, { guildId: interaction.guildId, userId: interaction.user.id });
         await responderPrivado(interaction, {
           embeds: [embedSucesso(`Você está no plantão${posicao ? ` (posição ${posicao})` : ''}. Boa! ⚡`)],

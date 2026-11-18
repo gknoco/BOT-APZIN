@@ -26,6 +26,7 @@ const auditoria = require('./auditoria');
 const royalSupabase = require('./royalSupabase');
 
 const { STATUS } = partidas;
+const notificacoesEmAndamento = new Set();
 
 const NOME_TIME = { 1: 'Equipe 1', 2: 'Equipe 2' };
 const nomeTime = (time) => NOME_TIME[Number(time)] || `Equipe ${time}`;
@@ -345,9 +346,19 @@ async function atualizarPartida(client, db, partidaId) {
 async function notificarPartidaFormada(client, db, partida) {
   const canalId = await obterConfig(db, partida.guild_id, 'canal_partidas_formadas', null);
   if (!canalId) return false;
+  const chaveExecucao = `${partida.guild_id}:${partida.id}`;
+  if (notificacoesEmAndamento.has(chaveExecucao)) return false;
+  notificacoesEmAndamento.add(chaveExecucao);
   try {
     const canal = client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null);
     if (!canal?.threads?.create) return false;
+    const chaveThread = `partida_aceite_thread_${partida.id}`;
+    const threadSalva = await obterConfig(db, partida.guild_id, chaveThread, null);
+    if (threadSalva) {
+      const threadExistente = client.channels.cache.get(String(threadSalva))
+        || await client.channels.fetch(String(threadSalva)).catch(() => null);
+      if (threadExistente) return true;
+    }
     const plantonistas = await plantao.listar(db, partida.guild_id);
     if (!plantonistas.length) return false;
     const thread = await canal.threads.create({
@@ -391,11 +402,25 @@ async function notificarPartidaFormada(client, db, partida) {
       components: [linha(botao)],
       allowedMentions: { parse: [] },
     });
+    await definirConfig(db, partida.guild_id, chaveThread, thread.id);
     return true;
   } catch (erro) {
     console.error('[fluxo] não consegui notificar partida formada:', erro.message);
     return false;
+  } finally {
+    notificacoesEmAndamento.delete(chaveExecucao);
   }
+}
+
+/** Publica, quando um mediador entra no plantão, todas as partidas já formadas. */
+async function notificarPartidasPendentes(client, db, guildId) {
+  const pendentes = (await partidas.ativas(db, guildId))
+    .filter((partida) => partida.status === STATUS.AGUARDANDO_MEDIADOR);
+  let publicadas = 0;
+  for (const partida of pendentes) {
+    if (await notificarPartidaFormada(client, db, partida)) publicadas += 1;
+  }
+  return publicadas;
 }
 
 async function concederAcessoPartida(client, db, partidaId, userId) {
@@ -661,6 +686,7 @@ module.exports = {
   publicarSala,
   atualizarPartida,
   notificarPartidaFormada,
+  notificarPartidasPendentes,
   concederAcessoPartida,
   entrarNaFila,
   anunciarPix,
