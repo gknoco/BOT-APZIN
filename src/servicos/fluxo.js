@@ -344,7 +344,12 @@ async function atualizarPartida(client, db, partidaId) {
 
 /** Notifica a staff quando os capitães confirmam a partida; a assunção usa o lock do Supabase. */
 async function notificarPartidaFormada(client, db, partida) {
-  if (partida?.mediador_id) return false;
+  if (!partida || partida.status !== STATUS.AGUARDANDO_MEDIADOR || partida.mediador_id) return false;
+  const plantonistas = await plantao.listar(db, partida.guild_id);
+  if (!plantonistas.length) {
+    console.warn(`[fluxo] partida ${partida.id} mantida pendente: nenhum mediador ativo na guild ${partida.guild_id}.`);
+    return false;
+  }
   const canalId = await obterConfig(db, partida.guild_id, 'canal_partidas_formadas', null);
   if (!canalId) {
     console.error(`[fluxo] canal_partidas_formadas não configurado para guild ${partida.guild_id}; execute /configcanalfila.`);
@@ -367,9 +372,11 @@ async function notificarPartidaFormada(client, db, partida) {
       console.error(`[fluxo] canal_partidas_formadas ${canalId} da guild ${partida.guild_id} não é um canal enviável.`);
       return false;
     }
-    const plantonistas = await plantao.listar(db, partida.guild_id);
-    if (!plantonistas.length) {
-      console.warn(`[fluxo] partida ${partida.id} não publicada: nenhum mediador ativo na guild ${partida.guild_id}.`);
+    // Revalida imediatamente antes do envio para não publicar se o último
+    // mediador tiver saído durante a busca do canal ou a montagem do painel.
+    const plantonistasAntesDoEnvio = await plantao.listar(db, partida.guild_id);
+    if (!plantonistasAntesDoEnvio.length) {
+      console.warn(`[fluxo] partida ${partida.id} não publicada: plantão ficou vazio antes do envio na guild ${partida.guild_id}.`);
       return false;
     }
     const chaveMensagem = `partida_aceite_mensagem_${partida.id}`;
