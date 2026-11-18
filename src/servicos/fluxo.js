@@ -514,7 +514,7 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
   const idsMencionados = [String(userId), ...jogadores.map((linha) => String(linha.user_id))];
   try {
     await canal.send({
-      content: `✅ O mediador/ADM ${mencao(userId)} aceitou e assumiu a fila de vocês!\n${jogadores.map((linha) => mencao(linha.user_id)).join(' ')}`,
+      content: `✅ O mediador ${mencao(userId)} aceitou a fila de vocês! Ele enviará a chave Pix nos próximos segundos.\n${jogadores.map((linha) => mencao(linha.user_id)).join(' ')}`,
       allowedMentions: { users: idsMencionados },
     });
   } catch (erro) {
