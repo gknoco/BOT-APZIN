@@ -195,7 +195,6 @@ function componentesPartida(partida) {
     case STATUS.AGUARDANDO_MEDIADOR:
       linhas.push(
         linha(
-          botao(`ap:assumir:${id}`, 'Assumir sala', '👑', ButtonStyle.Primary),
           botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
         ),
       );

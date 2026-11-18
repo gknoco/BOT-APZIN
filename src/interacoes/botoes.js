@@ -395,7 +395,7 @@ async function handleBotao(interaction, ctx) {
         return true;
 
       case 'assumir':
-        await assumirSala(interaction, ctx, args[0]);
+        await responderErro(interaction, 'O aceite de filas ocorre exclusivamente no painel administrativo do canal configurado.');
         return true;
 
       case 'assumirnotificacao': {
@@ -404,7 +404,7 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         if (!(await plantao.ativo(db, { guildId: interaction.guildId, userId: interaction.user.id }))) {
-          await responderErro(interaction, 'Você precisa estar ativo no bate-ponto para aceitar uma partida formada.');
+          await responderErro(interaction, 'Você precisa estar no bate-ponto dos mediadores para aceitar filas!');
           return true;
         }
         await assumirSala(interaction, ctx, args[0]);
