@@ -27,7 +27,15 @@ const filasServico = require('./filas');
 const CHAVE_VISUAL = 'filas_visual';
 async function obterVisual(db, guildId) {
   const valor = await require('./supabase').obterConfig(guildId, CHAVE_VISUAL, db?.client);
-  try { return valor ? JSON.parse(valor) : {}; } catch { return {}; }
+  try {
+    const bruto = valor ? JSON.parse(valor) : {};
+    const avatar = bruto.avatar_url || bruto.avatar;
+    const banner = bruto.banner_url || bruto.banner;
+    return {
+      avatar_url: /^https?:\/\/\S+$/i.test(String(avatar || '')) && String(avatar).toUpperCase() !== 'EXCLUSIR' ? String(avatar) : null,
+      banner_url: /^https?:\/\/\S+$/i.test(String(banner || '')) && String(banner).toUpperCase() !== 'EXCLUSIR' ? String(banner) : null,
+    };
+  } catch { return {}; }
 }
 async function salvarVisual(db, guildId, tipo, valor) {
   const atual = await obterVisual(db, guildId);
@@ -61,8 +69,8 @@ function linhaDePreco(modo, preco, entradas) {
 }
 
 /** Painel antigo (todos os valores em um embed) — mantido para compatibilidade. */
-function embedPainel(modo, entradas = []) {
-  return embed(`🎯 AP ${modo.titulo}`, [
+function embedPainel(modo, entradas = [], visual = {}) {
+  const card = embed(`🎯 AP ${modo.titulo}`, [
     `**Modo:** ${modo.titulo}   ·   **Abre com:** ${config.CAPITAES_POR_PARTIDA} capitães (1 por time) · formato ${modo.time}x${modo.time}`,
     `**Cards:** de ${reais(config.PRECOS[0])} (topo) até ${reais(config.PRECOS[config.PRECOS.length - 1])} (fundo).`,
     '',
@@ -73,6 +81,9 @@ function embedPainel(modo, entradas = []) {
     campos: config.PRECOS.map((preco) => linhaDePreco(modo, preco, entradas)),
     rodape: `ORG Royal AP · ${entradas.length} jogador(es) na fila`,
   });
+  if (visual.avatar_url) card.setThumbnail(visual.avatar_url);
+  if (visual.banner_url) card.setImage(visual.banner_url);
+  return card;
 }
 
 /** Menu com todos os valores + Sair + Como funciona (ranking é comando separado). */
@@ -191,13 +202,13 @@ function mensagemPreco(modo, preco, entradas = [], visual = {}) {
  * As 15 mensagens da fila, na ordem de envio:
  * R$ 100,00 primeiro (topo) … R$ 0,50 por último (fica embaixo).
  */
-function mensagensFila(modo, entradas = []) {
-  return PRECOS_ENVIO.map((preco) => ({ preco, payload: mensagemPreco(modo, preco, entradas) }));
+function mensagensFila(modo, entradas = [], visual = {}) {
+  return PRECOS_ENVIO.map((preco) => ({ preco, payload: mensagemPreco(modo, preco, entradas, visual) }));
 }
 
 /** Painel antigo completo (uma mensagem só). */
-function mensagemPainel(modo, entradas) {
-  return { embeds: [embedPainel(modo, entradas)], components: componentesPainel(modo) };
+function mensagemPainel(modo, entradas, visual = {}) {
+  return { embeds: [embedPainel(modo, entradas, visual)], components: componentesPainel(modo) };
 }
 
 async function salvar(db, { guildId, modo, canalId, mensagemId }) {
@@ -292,8 +303,7 @@ async function publicarFila(db, canal, { guildId, modo, entradas = [] }) {
   const antigas = await mensagensSalvas(db, { guildId, modo: modo.id });
   const visual = await obterVisual(db, guildId);
   const enviadas = [];
-  for (const { preco } of mensagensFila(modo, entradas)) {
-    const payload = mensagemPreco(modo, preco, entradas, visual);
+  for (const { preco, payload } of mensagensFila(modo, entradas, visual)) {
     const mensagem = await canal.send(payload);
     enviadas.push({ preco, mensagemId: mensagem.id });
   }
@@ -389,7 +399,7 @@ async function atualizar(client, db, { guildId, modo, preco = null }) {
     if (!canal) return false;
     const mensagem = await canal.messages.fetch(painel.mensagem_id).catch(() => null);
     if (mensagem) {
-      await mensagem.edit(mensagemPainel(modoInfo, entradas));
+      await mensagem.edit(mensagemPainel(modoInfo, entradas, visual));
       return true;
     }
     // Painel antigo apagado: publica o formato novo de 15 mensagens.

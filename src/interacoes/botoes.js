@@ -127,7 +127,8 @@ async function atualizarCardDoClique(interaction, db, modo, preco) {
   if (!config.PRECOS.includes(valor)) return false;
   try {
     const entradas = await filas.listar(db, { guildId: interaction.guildId, modo: modo.id });
-    const card = await paineis.mensagemPreco(modo, valor, entradas);
+    const visual = await paineis.obterVisual(db, interaction.guildId);
+    const card = paineis.mensagemPreco(modo, valor, entradas, visual);
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(card);
     } else if (typeof interaction.update === 'function') {
