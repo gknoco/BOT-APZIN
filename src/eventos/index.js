@@ -4,7 +4,7 @@
  * Eventos do Discord: conexão, interações, convites, entradas e erros.
  */
 
-const { Events } = require('discord.js');
+const { EmbedBuilder, Events } = require('discord.js');
 const config = require('../config');
 const comandos = require('../comandos');
 const { handleBotao } = require('../interacoes/botoes');
@@ -27,6 +27,19 @@ const automacoes = require('../servicos/automacoesDiscord');
 // interação nunca pode iniciar dois handlers concorrentes (p.ex. dois modais).
 const interacoesVistasPorCliente = new WeakMap();
 const contextosPorCliente = new WeakMap();
+const CANAL_LOG_INVITES = '1543685343591800832';
+
+async function publicarLogInvite(guild, titulo, descricao, cor) {
+  const canal = await guild.channels.fetch(CANAL_LOG_INVITES).catch((erro) => {
+    console.error('[convites] não consegui buscar o canal de logs:', erro.message);
+    return null;
+  });
+  if (!canal?.isTextBased?.() || typeof canal.send !== 'function') return null;
+  return canal.send({
+    embeds: [new EmbedBuilder().setColor(cor).setTitle(titulo).setDescription(descricao).setTimestamp()],
+    allowedMentions: { parse: [] },
+  });
+}
 
 function primeiraEntrega(client, interaction) {
   let vistas = interacoesVistasPorCliente.get(client);
@@ -229,6 +242,15 @@ function montar(client, db) {
             inviterUserId: convite.inviter.id,
             code: codigo,
           }).catch((erro) => console.error('[convites] Supabase:', erro.message));
+          const contagem = await royalSupabase.contarConvites(guild.id, convite.inviter.id).catch(() => null);
+          await publicarLogInvite(
+            guild,
+            '📨 Invite utilizado',
+            `<@${membro.id}> entrou usando o convite de <@${convite.inviter.id}>.\n` +
+              `**Convite:** \`${codigo}\`\n` +
+              (contagem === null ? '' : `**Invites reais atuais:** ${contagem}`),
+            0x2ecc71,
+          ).catch((erro) => console.error('[convites] log de entrada:', erro.message));
           await royalSupabase.auditar({
             guildId: guild.id,
             actorId: convite.inviter.id,
@@ -247,6 +269,30 @@ function montar(client, db) {
   const atualizarConvites = (guild) => convites.atualizarCache(guild).catch(() => {});
   client.on(Events.InviteCreate, (convite) => atualizarConvites(convite.guild));
   client.on(Events.InviteDelete, (convite) => atualizarConvites(convite.guild));
+
+  client.on(Events.GuildMemberRemove, async (membro) => {
+    try {
+      const registro = await royalSupabase.removerInvite(membro.guild.id, membro.id);
+      if (!registro?.inviter_user_id) return;
+      await publicarLogInvite(
+        membro.guild,
+        '📤 Membro convidado saiu',
+        `<@${membro.id}> saiu do servidor. O invite de <@${registro.inviter_user_id}> foi atualizado.\n` +
+          `**Invites reais:** ${Number(registro.invites_reais || 0)} · **Saídas:** ${Number(registro.invites_saidas || 0)}`,
+        0xe67e22,
+      );
+      await royalSupabase.auditar({
+        guildId: membro.guild.id,
+        actorId: registro.inviter_user_id,
+        action: 'member.leave',
+        entityType: 'invite',
+        entityId: membro.id,
+        detail: 'invite decrementado após saída',
+      }).catch(() => {});
+    } catch (erro) {
+      console.error('[convites] erro ao remover invite:', erro.message);
+    }
+  });
 
   client.on(Events.Error, (erro) => console.error('[discord] erro do cliente:', erro.message));
 

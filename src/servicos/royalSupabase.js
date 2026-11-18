@@ -200,7 +200,7 @@ async function rankingConvites(guildId, limit = 10) {
   return (data || []).map((row) => ({
     user_id: row.user_id,
     inviter_user_id: row.user_id,
-    total: Number(row.total || 0),
+    total: Number(row.total || row.invites_reais || 0),
   }));
 }
 
@@ -228,19 +228,23 @@ async function conviteDoUsuario(guildId, invitedUserId) {
 }
 
 async function registrarInvite({ guildId, invitedUserId, inviterUserId, code, confidence = 'observed' }) {
-  const { error } = await cliente()
-    .from('royal_invites')
-    .upsert(
-      {
-        guild_id: String(guildId),
-        invited_user_id: String(invitedUserId),
-        inviter_user_id: inviterUserId ? String(inviterUserId) : null,
-        code: code || null,
-        confidence,
-      },
-      { onConflict: 'guild_id,invited_user_id', ignoreDuplicates: true },
-    );
+  const { error } = await cliente().rpc('royal_record_invite_join', {
+    p_guild_id: String(guildId),
+    p_invited_user_id: String(invitedUserId),
+    p_inviter_user_id: inviterUserId ? String(inviterUserId) : null,
+    p_code: code || null,
+    p_confidence: confidence,
+  });
   if (error) throw new Error(`registrar invite: ${error.message}`);
+}
+
+async function removerInvite(guildId, invitedUserId) {
+  const { data, error } = await cliente().rpc('royal_record_invite_leave', {
+    p_guild_id: String(guildId),
+    p_invited_user_id: String(invitedUserId),
+  });
+  if (error) throw new Error(`remover invite: ${error.message}`);
+  return data || null;
 }
 
 async function auditar(evento) {
@@ -277,5 +281,6 @@ module.exports = {
   contarConvites,
   conviteDoUsuario,
   registrarInvite,
+  removerInvite,
   auditar,
 };
