@@ -20,7 +20,6 @@ const filas = require('./filas');
 const partidas = require('./partidas');
 const paineis = require('./paineis');
 const mediadores = require('./mediadores');
-const plantao = require('./plantao');
 const blacklist = require('./blacklist');
 const auditoria = require('./auditoria');
 const royalSupabase = require('./royalSupabase');
@@ -351,27 +350,12 @@ async function notificarPartidaFormada(client, db, partida) {
   notificacoesEmAndamento.add(chaveExecucao);
   try {
     const canal = client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null);
-    if (!canal?.threads?.create) return false;
-    const chaveThread = `partida_aceite_thread_${partida.id}`;
-    const threadSalva = await obterConfig(db, partida.guild_id, chaveThread, null);
-    if (threadSalva) {
-      const threadExistente = client.channels.cache.get(String(threadSalva))
-        || await client.channels.fetch(String(threadSalva)).catch(() => null);
-      if (threadExistente) return true;
-    }
-    const plantonistas = await plantao.listar(db, partida.guild_id);
-    if (!plantonistas.length) return false;
-    const thread = await canal.threads.create({
-      name: `aceite-${String(partida.id).slice(0, 20)}`,
-      type: ChannelType.PrivateThread,
-      invitable: false,
-      autoArchiveDuration: 60,
-      reason: 'Painel privado de aceite para staff de plantão',
-    });
-    for (const plantonista of plantonistas) {
-      await thread.members.add(String(plantonista.user_id)).catch((erro) => {
-        console.error(`[fluxo] não consegui adicionar plantonista à thread privada:`, erro.message);
-      });
+    if (!canal?.send) return false;
+    const chaveMensagem = `partida_aceite_mensagem_${partida.id}`;
+    const mensagemSalva = await obterConfig(db, partida.guild_id, chaveMensagem, null);
+    if (mensagemSalva) {
+      const mensagemExistente = await canal.messages.fetch(String(mensagemSalva)).catch(() => null);
+      if (mensagemExistente) return true;
     }
     const guild = canal.guild || client.guilds.cache.get(String(partida.guild_id));
     const jogadores = await partidas.jogadores(db, partida.id);
@@ -397,12 +381,12 @@ async function notificarPartidaFormada(client, db, partida) {
       .setLabel('Aceitar')
       .setEmoji('👑')
       .setStyle(ButtonStyle.Success);
-    await thread.send({
+    const mensagem = await canal.send({
       embeds: [painel],
       components: [linha(botao)],
       allowedMentions: { parse: [] },
     });
-    await definirConfig(db, partida.guild_id, chaveThread, thread.id);
+    await definirConfig(db, partida.guild_id, chaveMensagem, mensagem.id);
     return true;
   } catch (erro) {
     console.error('[fluxo] não consegui notificar partida formada:', erro.message);
