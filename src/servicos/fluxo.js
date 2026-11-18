@@ -400,6 +400,7 @@ async function notificarPartidaFormada(client, db, partida) {
 
 /** Publica, quando um mediador entra no plantão, todas as partidas já formadas. */
 async function notificarPartidasPendentes(client, db, guildId) {
+  if (!(await plantao.listar(db, guildId)).length) return 0;
   const pendentes = (await partidas.ativas(db, guildId))
     .filter((partida) => partida.status === STATUS.AGUARDANDO_MEDIADOR);
   let publicadas = 0;
