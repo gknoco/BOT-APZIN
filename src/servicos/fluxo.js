@@ -476,6 +476,16 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
     ReadMessageHistory: true,
     EmbedLinks: true,
   });
+  const jogadores = await partidas.jogadores(db, partidaId);
+  const idsMencionados = [String(userId), ...jogadores.map((linha) => String(linha.user_id))];
+  try {
+    await canal.send({
+      content: `✅ O mediador/ADM ${mencao(userId)} aceitou e assumiu a fila de vocês!\n${jogadores.map((linha) => mencao(linha.user_id)).join(' ')}`,
+      allowedMentions: { users: idsMencionados },
+    });
+  } catch (erro) {
+    console.error(`[fluxo] aceite confirmado, mas não consegui enviar aviso na sala privada ${partida.canal_id}:`, erro);
+  }
   return true;
 }
 
