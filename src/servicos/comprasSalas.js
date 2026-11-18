@@ -59,13 +59,22 @@ async function criarPedidoPix({ guildId, userId, requestId, quantity, couponCode
       expiresAt: payment.expiresAt,
     });
   } catch (error) {
+    // O cliente atual usa fetch; manter também error.response.data para compatibilidade com Axios.
+    // Não registrar token, QR completo nem e-mail do pagador.
+    console.error('[compras-salas] erro exato ao criar/anexar Pix do Mercado Pago:', JSON.stringify({
+      responseData: error?.response?.data || error?.details || null,
+      message: error?.message || String(error),
+      code: resumoErro(error),
+      status: error?.status || error?.response?.status || null,
+      apiMessage: error?.apiMessage || null,
+      apiCause: error?.apiCause || null,
+      orderId: String(order.id),
+      transactionAmount: Number((Number(order.amount_cents) / 100).toFixed(2)),
+    }));
     const status = error?.definitive ? 'failed' : 'manual_review';
     await vendas.marcarFalhaPedido({ orderId: order.id, status, errorCode: resumoErro(error) }).catch((dbError) => {
       console.error('[compras-salas] não consegui atualizar o pedido após falha MP:', dbError.message);
     });
-    if (status === 'manual_review') {
-      throw new Error(mensagemFalhaMercadoPago(error));
-    }
     throw new Error(mensagemFalhaMercadoPago(error));
   }
 
