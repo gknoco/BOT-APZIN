@@ -67,6 +67,34 @@ async function ativas(db, guildId) {
     .eq('guild_id', String(guildId)).in('status', [...ATIVOS]).order('criado_em').order('id'), 'listar partidas ativas');
 }
 
+/** Lista somente salas ativas cujo canal privado ainda existe no Discord. */
+async function ativasReais(db, guildId, client) {
+  const candidatas = await ativas(db, guildId);
+  const reais = [];
+  for (const partida of candidatas) {
+    const canalId = String(partida.canal_id || '').trim();
+    const canal = canalId && client?.channels?.fetch
+      ? client.channels.cache?.get?.(canalId) || await client.channels.fetch(canalId).catch(() => null)
+      : null;
+    const pertenceAoServidor = canal && String(canal.guildId || canal.guild?.id || '') === String(guildId);
+    const canalDeTexto = canal && (typeof canal.isTextBased !== 'function' || canal.isTextBased());
+    if (pertenceAoServidor && canalDeTexto) {
+      reais.push(partida);
+      continue;
+    }
+    try {
+      await cancelar(db, {
+        partidaId: partida.id,
+        motivo: canalId ? 'canal da sala não existe mais' : 'partida sem canal de sala válido',
+      });
+      console.warn(`[partidas] partida ${partida.id} encerrada como órfã: canal ${canalId || '(vazio)'} inválido.`);
+    } catch (erro) {
+      console.error(`[partidas] não consegui limpar a partida órfã ${partida.id}:`, erro.message);
+    }
+  }
+  return reais;
+}
+
 async function pendentes(db, guildId) {
   return listarPaginado(() => cliente(db).from(TABELAS.partidas).select(CAMPOS)
     .eq('guild_id', String(guildId)).eq('status', STATUS.AGUARDANDO_MEDIADOR).is('mediador_id', null)
@@ -134,5 +162,5 @@ async function cancelar(db, { partidaId, autorId = null, motivo = 'cancelada pel
 }
 
 module.exports = { STATUS, ATIVOS, criar, buscar, jogadores, confirmados, definirMensagem, porCanal,
-  ativas, pendentes, ativasDoJogador, definirRegras, confirmar, assumir, marcarPago, liberarSala,
+  ativas, ativasReais, pendentes, ativasDoJogador, definirRegras, confirmar, assumir, marcarPago, liberarSala,
   darGo, finalizar, aplicarWO, cancelar };

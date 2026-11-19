@@ -1158,7 +1158,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Só a staff vê as salas.');
           return true;
         }
-        const ativas = (await partidas.ativas(db, interaction.guildId))
+        const ativas = (await partidas.ativasReais(db, interaction.guildId, client))
           .filter((partida) => partida.status !== 'confirmando');
         const corpo = ativas.length
           ? ativas

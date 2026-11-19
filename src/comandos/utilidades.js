@@ -381,7 +381,7 @@ const comandos = [
       if (!(await exigirStaff(interaction))) return;
       const guildId = interaction.guildId;
       const [ativas, publicados, naFila] = await Promise.all([
-        partidas.ativas(db, guildId), paineis.todos(db, guildId), contarTabela(db, 'royal_filas', guildId),
+        partidas.ativasReais(db, guildId, interaction.client), paineis.todos(db, guildId), contarTabela(db, 'royal_filas', guildId),
       ]);
       const emAndamento = ativas.length;
       const paineisPublicados = publicados.length;
@@ -390,7 +390,6 @@ const comandos = [
         new ButtonBuilder().setCustomId('ap:minhasalas').setLabel('Salas ativas').setEmoji('📋').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('ap:ranking').setLabel('Ranking').setEmoji('🏆').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('ap:ajuda').setLabel('Ajuda').setEmoji('❓').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('ap:central').setLabel('Central de atendimento').setEmoji('🎫').setStyle(ButtonStyle.Secondary),
       );
 
       return responderPrivado(interaction, {

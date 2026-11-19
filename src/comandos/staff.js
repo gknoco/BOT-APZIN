@@ -213,7 +213,7 @@ const comandos = [
 
     async executar(interaction, { db, client }) {
       if (!(await exigirMediador(interaction))) return;
-      const ativas = await partidas.ativas(db, interaction.guildId);
+      const ativas = await partidas.ativasReais(db, interaction.guildId, client);
       const pendentes = ativas.filter((partida) => partida.status !== 'confirmando').length;
       const registroPix = await staffSupabase.obter(interaction.guildId, interaction.user.id);
 
