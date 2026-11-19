@@ -24,7 +24,7 @@ const comandos = config.MODOS.map((modo) => ({
   data: new SlashCommandBuilder()
     .setName(modo.comando)
     .setDescription(
-      `Publica a fila de AP ${modo.titulo} NESTE canal (${config.PRECOS.length} mensagens, de R$ 0,50 a R$ 100,00)`,
+      `Publica a fila de AP ${modo.titulo} NESTE canal (${config.PRECOS.length} mensagens, de R$ 0,10 a R$ 100,00)`,
     ),
 
   async executar(interaction, { db, client }) {

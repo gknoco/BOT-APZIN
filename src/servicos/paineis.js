@@ -180,14 +180,14 @@ function jogadoresDaFaixa(modo, preco, entradas = []) {
  */
 function mensagemPreco(modo, preco, entradas = [], visual = {}) {
   const jogadores = jogadoresDaFaixa(modo, preco, entradas);
-  const card = embed(`${tituloCurto(modo)} | Zenith - Hub`, null, {
+  const card = embed(`${tituloCurto(modo)} | Royal AP`, null, {
     cor: 0xed4245,
     campos: [
       { name: '⦿  Modo:', value: `${modo.titulo} · ${modo.time}v${modo.time}`, inline: false },
       { name: '◉  Valor:', value: reais(preco), inline: false },
       { name: '♙  Jogadores:', value: jogadores.length ? jogadores.join('\n') : 'Nenhum jogador na fila.', inline: false },
     ],
-    rodape: 'Zenith - Hub · Entre na fila pelos botões abaixo',
+    rodape: 'Royal AP • Entre na fila pelos botões abaixo',
   });
   if (visual.avatar_url) card.setThumbnail(visual.avatar_url);
   if (visual.banner_url) card.setImage(visual.banner_url);

@@ -36,22 +36,25 @@ function lerLote(valor) {
 }
 
 async function enviarTodasAsFilas({ db, client, guildId }) {
-  const enviadas = [];
-  const falhas = [];
-  for (const modo of config.MODOS) {
+  const resultados = await Promise.all(config.MODOS.map(async (modo) => {
     const channelId = CANAIS_FILAS[modo.comando];
-    if (!channelId) continue;
+    if (!channelId) return { enviadas: [], falhas: [] };
     try {
       const canal = client.channels.cache.get(channelId) || await client.channels.fetch(channelId);
       if (!canal?.send) throw new Error('canal não é enviável');
       const entradas = await filas.listar(db, { guildId, modo: modo.id });
       const mensagens = await paineis.publicarFila(db, canal, { guildId, modo, entradas });
-      enviadas.push(...mensagens.map((linha) => ({ channelId, messageId: linha.mensagemId })));
+      return {
+        enviadas: mensagens.map((linha) => ({ channelId, messageId: linha.mensagemId })),
+        falhas: [],
+      };
     } catch (erro) {
-      falhas.push(`${modo.comando}: ${erro.message}`);
       console.error(`[painelfilas] falha ao publicar ${modo.comando} no canal ${channelId}:`, erro);
+      return { enviadas: [], falhas: [`${modo.comando}: ${erro.message}`] };
     }
-  }
+  }));
+  const enviadas = resultados.flatMap((resultado) => resultado.enviadas);
+  const falhas = resultados.flatMap((resultado) => resultado.falhas);
   await persistenciaSupabase.definirConfig(guildId, CHAVE_LOTE, JSON.stringify(enviadas), db.client);
   return { enviadas, falhas };
 }
