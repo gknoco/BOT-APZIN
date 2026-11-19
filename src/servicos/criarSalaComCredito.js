@@ -26,15 +26,6 @@ async function criar({ guildId, userId, requestId, source, sourceRef, sala }) {
   try {
     dados = await nix.criarSala(sala);
   } catch (error) {
-    // O POST cria uma nova sessão; uma segunda tentativa única recupera um
-    // 404 transitório do provedor sem reutilizar sessão expirada.
-    if (Number(error?.status || 0) === 404) {
-      try {
-        dados = await nix.criarSala(sala);
-      } catch (tentativaExtra) {
-        error = tentativaExtra;
-      }
-    }
     if (!dados) {
       const status = Number(error?.status || 0);
       const resultadoIncerto = [408, 409, 425, 429].includes(status);

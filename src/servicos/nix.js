@@ -4,7 +4,7 @@
  * Integração com a API de Salas da Nix FF (nixff.vip).
  *
  * Documentação: https://nixff.vip/docs
- * Base:        https://salas.nixbot.vip/
+ * Base padrão: https://nixff.vip
  *
  * A chave fica SÓ no .env (NIX_API_KEY) ou nas variáveis de ambiente da
  * hospedagem. Ela nunca é enviada para o Discord, nunca é impressa em log e
@@ -15,8 +15,9 @@
 
 const config = require('../config');
 
-const BASE_PADRAO = 'https://salas.nixbot.vip';
+const BASE_PADRAO = 'https://nixff.vip';
 const TEMPO_LIMITE = 15000;
+let prefixoRotasSala = '';
 
 /** Modos aceitos por POST /rooms. */
 const MODOS = [
@@ -52,10 +53,14 @@ function chave() {
 
 function base() {
   const bruta = String(process.env.NIX_API_URL || config.NIX_API_URL || BASE_PADRAO).trim();
-  const normalizada = (bruta || BASE_PADRAO)
-    .replace(/\/(?:api|v1)\/?$/i, '')
-    .replace(/\/+$/, '');
+  // Preserve a configured path prefix (for example /api/v1). Removing it
+  // turns a valid NIX_API_URL into a different API base and causes 404s.
+  const normalizada = (bruta || BASE_PADRAO).replace(/\/+$/, '');
   return normalizada || BASE_PADRAO;
+}
+
+function rotaSala(sufixo) {
+  return `${prefixoRotasSala}/rooms${sufixo ? `/${sufixo}` : ''}`;
 }
 
 /** Chave preenchida e que não é o texto de exemplo. */
@@ -84,7 +89,7 @@ function mensagemErro(status, dados, rota = '') {
     case 403:
       return `A chave da Nix está válida, mas desabilitada ou sem permissão para essa rota (403).${rodape}`;
     case 404:
-      if (/^(?:\/(?:api|v1))?\/rooms\/?$/i.test(String(rota))) {
+      if (/^\/(?:api\/)?(?:v1\/)?rooms\/?$/i.test(String(rota))) {
         return `A API da Nix não aceitou a requisição de criação da sala (404). A integração tentou uma nova requisição limpa, mas a rota/base configurada não foi encontrada.${rodape}`;
       }
       return `A sessão não existe mais (404). A sala expirou, já deu start ou já foi liberada.${rodape}`;
@@ -233,12 +238,14 @@ function validarCriacaoSala({
 
 async function criarSala(opcoes = {}) {
   const corpo = validarCriacaoSala(opcoes);
-  const rotas = ['/rooms', '/rooms/', '/api/rooms', '/api/rooms/', '/v1/rooms', '/v1/rooms/'];
+  const rotas = ['/api/v1/rooms', '/api/rooms', '/v1/rooms', '/rooms'];
   let dados;
   let ultimoErro;
+  let rotaUsada = '';
   for (const rota of rotas) {
     try {
       dados = await requisitar(rota, { metodo: 'POST', corpo });
+      rotaUsada = rota;
       break;
     } catch (erro) {
       ultimoErro = erro;
@@ -246,6 +253,7 @@ async function criarSala(opcoes = {}) {
     }
   }
   if (!dados) throw ultimoErro;
+  prefixoRotasSala = rotaUsada.replace(/\/rooms$/, '');
   if (!dados || !dados.session_id || dados.room_id == null || !dados.password) {
     throw new ErroNix('A Nix respondeu sem os dados completos da sala (session_id, room_id e senha). O crédito permaneceu reservado para reconciliação segura.', { status: 502, detalhe: 'invalid_create_room_response' });
   }
@@ -254,19 +262,19 @@ async function criarSala(opcoes = {}) {
 
 /** POST /rooms/{session_id}/start — inicia a partida. */
 function iniciarSala(sessao) {
-  return requisitar(`/rooms/${encodeURIComponent(sessaoId(sessao))}/start`, { metodo: 'POST' });
+  return requisitar(rotaSala(`${encodeURIComponent(sessaoId(sessao))}/start`), { metodo: 'POST' });
 }
 
 /** POST /rooms/{session_id}/release — encerra a sessão sem dar start. */
 function liberarSala(sessao) {
-  return requisitar(`/rooms/${encodeURIComponent(sessaoId(sessao))}/release`, { metodo: 'POST' });
+  return requisitar(rotaSala(`${encodeURIComponent(sessaoId(sessao))}/release`), { metodo: 'POST' });
 }
 
 /** POST /rooms/{session_id}/kick — expulsa um jogador. */
 function chutarJogador(sessao, uid) {
   const alvo = String(uid ?? '').trim();
   if (!/^\d{3,20}$/.test(alvo)) throw new ErroNix('UID inválido para expulsar. Use só números.');
-  return requisitar(`/rooms/${encodeURIComponent(sessaoId(sessao))}/kick`, {
+  return requisitar(rotaSala(`${encodeURIComponent(sessaoId(sessao))}/kick`), {
     metodo: 'POST',
     corpo: { player_uid: alvo },
   });
@@ -280,23 +288,23 @@ function editarSala(sessao, { modo, senha = null, ouro1500 = false, carregamento
   }
   const corpo = { config_type: tipo, '1500_ouro': Boolean(ouro1500), carregamento: Boolean(carregamento) };
   if (senha) corpo.password = String(senha).trim().slice(0, 16);
-  return requisitar(`/rooms/${encodeURIComponent(sessaoId(sessao))}/edit`, { metodo: 'POST', corpo });
+  return requisitar(rotaSala(`${encodeURIComponent(sessaoId(sessao))}/edit`), { metodo: 'POST', corpo });
 }
 
 /** GET /rooms/{session_id} — estado atual da sessão. */
 function sessao(sessao) {
-  return requisitar(`/rooms/${encodeURIComponent(sessaoId(sessao))}`);
+  return requisitar(rotaSala(encodeURIComponent(sessaoId(sessao))));
 }
 
 /** GET /rooms/{session_id}/members — jogadores dentro da sala. */
 function membros(sessao, { loadout = false } = {}) {
   const sufixo = loadout ? '?include_loadout=true' : '';
-  return requisitar(`/rooms/${encodeURIComponent(sessaoId(sessao))}/members${sufixo}`);
+  return requisitar(rotaSala(`${encodeURIComponent(sessaoId(sessao))}/members${sufixo}`));
 }
 
 /** GET /rooms/{session_id}/result — resultado da partida. */
 function resultado(sessao) {
-  return requisitar(`/rooms/${encodeURIComponent(sessaoId(sessao))}/result`);
+  return requisitar(rotaSala(`${encodeURIComponent(sessaoId(sessao))}/result`));
 }
 
 /** GET /stats/tc?ids=a,b,c — estatísticas competitivas de vários UIDs. */
