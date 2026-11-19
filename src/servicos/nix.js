@@ -84,7 +84,7 @@ function mensagemErro(status, dados, rota = '') {
     case 403:
       return `A chave da Nix está válida, mas desabilitada ou sem permissão para essa rota (403).${rodape}`;
     case 404:
-      if (/^\/rooms\/?$/i.test(String(rota))) {
+      if (/^(?:\/(?:api|v1))?\/rooms\/?$/i.test(String(rota))) {
         return `A API da Nix não aceitou a requisição de criação da sala (404). A integração tentou uma nova requisição limpa, mas a rota/base configurada não foi encontrada.${rodape}`;
       }
       return `A sessão não existe mais (404). A sala expirou, já deu start ou já foi liberada.${rodape}`;
@@ -233,15 +233,19 @@ function validarCriacaoSala({
 
 async function criarSala(opcoes = {}) {
   const corpo = validarCriacaoSala(opcoes);
+  const rotas = ['/rooms', '/rooms/', '/api/rooms', '/api/rooms/', '/v1/rooms', '/v1/rooms/'];
   let dados;
-  try {
-    dados = await requisitar('/rooms', { metodo: 'POST', corpo });
-  } catch (erro) {
-    // Alguns proxies da hospedagem diferenciam /rooms de /rooms/. Ambas são
-    // a mesma rota oficial; nunca reutilizamos session_id nessa recuperação.
-    if (Number(erro?.status) !== 404) throw erro;
-    dados = await requisitar('/rooms/', { metodo: 'POST', corpo });
+  let ultimoErro;
+  for (const rota of rotas) {
+    try {
+      dados = await requisitar(rota, { metodo: 'POST', corpo });
+      break;
+    } catch (erro) {
+      ultimoErro = erro;
+      if (Number(erro?.status) !== 404) throw erro;
+    }
   }
+  if (!dados) throw ultimoErro;
   if (!dados || !dados.session_id || dados.room_id == null || !dados.password) {
     throw new ErroNix('A Nix respondeu sem os dados completos da sala (session_id, room_id e senha). O crédito permaneceu reservado para reconciliação segura.', { status: 502, detalhe: 'invalid_create_room_response' });
   }

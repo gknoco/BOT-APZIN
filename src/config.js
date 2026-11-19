@@ -173,7 +173,7 @@ const config = {
     texto(process.env.NIX_API_KEY) ||
     texto(process.env.NIX_TOKEN) ||
     'nix_sk_4297eb90c989788dd2248fdf065178b1d4fa7d26d7930a52',
-  NIX_API_URL: texto(process.env.NIX_API_URL, 'https://salas.nixbot.vip'),
+  NIX_API_URL: texto(process.env.NIX_API_URL || process.env.NIX_BASE_URL, 'https://salas.nixbot.vip'),
 
   CARGO_ADMIN_ID: texto(process.env.CARGO_ADMIN_ID),
   CARGO_STAFF_ID: texto(process.env.CARGO_STAFF_ID),
