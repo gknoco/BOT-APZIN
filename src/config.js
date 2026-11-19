@@ -208,7 +208,7 @@ const config = {
   CORES: {
     principal: 0x9b5cff,
     sucesso: 0x2ecc71,
-    erro: 0xe74c3c,
+    erro: 0xfacc15,
     aviso: 0xf1c40f,
     neutro: 0x2b2d31,
     ouro: 0xf5b942,

@@ -38,7 +38,7 @@ const comandos = [
       const passos = interaction.options.getString('passos', true);
       const print = interaction.options.getAttachment('print');
       const relatorio = new EmbedBuilder()
-        .setColor(0xe74c3c)
+        .setColor(0xfacc15)
         .setTitle('🐛 Novo reporte de bug')
         .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL({ size: 128 }) })
         .addFields(

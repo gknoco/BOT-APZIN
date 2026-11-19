@@ -22,7 +22,7 @@ const { embed, embedSucesso } = require('../util/embeds');
 // comandos: qualquer nome ainda não categorizado aparece em "Outros comandos".
 const CATEGORIAS_AJUDA = [
   { id: 'inicio', titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
-  { id: 'filas', titulo: '🎮 Filas e partidas', nomes: [...config.MODOS.map((modo) => modo.comando), 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
+  { id: 'filas', titulo: '🎮 Filas e partidas', nomes: ['painelfilas', 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
   { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'painelpixmediadores', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixsss', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
   { id: 'perfil', titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
   { id: 'feedback', titulo: '💬 Comunidade e suporte', nomes: ['reportarbug', 'sugestao', 'versiculododia'] },
@@ -42,6 +42,7 @@ const GUIA_AJUDA = {
   painelbatepontossmobile: ['Publica o plantão exclusivo da equipe SS Mobile.', '`/painelbatepontossmobile`', 'A publicação é administrativa; interação exige o cargo SS Mobile.'],
   painelbatepontossemu: ['Publica o plantão exclusivo da equipe SS EMU.', '`/painelbatepontossemu`', 'A publicação é administrativa; interação exige o cargo SS EMU.'],
   painelpixsss: ['Publica o painel de cadastro e gestão de PIX para SS Mobile e SS EMU.', '`/painelpixsss`', 'Exige o cargo SS Mobile ou SS EMU; os dados são vinculados ao servidor e usuário no Supabase.'],
+  painelfilas: ['Gerencia a identidade visual e publica ou remove todas as filas nos canais oficiais configurados.', '`/painelfilas`', 'Exige Administrator; use os botões do painel para Banner, Avatar, Enviar todas as filas e Apagar filas.'],
   configpainelajuda: ['Define quais cargos podem visualizar categorias avançadas desta central.', '`/configpainelajuda acao:configurar categoria:<categoria> cargo:<cargo>`', 'Exige Administrator. Use `acao:listar` para consultar ou `acao:remover` para retirar um cargo.'],
   reportarbug: ['Envia um reporte estruturado para a equipe técnica, com passos de reprodução e print opcional.', '`/reportarbug bug:<descrição> passos:<passo a passo> print:<imagem opcional>`', 'Use o canal configurado de reportes; não exige cargo.'],
 };
@@ -91,12 +92,7 @@ function linhasOpcaoAjuda(opcao) {
 // contexto do comando, grupo ou subcomando ao mudar de página.
 function secoesComandoAjuda(comando) {
   const json = definicaoAjuda(comando);
-  const modo = config.MODOS.find((item) => item.comando === json.name);
-  const guia = GUIA_AJUDA[json.name] || (modo ? [
-    `Publica ou consulta o painel da fila **${modo.nome || json.name}**, permitindo que jogadores entrem, saiam e acompanhem a partida.`,
-    `/${json.name}`,
-    'Use em um canal de filas configurado; o valor e a modalidade são definidos pelos botões do painel.',
-  ] : null);
+  const guia = GUIA_AJUDA[json.name];
   const secoes = [{
     cabecalho: `**/${json.name}** — ${json.description}`,
     linhas: guia ? [`> **O que faz:** ${guia[0]}`, `> **Requisitos:** ${guia[2]}`, `**Como usar:**\n\`\`\`\n${guia[1]}\n\`\`\``, '━━━━━━━━━━━━━━━━━━━━'] : [],

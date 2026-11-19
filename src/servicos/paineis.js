@@ -181,7 +181,7 @@ function jogadoresDaFaixa(modo, preco, entradas = []) {
 function mensagemPreco(modo, preco, entradas = [], visual = {}) {
   const jogadores = jogadoresDaFaixa(modo, preco, entradas);
   const card = embed(`${tituloCurto(modo)} | Royal AP`, null, {
-    cor: 0xed4245,
+    cor: 0xfacc15,
     campos: [
       { name: '⦿  Modo:', value: `${modo.titulo} · ${modo.time}v${modo.time}`, inline: false },
       { name: '◉  Valor:', value: reais(preco), inline: false },

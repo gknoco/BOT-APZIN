@@ -96,7 +96,7 @@ const comando = {
   data: new SlashCommandBuilder().setName('painelfilas').setDescription('Gerencia o banner, avatar e publicação das filas').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   async executar(interaction) {
     if (!ehAdmin(interaction.member)) return responderErro(interaction, 'Somente administradores podem gerenciar as filas.');
-    const painel = new EmbedBuilder().setColor(0xed4245).setTitle('Gerenciamento das filas')
+    const painel = new EmbedBuilder().setColor(0xfacc15).setTitle('Gerenciamento das filas')
       .setDescription('Configure o banner e o avatar exibidos nos cards, publique todas as filas nos canais oficiais ou remova o lote publicado.\n\nDigite `EXCLUSIR` no modal para remover permanentemente uma imagem.');
     return responderPrivado(interaction, { embeds: [painel], components: componentesPainel() });
   },
