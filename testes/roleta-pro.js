@@ -5,9 +5,11 @@ const path = require('node:path');
 const Module = require('node:module');
 const { test } = require('node:test');
 const { PermissionFlagsBits, ChannelType } = require('discord.js');
+const animacaoReal = require('../src/servicos/roletaAnimada');
 
 const chamadas = [];
 const temporizacoes = [];
+const girosAnimados = [];
 const base = { historico: [], entregas: [], premios: [], itens: [], perfis: new Map(), resultados: new Map() };
 const fsFalso = { existe: false, existsSync() { return this.existe; } };
 const supabase = {
@@ -30,6 +32,24 @@ const avisos = { chamados: [], falhar: false, async avisarStaff(interaction, dad
   chamadas.push('aviso'); this.chamados.push({ interaction, ...dados });
   if (this.falhar) throw new Error('falha no aviso');
 } };
+const animacaoFake = {
+  ...animacaoReal,
+  async animar(interaction, catalogo, resultado, payloadFinal, criarEmbedGiro, duracaoSegundos) {
+    const duracao = this.validarDuracaoSegundos(duracaoSegundos);
+    const { lista, indice } = this.prepararPremios(catalogo, resultado);
+    const angulo = this.planejarGiro(indice, lista.length, duracao).at(-1);
+    const nomeGiro = `roleta-${interaction.id}-giro.gif`;
+    girosAnimados.push({ duracao, lista, premio: lista[indice], indice, angulo });
+    await interaction.editReply({ embeds: [criarEmbedGiro().setImage(`attachment://${nomeGiro}`)],
+      files: [{ name: nomeGiro, attachment: Buffer.from('GIF89a') }], attachments: [], allowedMentions: { parse: [] } });
+    temporizacoes.push(duracao * 1000);
+    const nomeFinal = `roleta-${interaction.id}-resultado.png`;
+    payloadFinal.embeds[0].setImage(`attachment://${nomeFinal}`);
+    return interaction.editReply({ ...payloadFinal,
+      files: [{ name: nomeFinal, attachment: this.desenharQuadro(lista, angulo) }],
+      attachments: [], allowedMentions: { parse: [] } });
+  },
+};
 const royal = {
   resultado: { spin_id: 's-1', prize_name: 'Prêmio', reward_type: 'coins', reward_value: '50' },
   erroGiro: null,
@@ -106,6 +126,7 @@ function clienteMemoria() {
 const loadOriginal = Module._load;
 Module._load = function(request, parent, isMain) {
   if (parent?.filename === path.resolve(__dirname, '../src/comandos/roletaPro.js') && request === 'node:fs') return fsFalso;
+  if (parent?.filename === path.resolve(__dirname, '../src/comandos/roletaPro.js') && request === '../servicos/roletaAnimada') return animacaoFake;
   if (parent?.filename === path.resolve(__dirname, '../src/servicos/roletaAnimada.js') && request === 'node:timers/promises') return {
     setTimeout: async (ms) => { temporizacoes.push(ms); }, setImmediate: async () => {},
   };
@@ -122,6 +143,7 @@ finally { Module._load = loadOriginal; }
 function preparar() {
   chamadas.length = 0;
   temporizacoes.length = 0;
+  girosAnimados.length = 0;
   base.historico = []; base.entregas = []; base.premios = []; base.itens = []; base.erroSnapshots = false; base.erroEntregas = false; base.perfis = new Map(); base.resultados = new Map();
   base.perfis.set('guild-a:user-a', { spins: 5, coins: 0 });
   base.perfis.set('guild-a:user-b', { spins: 2, coins: 0 });
@@ -546,13 +568,16 @@ test('quadros e resultado final usam o prêmio exato retornado pela RPC, mesmo a
     { id: 'c', guild_id: 'guild-a', active: true, name: 'Esgotado', reward_type: 'coins', reward_value: '1', weight: 1, stock: 0 },
   ];
   royal.resultado = { spin_id: 's-ganho', prize_id: 'b', prize_name: 'Prêmio confirmado', reward_type: 'coins', reward_value: '50' };
+  supabase.valores.set('guild-a:roleta_duracao_segundos', '12');
   const i = interacao({ componente: 'roletapro:girar' });
   await roleta.handleComponent(i);
   const quadros = i.respostas.filter((r) => r.files?.length);
   assert.equal(quadros.length, 2);
   assert.match(quadros[0].files[0].name, /-giro\.gif$/);
   assert.match(quadros[1].files[0].name, /-resultado\.png$/);
-  assert.deepEqual(temporizacoes, [1000]);
+  assert.deepEqual(temporizacoes, [12000]);
+  assert.equal(girosAnimados.at(-1).duracao, 12);
+  assert.deepEqual(girosAnimados.at(-1).lista.map((premio) => premio.id), ['a', 'b']);
   assert.deepEqual(i.respostas[0].files, []);
   assert.deepEqual(i.respostas[0].attachments, []);
   assert.deepEqual(i.respostas[0].components, []);
@@ -561,11 +586,10 @@ test('quadros e resultado final usam o prêmio exato retornado pela RPC, mesmo a
   assert.match(corpo(i), /coins foram creditadas/);
   assert.equal(royal.ultimoGiro.request, i.id);
   assert.equal(base.resultados.get(`guild-a:${i.id}`).prize_id, 'b');
-  const animacao = require('../src/servicos/roletaAnimada');
-  const { lista, indice } = animacao.prepararPremios(base.premios.filter((p) => p.stock !== 0), royal.resultado);
-  const angulo = animacao.planejarGiro(indice, lista.length).at(-1);
-  assert.equal(animacao.indiceNoPonteiro(angulo, lista.length), indice);
-  assert.deepEqual(quadros.at(-1).files[0].attachment, animacao.desenharQuadro(lista, angulo));
+  const { lista, indice } = animacaoReal.prepararPremios(base.premios.filter((p) => p.stock !== 0), royal.resultado);
+  const angulo = animacaoReal.planejarGiro(indice, lista.length, 12).at(-1);
+  assert.equal(animacaoReal.indiceNoPonteiro(angulo, lista.length), indice);
+  assert.deepEqual(quadros.at(-1).files[0].attachment, animacaoReal.desenharQuadro(lista, angulo));
   assert.equal(quadros.at(-1).embeds[0].toJSON().image.url, `attachment://${quadros.at(-1).files[0].name}`);
 });
 

@@ -9,14 +9,14 @@ const VOLTA = 2 * Math.PI;
 test('o ponteiro para no centro exato do prêmio sorteado para qualquer quantidade e posição', () => {
   for (const quantidade of [1, 2, 3, 4, 7, 24, 25, 100, 201]) {
     for (let indice = 0; indice < quantidade; indice++) {
-      const angulos = animacao.planejarGiro(indice, quantidade);
-      assert.equal(angulos.length, 13);
+      const angulos = animacao.planejarGiro(indice, quantidade, 3);
+      assert.equal(angulos.length, 43);
       assert.equal(animacao.indiceNoPonteiro(angulos.at(-1), quantidade), indice);
       const largura = VOLTA / quantidade;
       const posicao = ((-angulos.at(-1) % VOLTA) + VOLTA) % VOLTA;
       assert.ok(Math.abs(posicao - (indice + 0.5) * largura) < 1e-10);
       const passos = angulos.slice(1).map((a, i) => a - angulos[i]);
-      assert.ok(passos.every((passo) => passo > 0 && passo < Math.PI));
+      assert.ok(passos.every((passo) => passo > 0 && passo < Math.PI * 1.2));
       assert.ok(passos.every((passo, i) => i === 0 || passo < passos[i - 1]));
     }
   }
@@ -50,7 +50,7 @@ test('renderiza PNGs diferentes e trata caracteres especiais dos prêmios', () =
 });
 
 
-test('GIF gira uma vez por 1 segundo e termina no mesmo quadro PNG do resultado', async () => {
+test('GIF usa a duração configurada e termina no mesmo quadro PNG do resultado', async () => {
   const { parseGIF, decompressFrames } = require('gifuct-js');
   const { PNG } = require('pngjs');
   const lista = [
@@ -59,13 +59,13 @@ test('GIF gira uma vez por 1 segundo e termina no mesmo quadro PNG do resultado'
     { id: 'c', name: 'Cargo VIP' },
   ];
   const indice = 1;
-  const { gif, imagemFinal } = await animacao.gerarAnimacao(lista, indice);
+  const { gif, imagemFinal } = await animacao.gerarAnimacao(lista, indice, 3);
   const quadros = decompressFrames(parseGIF(gif), true);
-  assert.equal(quadros.length, 13);
-  assert.equal(quadros.reduce((soma, quadro) => soma + quadro.delay, 0), 1000);
+  assert.equal(quadros.length, 43);
+  assert.equal(quadros.reduce((soma, quadro) => soma + quadro.delay, 0), 3000);
   assert.ok(!gif.includes(Buffer.from('NETSCAPE2.0')));
   assert.notDeepEqual(quadros[0].patch, quadros.at(-1).patch);
-  const angulo = animacao.planejarGiro(indice, lista.length).at(-1);
+  const angulo = animacao.planejarGiro(indice, lista.length, 3).at(-1);
   assert.equal(animacao.indiceNoPonteiro(angulo, lista.length), indice);
   assert.deepEqual(imagemFinal, animacao.desenharQuadro(lista, angulo));
   const png = PNG.sync.read(imagemFinal);
@@ -81,17 +81,25 @@ test('GIF gira uma vez por 1 segundo e termina no mesmo quadro PNG do resultado'
   assert.ok(diferenca / (png.width * png.height * 3) < 2, 'o último quadro do GIF deve coincidir visualmente com o PNG final');
 });
 
-test('o resultado substitui a animação aproximadamente um segundo depois da publicação', async () => {
+test('valida duração padrão e limites configuráveis', () => {
+  assert.equal(animacao.validarDuracaoSegundos(undefined), 8);
+  assert.equal(animacao.validarDuracaoSegundos('3'), 3);
+  assert.equal(animacao.validarDuracaoSegundos('20'), 20);
+  for (const valor of ['2', '21', '3.5', 'x', null]) assert.equal(animacao.validarDuracaoSegundos(valor), 8);
+  assert.equal(animacao.planejarGiro(0, 3, 20).length, 286);
+});
+
+test('o resultado substitui a animação conforme a duração solicitada', async () => {
   const { EmbedBuilder } = require('discord.js');
   const instantes = [];
   const respostas = [];
   const interaction = { id: '123', async editReply(payload) { instantes.push(performance.now()); respostas.push(payload); } };
   await animacao.animar(interaction, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }],
     { prize_id: 'b', prize_name: 'B' }, { embeds: [new EmbedBuilder().setTitle('RESULTADO')] },
-    () => new EmbedBuilder().setTitle('GIRANDO'));
+    () => new EmbedBuilder().setTitle('GIRANDO'), 3);
   assert.equal(respostas.length, 2);
   assert.match(respostas[0].files[0].name, /\.gif$/);
   assert.match(respostas[1].files[0].name, /\.png$/);
-  assert.ok(instantes[1] - instantes[0] >= 950);
-  assert.ok(instantes[1] - instantes[0] < 2000);
+  assert.ok(instantes[1] - instantes[0] >= 2850);
+  assert.ok(instantes[1] - instantes[0] < 5000);
 });

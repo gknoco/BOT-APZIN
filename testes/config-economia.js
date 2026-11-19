@@ -380,7 +380,10 @@ test('opções explicam canal, republicação e cooldown sem sugerir integraçã
     assert.match(texto(i), /canal configurado/i);
     assert.match(texto(i), /republique/i);
     assert.doesNotMatch(texto(i), /depend.*integração no fluxo/i);
-    if (sub === 'roleta') assert.match(texto(i), /cooldown padrão é 3 segundos \(0 desativa\)/i);
+    if (sub === 'roleta') {
+      assert.match(texto(i), /cooldown padrão é 3 segundos \(0 desativa\)/i);
+      assert.match(texto(i), /duração da animação \(3 a 20 segundos; padrão 8\)/i);
+    }
     else assert.match(texto(i), /limite por comprador depende da migração/i);
   }
   const modal = interacao({ dom: 'r', acao: 'config' });
@@ -388,6 +391,18 @@ test('opções explicam canal, republicação e cooldown sem sugerir integraçã
   const placeholder = modal.eventos[0][1].components[1].components[0].placeholder;
   assert.match(placeholder, /padrão 3, 0 desativa/);
   assert.doesNotMatch(placeholder, /ainda não aplicado/);
+  const duracao = modal.eventos[0][1].components[2].components[0];
+  assert.match(duracao.label, /Duração do giro em segundos/);
+  assert.match(duracao.placeholder, /3 a 20 segundos; padrão 8/);
+  const duracaoSalva = await submeter('r', 'config', { duracao: '12' });
+  assert.match(texto(duracaoSalva), /Salvo: roleta_duracao_segundos/);
+  assert.equal(configs.get(`${G}:roleta_duracao_segundos`), '12');
+  for (const valor of ['2', '21', '3.5', '-1', 'abc']) {
+    const invalida = await submeter('r', 'config', { duracao: valor });
+    assert.match(texto(invalida), ['2', '21'].includes(valor)
+      ? /Duração da roleta: permitido de 3 a 20/
+      : /Duração da roleta: use um número inteiro não negativo/);
+  }
   const salvo = await submeter('l', 'config', { canal: C, opcao: 'Orientação' });
   assert.match(texto(salvo), /exigem republicar/i);
   assert.doesNotMatch(texto(salvo), /integração no fluxo/i);

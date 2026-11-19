@@ -190,7 +190,7 @@ function botao(i, dom, acao, rotulo, estilo = ButtonStyle.Secondary, extra) {
 function painel(i, dom) {
   const nome = dom === 'r' ? 'Roleta' : 'Lojinha';
   const nota = dom === 'r'
-    ? 'O canal configurado é usado ao publicar; sem canal, usa-se o atual. Republique o painel após mudar o canal ou a lista de prêmios. Com a migração da economia, o cooldown padrão é 3 segundos (0 desativa); estoque de prêmio e PIX também dependem da migração. PIX requer processamento de entrega.'
+    ? 'O canal configurado é usado ao publicar; sem canal, usa-se o atual. Republique o painel após mudar o canal ou a lista de prêmios. Ajuste o cooldown e a duração da animação (3 a 20 segundos; padrão 8). Com a migração da economia, o cooldown padrão é 3 segundos (0 desativa); estoque de prêmio e PIX também dependem da migração. PIX requer processamento de entrega.'
     : 'O canal configurado e as instruções são usados ao publicar; sem canal, usa-se o atual. Republique o painel após alterar canal ou instruções. O limite por comprador depende da migração da economia; o estoque é global.';
   const componentes = [
     new ActionRowBuilder().addComponents(
@@ -225,6 +225,9 @@ function modal(i, dom, acao) {
       dom === 'r'
         ? campo('opcao', 'Cooldown em segundos (vazio mantém)', '0 a 86400; padrão 3, 0 desativa; exige migração', 5, false)
         : campo('opcao', 'Instruções (vazio mantém; - limpa)', 'Texto público de orientação, sem dados pessoais', 200, false),
+    );
+    if (dom === 'r') m.addComponents(
+      campo('duracao', 'Duração do giro em segundos (vazio mantém)', '3 a 20 segundos; padrão 8', 2, false),
     );
   } else if (acao === 'estado') {
     m.setTitle(`Estado · ${titulo}`).addComponents(
@@ -466,6 +469,7 @@ async function canalValido(i, entrada) {
 async function salvarConfig(i, dom, cliente, obter) {
   const canal = String(obter('canal') || '').trim();
   const opcao = String(obter('opcao') || '').trim();
+  const duracao = dom === 'r' ? String(obter('duracao') || '').trim() : '';
   const alteracoes = [];
   if (canal) alteracoes.push([chaveCanal(dom), await canalValido(i, canal)]);
   if (opcao) {
@@ -473,6 +477,7 @@ async function salvarConfig(i, dom, cliente, obter) {
       : (opcao === '-' ? '' : textoSimples(opcao, 'Instruções', 200));
     alteracoes.push([dom === 'r' ? 'roleta_cooldown_segundos' : 'lojinha_instrucoes', valor]);
   }
+  if (duracao) alteracoes.push(['roleta_duracao_segundos', String(inteiro(duracao, 'Duração da roleta', 3, 20))]);
   if (!alteracoes.length) falhar('Nenhuma alteração informada.');
   const concluidas = [];
   let aviso = '';

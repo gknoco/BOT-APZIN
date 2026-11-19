@@ -24,6 +24,7 @@ const PREFIXO = 'roletapro:';
 const BANNER_NOME = 'roleta-royal-ap.png';
 const BANNER = path.join(__dirname, '../../assets', BANNER_NOME);
 const CHAVE_PAINEL = 'painel_roleta';
+const CHAVE_DURACAO = 'roleta_duracao_segundos';
 const COR = 0xfacc15;
 const POR_PAGINA = 8;
 const girosEmAndamento = new Set();
@@ -189,9 +190,20 @@ async function executarGiro(interaction, ctx) {
   await editarPrivado(interaction, {
     embeds: [embedGiro()], components: [], attachments: [], files: [],
   });
+  const cliente = ctx.db?.client || supabase.obterCliente();
   let catalogo = [];
-  try { catalogo = await buscarCatalogo(ctx.db?.client || supabase.obterCliente(), interaction.guildId); }
-  catch (erro) { console.error('[roletapro] catálogo indisponível para animação:', erro.message); }
+  let duracaoSegundos = roletaAnimada.DURACAO_PADRAO_SEGUNDOS;
+  const [catalogoConsultado, duracaoConsultada] = await Promise.allSettled([
+    buscarCatalogo(cliente, interaction.guildId),
+    supabase.obterConfig(interaction.guildId, CHAVE_DURACAO, cliente),
+  ]);
+  if (catalogoConsultado.status === 'fulfilled') catalogo = catalogoConsultado.value;
+  else console.error('[roletapro] catálogo indisponível para animação:', catalogoConsultado.reason.message);
+  if (duracaoConsultada.status === 'fulfilled' && duracaoConsultada.value != null) {
+    duracaoSegundos = roletaAnimada.validarDuracaoSegundos(duracaoConsultada.value);
+  } else if (duracaoConsultada.status === 'rejected') {
+    console.error('[roletapro] duração não disponível; usando padrão:', duracaoConsultada.reason.message);
+  }
   let resultado;
   try {
     // O ID da interação é a chave de idempotência da RPC; nunca sorteamos localmente.
@@ -259,7 +271,7 @@ async function executarGiro(interaction, ctx) {
   try {
     return await roletaAnimada.animar(interaction, catalogo, resultado, {
       embeds: [card('ROLETA  •  RESULTADO', descricao)],
-    }, embedGiro);
+    }, embedGiro, duracaoSegundos);
   } catch (erro) {
     // O sorteio já foi confirmado: nunca refazê-lo por falha de imagem/Discord.
     console.error('[roletapro] falha na animação:', erro.message);
