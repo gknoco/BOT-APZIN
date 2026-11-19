@@ -15,6 +15,9 @@ const comando = {
     }
 
     const resultado = await cotasMediadores.resgatar(db, interaction.guildId, interaction.user.id, cotasMediadores.COTA_INICIAL);
+    if (resultado.jaResgatou) {
+      return responderErro(interaction, 'Você já resgatou suas salas iniciais.');
+    }
     return responderPrivado(interaction, {
       embeds: [embedSucesso(`✅ Você resgatou **${cotasMediadores.COTA_INICIAL} salas personalizadas**.\n**Saldo disponível:** ${resultado.saldo} sala(s).`)],
     });

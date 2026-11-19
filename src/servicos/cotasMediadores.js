@@ -5,8 +5,10 @@
 const CARGO_MEDIADOR = '1543684028719173732';
 const COTA_INICIAL = 10;
 const memoria = new Map();
+const resgatesMemoria = new Set();
 
 const chave = (guildId, userId) => `${String(guildId)}:${String(userId)}`;
+const chaveResgate = (guildId, userId) => `${String(guildId)}:${String(userId)}`;
 const mensagemCotaEsgotada = 'Suas 10 salas personalizadas acabaram. Vá ao canal <#1571760194692587601> para comprar mais.';
 
 function saldoDaResposta(data) {
@@ -71,21 +73,30 @@ async function reservar(db, guildId, userId) {
 
 async function resgatar(db, guildId, userId, quantidade = COTA_INICIAL) {
   const valor = Math.max(1, Math.trunc(Number(quantidade) || COTA_INICIAL));
+  const idResgate = chaveResgate(guildId, userId);
+  if (resgatesMemoria.has(idResgate)) return { jaResgatou: true, saldo: memoria.get(chave(guildId, userId)) ?? 0 };
   try {
-    const { data, error } = await db.client.rpc('royal_mediator_grant_room_quota', {
+    const { data, error } = await db.client.rpc('royal_mediator_redeem_initial_quota', {
       p_guild_id: String(guildId),
       p_user_id: String(userId),
       p_quantidade: valor,
     });
     if (error) throw error;
     const saldo = sincronizarMemoria(guildId, userId, saldoDaResposta(data));
-    return { saldo, persistente: true };
+    if (data?.resgatado === false || data?.redeemed === false) {
+      resgatesMemoria.add(idResgate);
+      return { jaResgatou: true, saldo };
+    }
+    resgatesMemoria.add(idResgate);
+    return { jaResgatou: false, saldo, persistente: true };
   } catch (erro) {
     console.warn('[cotas] resgate Supabase indisponível; usando fallback:', erro.message);
+    if (resgatesMemoria.has(idResgate)) return { jaResgatou: true, saldo: memoria.get(chave(guildId, userId)) ?? 0 };
     const id = chave(guildId, userId);
     const atual = memoria.has(id) ? memoria.get(id) : 0;
     const saldo = sincronizarMemoria(guildId, userId, atual + valor);
-    return { saldo, persistente: false };
+    resgatesMemoria.add(idResgate);
+    return { jaResgatou: false, saldo, persistente: false };
   }
 }
 
