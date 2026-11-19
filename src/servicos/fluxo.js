@@ -548,7 +548,7 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
       console.error(`[fluxo] não consegui buscar a sala privada ${partida.canal_id}:`, erro);
       return null;
     });
-  if (!matchChannel?.permissionOverwrites?.edit || !matchChannel?.send) return false;
+  if (!matchChannel?.permissionOverwrites?.edit) return false;
   const A = PermissionFlagsBits;
   const cargosMediadores = new Set([
     CARGO_MEDIADOR_ACESSO,
@@ -578,18 +578,6 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
     ReadMessageHistory: true,
     EmbedLinks: true,
   });
-  const idsMencionados = [String(userId), ...jogadores.map((linha) => String(linha.user_id))];
-  try {
-    // Esta é uma mensagem pública dentro da sala privada, não uma resposta
-    // efêmera ao botão de aceite no canal administrativo.
-    await matchChannel.send({
-      content: `O Mediador <@${userId}> aceitou a fila, aguarde o mesmo liberar a chave pix`,
-      allowedMentions: { users: idsMencionados },
-    });
-  } catch (erro) {
-    console.error(`[fluxo] aceite confirmado, mas não consegui enviar aviso na sala privada ${partida.canal_id}:`, erro);
-    return false;
-  }
   return true;
 }
 

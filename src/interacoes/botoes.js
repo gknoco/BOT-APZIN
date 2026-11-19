@@ -248,6 +248,15 @@ async function assumirSala(interaction, { db, client }, partidaId) {
       acao: 'Sala assumida',
       detalhe: `Sala ${partidaId} · ${reais(partida.preco)}`,
     });
+    try {
+      const matchChannel = await interaction.guild.channels.fetch(String(partida.canal_id));
+      await matchChannel.send({
+        content: `O Mediador <@${interaction.user.id}> aceitou a fila, aguarde o mesmo liberar a chave pix`,
+        allowedMentions: { users: [String(interaction.user.id)] },
+      });
+    } catch (erro) {
+      console.error(`[botoes] não consegui enviar a mensagem de aceite na sala ${partida.canal_id}:`, erro.message);
+    }
     return responderPrivado(interaction, {
       embeds: [embedSucesso('Você assumiu a sala. Agora envie seu PIX e confira o pagamento.')],
     });
