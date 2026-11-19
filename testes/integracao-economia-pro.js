@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const registro = require('../src/comandos');
 const economia = require('../src/comandos/economia');
 const royal = require('../src/servicos/royalSupabase');
-const lojinha = require('../src/comandos/lojinhaPro');
+const { registrarComandos } = require('../src/servicos/registroComandos');
 
 function interacao(sub, numero) {
   return {
@@ -28,23 +28,34 @@ test('as definições registradas são únicas e contêm os painéis solicitados
   const nomes = definicoes.map((c) => c.name);
   assert.equal(nomes.length, new Set(nomes).size);
   const subs = (nome) => definicoes.find((c) => c.name === nome).options.map((o) => o.name);
-  assert.ok(subs('roleta').includes('painel'));
   assert.ok(subs('roleta').includes('girar'));
-  assert.ok(subs('loja').includes('painel'));
+  assert.ok(subs('lojinha').includes('listar'));
   assert.ok(subs('loja').includes('addcoins'));
-  assert.ok(subs('config').includes('roleta'));
-  assert.ok(subs('config').includes('lojinha'));
+  assert.deepEqual(subs('config'), ['lojinha']);
+  for (const nome of ['configroleta', 'roletapainel', 'lojinhapainel', 'configlojinhas']) {
+    assert.equal(nomes.filter((item) => item === nome).length, 1);
+  }
 });
 
-test('/loja painel encaminha à publicação profissional', async () => {
-  const original = lojinha.publicarPainel;
-  let publicou = false;
-  lojinha.publicarPainel = async () => { publicou = true; };
-  try {
-    const comando = economia.comandos.find((c) => c.data.name === 'loja');
-    await comando.executar(interacao('painel', null), {});
-    assert.equal(publicou, true);
-  } finally { lojinha.publicarPainel = original; }
+test('sincronização envia a configuração atual em escopos global e de servidor', async () => {
+  for (const guildId of [null, '456']) {
+    let requisicao;
+    const rest = { put: async (rota, payload) => { requisicao = { rota, payload }; } };
+    const resultado = await registrarComandos({ clientId: '123', guildId, definicoes: registro.definicoes(), rest });
+    assert.equal(requisicao.rota, guildId ? '/applications/123/guilds/456/commands' : '/applications/123/commands');
+    assert.equal(resultado.guildId, guildId);
+    assert.deepEqual(requisicao.payload.body.find((c) => c.name === 'config').options.map((o) => o.name), ['lojinha']);
+    assert.equal(requisicao.payload.body.filter((c) => c.name === 'configroleta').length, 1);
+  }
+});
+
+test('/lojinhapainel encaminha à publicação profissional', async () => {
+  const i = interacao(null, null);
+  i.guildId = null;
+  let resposta;
+  i.editReply = async (payload) => { resposta = payload; };
+  await registro.buscar('lojinhapainel').executar(i, {});
+  assert.match(resposta.embeds[0].toJSON().description, /Use este comando em um servidor/);
 });
 
 test('vitórias manuais acrescentam um coin por vitória na mesma transação', async () => {

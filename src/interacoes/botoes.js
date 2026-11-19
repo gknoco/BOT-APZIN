@@ -393,6 +393,11 @@ async function handleBotao(interaction, ctx) {
   const args = partes.slice(2);
   const { db, client } = ctx;
 
+  // Painéis anteriores continuam funcionais, com o mesmo giro privado animado.
+  if (interaction.customId === 'ap:roletagirar') {
+    return require('../comandos/roletaPro').handleComponent(interaction, ctx);
+  }
+
   // "regras" e "liberar" abrem modal: showModal precisa ser a PRIMEIRA resposta,
   // por isso esses dois não podem ser adiados.
   const abreModal =
@@ -430,42 +435,6 @@ async function handleBotao(interaction, ctx) {
       case 'gelo':
         await entrarNaFilaBotao(interaction, ctx, args[0], args[1], args[2]);
         return true;
-
-      case 'roletagirar': {
-        try {
-          const resultado = await royalSupabase.girar({ guildId: interaction.guildId, userId: interaction.user.id, request: interaction.id });
-          let entrega = 'O giro e o prêmio foram registrados no Supabase.';
-          if (resultado.reward_type === 'role') {
-            try {
-              if (!interaction.member?.roles?.add) throw new Error('Membro/cargo indisponível para entrega.');
-              await interaction.member.roles.add(String(resultado.reward_value));
-              await royalSupabase.marcarRecompensaEntregue({
-                guildId: interaction.guildId,
-                userId: interaction.user.id,
-                request: interaction.id,
-              });
-              entrega = 'O cargo foi concedido.';
-            } catch (erroEntrega) {
-              await royalSupabase.auditar({
-                guildId: interaction.guildId,
-                actorId: interaction.user.id,
-                action: 'reward.delivery.pending',
-                entityType: 'roulette_spin',
-                entityId: resultado.spin_id,
-                requestId: interaction.id,
-                detail: `Cargo pendente: ${String(erroEntrega.message || 'falha Discord').slice(0, 300)}`,
-              });
-              entrega = 'O prêmio foi registrado, mas a entrega do cargo ficou pendente para a staff.';
-            }
-          }
-          await responderPrivado(interaction, {
-            content: `🎰 Você ganhou **${resultado.prize_name}**! Recompensa: **${resultado.reward_type} · ${resultado.reward_value}**\n${entrega}`,
-          });
-        } catch (erro) {
-          await responderErro(interaction, erro.message);
-        }
-        return true;
-      }
 
       case 'sair':
         await sairDaFila(interaction, ctx, args[0], args[1]);

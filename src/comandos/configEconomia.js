@@ -500,11 +500,13 @@ async function abrirConfiguracao(i, dominio) {
 }
 
 const comando = {
-  data: new SlashCommandBuilder().setName('config').setDescription('Configura roleta e lojinha deste servidor').setDMPermission(false)
-    .addSubcommand((s) => s.setName('roleta').setDescription('Gerencia os prêmios e opções da roleta'))
+  data: new SlashCommandBuilder().setName('config').setDescription('Configura a lojinha deste servidor').setDMPermission(false)
     .addSubcommand((s) => s.setName('lojinha').setDescription('Gerencia os produtos e opções da loja')),
   async executar(i) {
-    return abrirConfiguracao(i, i.options.getSubcommand());
+    if (i.options.getSubcommand() !== 'lojinha') {
+      return responderPrivado(i, payload('Subcomando inválido. Para configurar a roleta, use /configroleta.'));
+    }
+    return abrirConfiguracao(i, 'lojinha');
   },
 };
 
@@ -522,7 +524,7 @@ async function handleComponent(i) {
     if (!ehAdmin(i.member)) {
       await responderPrivado(i, payload('Somente administradores podem gerenciar a economia.')); return true;
     }
-    if (!['r', 'l'].includes(dom) || partes.length < 5 || partes.length > 6) falhar('Controle inválido. Abra /config novamente.');
+    if (!['r', 'l'].includes(dom) || partes.length < 5 || partes.length > 6) falhar('Controle inválido. Abra /configroleta ou /config lojinha novamente.');
     if (modalSubmit) {
       if (partes.length !== 5 || !['m-criar', 'm-editar', 'm-estado', 'm-config', 'm-excluir', ...(dom === 'r' ? ['m-estoque', 'm-giros'] : [])].includes(acao)) falhar('Formulário inválido.');
       const resposta = await salvarFormulario(i, dom, acao.slice(2));
@@ -536,7 +538,7 @@ async function handleComponent(i) {
         await responderPrivado(i, await listar(i, dom, Number(extra)));
       } else if (acao === 'painel' && partes.length === 5) {
         await responderPrivado(i, painel(i, dom));
-      } else falhar('Controle inválido. Abra /config novamente.');
+      } else falhar('Controle inválido. Abra /configroleta ou /config lojinha novamente.');
     } else falhar('Tipo de interação inválido.');
   } catch (erro) {
     const mensagem = erro instanceof ErroUsuario ? erro.message : 'Não foi possível concluir a operação. Verifique a configuração e tente novamente; nenhum detalhe sensível foi exposto.';

@@ -15,6 +15,7 @@ const {
 const royal = require('../servicos/royalSupabase');
 const supabase = require('../servicos/supabase');
 const avisos = require('../servicos/avisosEconomia');
+const roletaAnimada = require('../servicos/roletaAnimada');
 const { entregarCargo } = require('../servicos/entregaCargo');
 const { EFEMERO, ehAdmin } = require('../util/seguranca');
 const { numeroBR } = require('../util/embeds');
@@ -25,6 +26,7 @@ const BANNER = path.join(__dirname, '../../assets', BANNER_NOME);
 const CHAVE_PAINEL = 'painel_roleta';
 const COR = 0xfacc15;
 const POR_PAGINA = 8;
+const girosEmAndamento = new Set();
 
 function textoSeguro(valor, limite = 100) {
   return String(valor ?? '').replace(/[\r\n\t]+/g, ' ').replace(/([\\*_~`|>])/g, '\\$1').slice(0, limite) || '—';
@@ -52,6 +54,7 @@ function painelPublico(catalogo) {
       `**Prêmios e chances na publicação**\n${linhas}\n\n` +
       'Imagem ilustrativa; os prêmios e seus pesos são definidos pela configuração da roleta.\n' +
       'Chances reais dependem dos pesos e estoques no momento do giro. Após alterações, republique o painel para atualizar a lista.\n' +
+      'Na animação, os setores identificam os prêmios e não representam suas chances.\n' +
       'Os resultados e saldos são exibidos somente para você.',
     )
     .setFooter({ text: 'ROYAL AP  •  ROLETA  •  SORTEIOS REGISTRADOS' });
@@ -169,11 +172,27 @@ async function saldoPrivado(guildId, userId) {
   }
 }
 
-async function realizarGiro(interaction) {
-  // Feedback privado sem animação nem atraso artificial; o resultado vem apenas da RPC.
+async function realizarGiro(interaction, ctx = {}) {
+  const chave = `${interaction.guildId}:${interaction.user.id}`;
+  if (girosEmAndamento.has(chave)) {
+    return editarPrivado(interaction, { embeds: [card('ROLETA  •  AGUARDE', 'Você já possui um giro em andamento. Aguarde o resultado antes de girar novamente.')] });
+  }
+  girosEmAndamento.add(chave);
+  try {
+    return await executarGiro(interaction, ctx);
+  } finally {
+    girosEmAndamento.delete(chave);
+  }
+}
+
+async function executarGiro(interaction, ctx) {
+  const embedGiro = () => card('ROLETA  •  SORTEANDO', 'A roleta está girando... aguarde o resultado.');
   await editarPrivado(interaction, {
-    embeds: [card('ROLETA  •  SORTEANDO', 'Aguarde, estamos confirmando o resultado do seu giro...')],
+    embeds: [embedGiro()],
   });
+  let catalogo = [];
+  try { catalogo = await buscarCatalogo(ctx.db?.client || supabase.obterCliente(), interaction.guildId); }
+  catch (erro) { console.error('[roletapro] catálogo indisponível para animação:', erro.message); }
   let resultado;
   try {
     // O ID da interação é a chave de idempotência da RPC; nunca sorteamos localmente.
@@ -237,9 +256,19 @@ async function realizarGiro(interaction) {
   });
   if (pendenciaAviso) await avisarPendente(interaction, pendenciaAviso, `spin:${interaction.id}`);
   const saldo = await saldoPrivado(interaction.guildId, interaction.user.id);
-  return editarPrivado(interaction, {
-    embeds: [card('ROLETA  •  RESULTADO', `Você ganhou **${textoSeguro(resultado.prize_name)}**!\n\n${entrega}\n\n${saldo}`)],
-  });
+  const descricao = `Você ganhou **${textoSeguro(resultado.prize_name)}**!\n\n${entrega}\n\n${saldo}`;
+  try {
+    return await roletaAnimada.animar(interaction, catalogo, resultado, {
+      embeds: [card('ROLETA  •  RESULTADO', descricao)],
+    }, embedGiro);
+  } catch (erro) {
+    // O sorteio já foi confirmado: nunca refazê-lo por falha de imagem/Discord.
+    console.error('[roletapro] falha na animação:', erro.message);
+    return editarPrivado(interaction, {
+      embeds: [card('ROLETA  •  RESULTADO', `${descricao}\n\nA animação ficou indisponível; o prêmio acima continua registrado.`)],
+      attachments: [], files: [],
+    });
+  }
 }
 
 function premioDaLinha(linha) {
@@ -344,7 +373,7 @@ async function publicarPainel(interaction, ctx = {}) {
   try { canal = await canalPublicacao(interaction, idCanal); }
   catch (erro) {
     console.error('[roletapro] canal de publicação indisponível:', erro.message);
-    return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'O canal de publicação é inválido ou o bot não pode enviar mensagens nele. Verifique /config roleta; nenhum painel foi publicado.')] });
+    return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'O canal de publicação é inválido ou o bot não pode enviar mensagens nele. Verifique /configroleta; nenhum painel foi publicado.')] });
   }
   let catalogo = null;
   try { catalogo = await buscarCatalogo(cliente, interaction.guildId); }
@@ -381,20 +410,20 @@ const comando = {
     if (!contextoValido(interaction)) {
       return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use este comando dentro de um servidor.')] });
     }
-    return realizarGiro(interaction);
+    return realizarGiro(interaction, ctx);
   },
 };
 
 async function handleComponent(interaction, ctx = {}) {
   const id = String(interaction.customId || '');
-  if (!id.startsWith(PREFIXO)) return false;
+  if (!id.startsWith(PREFIXO) && id !== 'ap:roletagirar') return false;
   // Primeira operação assíncrona: o ACK privado chega antes de qualquer consulta.
   await adiarPrivado(interaction);
   try {
     if (!contextoValido(interaction)) {
       await editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use este botão dentro de um servidor.')] });
-    } else if (id === `${PREFIXO}girar`) {
-      await realizarGiro(interaction);
+    } else if (id === `${PREFIXO}girar` || id === 'ap:roletagirar') {
+      await realizarGiro(interaction, ctx);
     } else if (id === `${PREFIXO}premios`) {
       await mostrarPremios(interaction, 0, ctx);
     } else if (new RegExp(`^${PREFIXO}premios:[0-9]{1,12}$`).test(id)) {

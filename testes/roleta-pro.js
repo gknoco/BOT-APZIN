@@ -105,6 +105,7 @@ function clienteMemoria() {
 const loadOriginal = Module._load;
 Module._load = function(request, parent, isMain) {
   if (parent?.filename === path.resolve(__dirname, '../src/comandos/roletaPro.js') && request === 'node:fs') return fsFalso;
+  if (parent?.filename === path.resolve(__dirname, '../src/servicos/roletaAnimada.js') && request === 'node:timers/promises') return { setTimeout: async () => {} };
   if (parent?.filename === path.resolve(__dirname, '../src/comandos/roletaPro.js') && request === '../servicos/avisosEconomia') return avisos;
   const filename = Module._resolveFilename(request, parent, isMain);
   if (filename === path.resolve(__dirname, '../src/servicos/royalSupabase.js')) return royal;
@@ -140,6 +141,10 @@ function interacao({ id = 'interaction-001', usuario = 'user-a', guild = 'guild-
   };
   return i;
 }
+async function publicar(interaction, ctx = {}) {
+  if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: 64 });
+  return roleta.publicarPainel(interaction, ctx);
+}
 function corpo(interaction) { return interaction.respostas.at(-1).embeds[0].toJSON().description; }
 function botoes(payload) { return payload.components.flatMap((row) => row.toJSON().components); }
 
@@ -157,7 +162,7 @@ test('contrato do comando e prefixo: IDs estranhos não são consumidos', async 
   preparar();
   const json = roleta.comando.data.toJSON();
   assert.equal(json.name, 'roleta');
-  assert.deepEqual(json.options.map((o) => o.name), ['painel', 'girar']);
+  assert.deepEqual(json.options.map((o) => o.name), ['girar']);
   const i = interacao({ componente: 'outro:botao' });
   assert.equal(await roleta.handleComponent(i), false);
   assert.deepEqual(chamadas, []);
@@ -166,14 +171,14 @@ test('contrato do comando e prefixo: IDs estranhos não são consumidos', async 
 test('painel somente para admin é enviado realmente em canal e confirmação é efêmera', async () => {
   preparar();
   const negado = interacao({ sub: 'painel' });
-  await roleta.comando.executar(negado);
+  await publicar(negado);
   assert.equal(negado.deferPayload.flags & 64, 64);
   assert.equal(negado.publicados.length, 0);
   assert.match(corpo(negado), /Somente administradores/);
   assert.deepEqual(supabase.configs, []);
 
   const admin = interacao({ sub: 'painel', admin: true });
-  await roleta.comando.executar(admin, { db: { client: supabase.cliente } });
+  await publicar(admin, { db: { client: supabase.cliente } });
   const painel = admin.publicados[0];
   assert.equal(admin.deferPayload.flags & 64, 64);
   assert.equal(painel.flags, undefined);
@@ -189,12 +194,12 @@ test('painel somente para admin é enviado realmente em canal e confirmação é
 test('banner usa AttachmentBuilder e attachment://; ausência tem fallback válido', async () => {
   preparar();
   let i = interacao({ sub: 'painel', admin: true });
-  await roleta.comando.executar(i);
+  await publicar(i);
   assert.deepEqual(i.publicados[0].files, []);
   assert.equal(i.publicados[0].embeds[0].toJSON().image, undefined);
   fsFalso.existe = true;
   i = interacao({ id: 'interaction-002', sub: 'painel', admin: true });
-  await roleta.comando.executar(i);
+  await publicar(i);
   assert.equal(i.publicados[0].files[0].name, 'roleta-royal-ap.png');
   assert.equal(i.publicados[0].embeds[0].toJSON().image.url, 'attachment://roleta-royal-ap.png');
 });
@@ -214,7 +219,7 @@ test('painel calcula chances dos pesos elegíveis e avisa que é preciso republi
     { id: 'item-out', guild_id: 'guild-a', active: true, stock: 0 },
   ];
   const i = interacao({ sub: 'painel', admin: true });
-  await roleta.comando.executar(i);
+  await publicar(i);
   const descricao = i.publicados[0].embeds[0].toJSON().description;
   assert.match(descricao, /Coins · \*\*75,00%\*\*/);
   assert.match(descricao, /Item · \*\*25,00%\*\*/);
@@ -230,7 +235,7 @@ test('catálogo é paginado integralmente, inclusive os prêmios não exibidos n
     id: String(indice).padStart(3, '0'), guild_id: 'guild-a', active: true, name: `Prêmio ${indice}`,
     reward_type: 'coins', reward_value: '1', weight: 1, stock: null,
   }));
-  const i = interacao({ sub: 'painel', admin: true }); await roleta.comando.executar(i);
+  const i = interacao({ sub: 'painel', admin: true }); await publicar(i);
   const descricao = i.publicados[0].embeds[0].toJSON().description;
   assert.match(descricao, /\*\*0,50%\*\*/);
   assert.match(descricao, /outros 181 prêmio/);
@@ -240,7 +245,7 @@ test('catálogo é paginado integralmente, inclusive os prêmios não exibidos n
 test('valor inválido de prêmio não gera probabilidades falsas', async () => {
   preparar();
   base.premios = [{ id: 'a', guild_id: 'guild-a', active: true, name: 'Inválido', reward_type: 'coins', reward_value: '-1', weight: 1, stock: null }];
-  const i = interacao({ sub: 'painel', admin: true }); await roleta.comando.executar(i);
+  const i = interacao({ sub: 'painel', admin: true }); await publicar(i);
   const descricao = i.publicados[0].embeds[0].toJSON().description;
   assert.match(descricao, /Não foi possível consultar os prêmios/);
   assert.doesNotMatch(descricao, /100,00%/);
@@ -250,7 +255,7 @@ test('valor inválido de prêmio não gera probabilidades falsas', async () => {
 test('se configuração falha, informa que o painel já foi publicado sem induzir a republicação', async () => {
   preparar(); supabase.erroConfig = true;
   const i = interacao({ sub: 'painel', admin: true });
-  await roleta.comando.executar(i);
+  await publicar(i);
   assert.equal(i.publicados.length, 1);
   assert.match(corpo(i), /continua publicado/);
 });
@@ -437,7 +442,7 @@ test('canal configurado prevalece, usa fetch e salva IDs do destino efetivo', as
     i.destino = payload; return { id: 'msg-destino', async pin() { i.pin = true; } };
   } };
   i.guild.channels.fetch = async (id) => { assert.equal(id, destino.id); return destino; };
-  await roleta.comando.executar(i, { db: { client: supabase.cliente } });
+  await publicar(i, { db: { client: supabase.cliente } });
   assert.ok(i.destino); assert.equal(i.publicados.length, 0); assert.equal(i.pin, true);
   assert.match(corpo(i), /canal-configurado.*fixado/);
   assert.deepEqual(JSON.parse(supabase.configs[0][2]), { channel_id: destino.id, message_id: 'msg-destino' });
@@ -458,7 +463,7 @@ test('não publica em canal errado se leitura, resolução, guild, tipo ou permi
         async send() { throw new Error('não deve enviar'); },
       });
     }
-    await roleta.comando.executar(i);
+    await publicar(i);
     assert.equal(i.publicados.length, 0, falha); assert.equal(supabase.configs.length, 0, falha);
     assert.match(corpo(i), /nenhum painel foi publicado/i, falha);
     assert.equal(i.deferPayload.flags & 64, 64);
@@ -468,7 +473,7 @@ test('não publica em canal errado se leitura, resolução, guild, tipo ou permi
 test('fixação falha sem impedir publicação e informa não fixado', async () => {
   preparar(); const i = interacao({ sub: 'painel', admin: true });
   i.channel.send = async (payload) => { i.publicados.push(payload); return { id: 'msg', async pin() { throw new Error('sem permissão'); } }; };
-  await roleta.comando.executar(i);
+  await publicar(i);
   assert.match(corpo(i), /não fixado/); assert.equal(supabase.configs.length, 1);
 });
 
@@ -515,8 +520,91 @@ test('canal atual exige permissão apropriada em thread e falha de envio não te
     i.channel.type = modo.startsWith('thread') ? ChannelType.PublicThread : ChannelType.GuildText;
     i.channel.permissionsFor = () => ({ has: (p) => !(modo === 'thread-negada' && p === PermissionFlagsBits.SendMessagesInThreads) });
     if (modo === 'envio') i.channel.send = async () => { throw new Error('falha de envio'); };
-    await roleta.comando.executar(i);
+    await publicar(i);
     if (modo === 'thread-permitida') { assert.equal(i.publicados.length, 1); assert.match(corpo(i), /publicado/); }
     else { assert.equal(i.publicados.length, 0); assert.equal(supabase.configs.length, 0); assert.match(corpo(i), /não pode enviar|Não consegui publicar/i); }
   }
+});
+
+
+test('quadros e resultado final usam o prêmio exato retornado pela RPC, mesmo após mudança no catálogo', async () => {
+  preparar();
+  base.premios = [
+    { id: 'a', guild_id: 'guild-a', active: true, name: 'Outro prêmio', reward_type: 'coins', reward_value: '5', weight: 2, stock: null },
+    { id: 'b', guild_id: 'guild-a', active: true, name: 'Nome antigo', reward_type: 'coins', reward_value: '50', weight: 1, stock: 1 },
+    { id: 'c', guild_id: 'guild-a', active: true, name: 'Esgotado', reward_type: 'coins', reward_value: '1', weight: 1, stock: 0 },
+  ];
+  royal.resultado = { spin_id: 's-ganho', prize_id: 'b', prize_name: 'Prêmio confirmado', reward_type: 'coins', reward_value: '50' };
+  const i = interacao({ componente: 'roletapro:girar' });
+  await roleta.handleComponent(i);
+  const quadros = i.respostas.filter((r) => r.files?.length);
+  assert.equal(quadros.length, 13);
+  assert.equal(new Set(quadros.map((q) => q.files[0].name)).size, 13);
+  assert.match(corpo(i), /Você ganhou \*\*Prêmio confirmado\*\*/);
+  assert.match(corpo(i), /coins foram creditadas/);
+  assert.equal(royal.ultimoGiro.request, i.id);
+  assert.equal(base.resultados.get(`guild-a:${i.id}`).prize_id, 'b');
+  const animacao = require('../src/servicos/roletaAnimada');
+  const { lista, indice } = animacao.prepararPremios(base.premios.filter((p) => p.stock !== 0), royal.resultado);
+  const angulo = animacao.planejarGiro(indice, lista.length).at(-1);
+  assert.equal(animacao.indiceNoPonteiro(angulo, lista.length), indice);
+  assert.deepEqual(quadros.at(-1).files[0].attachment, animacao.desenharQuadro(lista, angulo));
+  assert.equal(quadros.at(-1).embeds[0].toJSON().image.url, `attachment://${quadros.at(-1).files[0].name}`);
+});
+
+test('bloqueia o mesmo usuário durante a animação sem bloquear outro jogador', async () => {
+  preparar();
+  const primeira = interacao({ id: 'primeira', componente: 'roletapro:girar' });
+  let liberar;
+  primeira.editReply = async (payload) => {
+    primeira.respostas.push(payload);
+    if (payload.files?.length && !liberar) await new Promise((resolve) => { liberar = resolve; });
+  };
+  const executando = roleta.handleComponent(primeira);
+  while (!liberar) await new Promise((resolve) => setImmediate(resolve));
+  const repetida = interacao({ id: 'segunda', componente: 'roletapro:girar' });
+  await roleta.handleComponent(repetida);
+  assert.match(corpo(repetida), /giro em andamento/i);
+  assert.equal(chamadas.filter((x) => x === 'girar').length, 1);
+  const outro = interacao({ id: 'outro', usuario: 'user-b', componente: 'ap:roletagirar' });
+  await roleta.handleComponent(outro);
+  assert.match(corpo(outro), /Você ganhou/);
+  assert.equal(chamadas.filter((x) => x === 'girar').length, 2);
+  liberar();
+  await executando;
+  assert.equal(base.perfis.get('guild-a:user-a').spins, 4);
+  const depois = interacao({ id: 'depois', componente: 'roletapro:girar' });
+  await roleta.handleComponent(depois);
+  assert.match(corpo(depois), /Você ganhou/);
+  assert.equal(base.perfis.get('guild-a:user-a').spins, 3);
+});
+
+test('falha da imagem não refaz o sorteio e remove o quadro antigo antes de informar o prêmio', async () => {
+  preparar();
+  royal.resultado = { spin_id: 's-1', prize_id: 'a', prize_name: 'Prêmio salvo', reward_type: 'coins', reward_value: '50' };
+  const i = interacao({ componente: 'roletapro:girar' });
+  i.editReply = async (payload) => {
+    if (payload.files?.length) throw new Error('falha no anexo');
+    i.respostas.push(payload);
+  };
+  await roleta.handleComponent(i);
+  assert.equal(chamadas.filter((x) => x === 'girar').length, 1);
+  assert.match(corpo(i), /Prêmio salvo/);
+  assert.match(corpo(i), /animação ficou indisponível/i);
+  assert.deepEqual(i.respostas.at(-1).attachments, []);
+  assert.deepEqual(i.respostas.at(-1).files, []);
+  assert.equal(base.perfis.get('guild-a:user-a').spins, 4);
+});
+
+
+test('o despachante do botão legado também usa a roleta animada e resposta privada', async () => {
+  preparar();
+  const i = interacao({ id: 'legado', componente: 'ap:roletagirar' });
+  i.deferUpdate = async () => { throw new Error('não deve atualizar o painel público'); };
+  const { handleBotao } = require('../src/interacoes/botoes');
+  assert.equal(await handleBotao(i, {}), true);
+  assert.equal(i.deferPayload.flags & 64, 64);
+  assert.equal(i.respostas.filter((r) => r.files?.length).length, 13);
+  assert.match(corpo(i), /Você ganhou/);
+  assert.equal(chamadas.filter((x) => x === 'girar').length, 1);
 });

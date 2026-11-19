@@ -6,6 +6,7 @@ const { randomUUID } = require('node:crypto');
 const { MessageFlags, ChannelType } = require('discord.js');
 const base = require('../src/servicos/supabase');
 const modulo = require('../src/comandos/configEconomia');
+const registro = require('../src/comandos');
 const antigos = { obterCliente: base.obterCliente, obterConfig: base.obterConfig, definirConfig: base.definirConfig };
 const G = '111111111111111111';
 const OUTRO_G = '222222222222222222';
@@ -100,26 +101,46 @@ const produto = (overrides = {}) => ({ id: randomUUID(), guild_id: G, slug: 'pro
 const fieldsR = (overrides = {}) => ({ nome: 'Prêmio', tipo: 'coins', valor: '50', peso: '10', ...overrides });
 const fieldsL = (overrides = {}) => ({ slug: 'produto', nome: 'Produto', recompensa: 'spins|1', preco: '100', estoque: '5|livre|Descrição', ...overrides });
 
-test('contrato do slash: /config roleta e lojinha; acesso privado e admin', async () => {
+test('/configroleta mantém o painel completo privado, e /config mantém somente lojinha', async () => {
   iniciar();
   const def = modulo.comando.data.toJSON();
   assert.equal(def.name, 'config');
-  assert.deepEqual(def.options.map((x) => x.name), ['roleta', 'lojinha']);
+  assert.deepEqual(def.options.map((x) => x.name), ['lojinha']);
   const i = interacao({ tipo: 'slash' });
-  await modulo.comando.executar(i);
-  assert.equal(i.eventos[0][0], 'reply');
+  i.commandName = 'configroleta';
+  i.options.getSubcommand = () => { throw new Error('/configroleta não tem subcomandos'); };
+  await registro.executar(i, {});
+  assert.deepEqual(i.eventos.map((e) => e[0]), ['deferReply', 'editReply']);
   assert.ok((i.eventos[0][1].flags & MessageFlags.Ephemeral) !== 0);
   assert.match(texto(i), /dependem da migração/);
-  const rows = i.eventos[0][1].components.map((r) => r.toJSON());
-  assert.equal(rows[0].components.length, 5);
-  assert.ok(rows[0].components.every((b) => b.custom_id.startsWith(`configeco:${U}:${G}:`)));
+  const rows = i.eventos[1][1].components.map((r) => r.toJSON());
+  const botoes = rows.flatMap((r) => r.components);
+  assert.deepEqual(botoes.map((b) => b.custom_id), [
+    'lista:0', 'criar', 'editar', 'estado', 'config', 'estoque', 'giros', 'excluir',
+  ].map((acao) => `configeco:${U}:${G}:r:${acao}`));
+  for (const botao of botoes) {
+    const clique = interacao();
+    clique.customId = botao.custom_id;
+    await modulo.handleComponent(clique);
+    assert.equal(clique.eventos[0][0], botao.custom_id.endsWith(':lista:0') ? 'deferReply' : 'showModal');
+  }
+  const loja = interacao({ tipo: 'slash', options: 'lojinha' });
+  await modulo.comando.executar(loja);
+  assert.match(texto(loja), /Configuração · Lojinha/);
+  assert.ok((loja.eventos[0][1].flags & MessageFlags.Ephemeral) !== 0);
+  const antigo = interacao({ tipo: 'slash', options: 'roleta' });
+  await modulo.comando.executar(antigo);
+  assert.match(texto(antigo), /Subcomando inválido.*\/configroleta/);
+  assert.equal(antigo.eventos[0][1].components.length, 0);
   const naoAdmin = interacao({ tipo: 'slash', admin: false });
-  await modulo.comando.executar(naoAdmin);
+  await registro.buscar('configroleta').executar(naoAdmin);
   assert.match(JSON.stringify(naoAdmin.eventos), /Somente administradores/);
-  assert.equal(chamadas.length, 0);
   const dm = interacao({ tipo: 'slash', guild: '' });
-  await modulo.comando.executar(dm);
+  await registro.buscar('configroleta').executar(dm);
   assert.match(texto(dm), /servidor válido/);
+  const lojaNaoAdmin = interacao({ tipo: 'slash', options: 'lojinha', admin: false });
+  await modulo.comando.executar(lojaNaoAdmin);
+  assert.match(JSON.stringify(lojaNaoAdmin.eventos), /Somente administradores/);
 });
 
 test('modal abre como primeira resposta; revalida dono, servidor e admin; demais prefixos são ignorados', async () => {
@@ -355,7 +376,7 @@ test('opções explicam canal, republicação e cooldown sem sugerir integraçã
   iniciar();
   for (const sub of ['roleta', 'lojinha']) {
     const i = interacao({ tipo: 'slash', options: sub });
-    await modulo.comando.executar(i);
+    await (sub === 'roleta' ? registro.buscar('configroleta') : modulo.comando).executar(i);
     assert.match(texto(i), /canal configurado/i);
     assert.match(texto(i), /republique/i);
     assert.doesNotMatch(texto(i), /depend.*integração no fluxo/i);

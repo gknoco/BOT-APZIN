@@ -91,10 +91,12 @@ test('auditamos comandos, grupos, subcomandos, opções e escolhas do registro r
     const formatado = utilidades.formatarComandoAjuda(definicao);
     for (const linha of formatado.split('\n')) assert.ok(texto.includes(linha), `Trecho ausente da ajuda: ${linha}`);
   }
-  for (const nome of ['roleta', 'lojinha', 'loja', 'config']) {
+  for (const nome of ['roleta', 'lojinha', 'loja', 'config', 'configroleta']) {
     assert.ok(definicoes.some((definicao) => definicao.name === nome), `Comando esperado não registrado: /${nome}`);
     assert.ok(texto.includes(`**/${nome}**`));
   }
+  assert.ok(texto.includes('/config lojinha'));
+  assert.ok(!texto.includes('/config roleta'));
 });
 
 test('opções de primeiro nível mostram obrigatoriedade, tipo, escolhas e limites', () => {
