@@ -1104,12 +1104,12 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Sala não encontrada.');
           return true;
         }
-        if (!(await mediadores.ehMediador(db, interaction.guildId, interaction.member))) {
-          await responderErro(interaction, 'Só o mediador desta sala pode criar a sala do jogo.');
+        if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user.id)) {
+          await responderErro(interaction, 'você nao é o mediador que assumiu essa sala');
           return true;
         }
-        if (partida.mediador_id && partida.mediador_id !== interaction.user.id && !ehAdmin(interaction.member)) {
-          await responderErro(interaction, 'Essa sala é de outro mediador.');
+        if (!(await mediadores.ehMediador(db, interaction.guildId, interaction.member))) {
+          await responderErro(interaction, 'Só o mediador desta sala pode criar a sala do jogo.');
           return true;
         }
         try {

@@ -19,6 +19,7 @@ const royalSupabase = require('../servicos/royalSupabase');
 const { registrarComandos } = require('../servicos/registroComandos');
 const membros = require('./membros');
 const mediadores = require('../servicos/mediadores');
+const cotasMediadores = require('../servicos/cotasMediadores');
 const { embedErro } = require('../util/embeds');
 const { responderPrivado } = require('../util/seguranca');
 const automacoes = require('../servicos/automacoesDiscord');
@@ -292,6 +293,15 @@ function montar(client, db) {
     } catch (erro) {
       console.error('[convites] erro ao remover invite:', erro.message);
     }
+  });
+
+  client.on(Events.GuildMemberUpdate, async (anterior, atual) => {
+    const tinhaCargo = anterior.roles.cache.has(cotasMediadores.CARGO_MEDIADOR);
+    const recebeuCargo = atual.roles.cache.has(cotasMediadores.CARGO_MEDIADOR);
+    if (!recebeuCargo || tinhaCargo) return;
+    await cotasMediadores.inicializar(db, atual.guild.id, atual.id).catch((erro) => {
+      console.error('[cotas] não consegui inicializar a cota do mediador:', erro.message);
+    });
   });
 
   client.on(Events.Error, (erro) => console.error('[discord] erro do cliente:', erro.message));

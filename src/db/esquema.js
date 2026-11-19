@@ -20,6 +20,7 @@ const TABELAS = Object.freeze({
   usuarios: 'royal_profiles',
   staff: 'royal_pix_keys',
   convites: 'royal_invites',
+  cotas_mediadores: 'royal_mediator_room_quotas',
   versiculos_usados: 'discord_versiculos_usados',
 });
 const TABELAS_OPERACIONAIS = Object.freeze(Object.values(TABELAS).filter((nome) =>

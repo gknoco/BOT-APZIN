@@ -13,6 +13,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../config');
 const { embed, reais, mencao } = require('../util/embeds');
 const criarSalaComCredito = require('./criarSalaComCredito');
+const cotasMediadores = require('./cotasMediadores');
 const paineis = require('./paineis');
 const partidas = require('./partidas');
 
@@ -110,19 +111,26 @@ async function criarSalaDaPartida(client, db, { partidaId, actorId, requestId })
     throw new Error('Confirme o pagamento antes de criar a sala do jogo.');
   }
 
-  const criacao = await criarSalaComCredito.criar({
-    guildId: partida.guild_id,
-    userId: actorId,
-    requestId,
-    source: 'match',
-    sourceRef: String(partidaId),
-    sala: {
-      senha: senhaAleatoria(),
-      delayMinutos: 10,
-      modo: modoNix(partida),
-      nome: `Royal AP ${reais(partida.preco)}`,
-    },
-  });
+  const cota = await cotasMediadores.reservar(db, partida.guild_id, actorId);
+  let criacao;
+  try {
+    criacao = await criarSalaComCredito.criar({
+      guildId: partida.guild_id,
+      userId: actorId,
+      requestId,
+      source: 'match',
+      sourceRef: String(partidaId),
+      sala: {
+        senha: senhaAleatoria(),
+        delayMinutos: 10,
+        modo: modoNix(partida),
+        nome: `Royal AP ${reais(partida.preco)}`,
+      },
+    });
+  } catch (erro) {
+    await cotasMediadores.devolver(db, partida.guild_id, actorId, cota.persistente);
+    throw erro;
+  }
   const dados = criacao.dados;
 
   await partidas.liberarSala(db, partidaId, {
