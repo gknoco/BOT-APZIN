@@ -36,6 +36,7 @@ const modulos = [
   require('./automacoes'),
   require('./painelFilas'),
   require('./addsalas'),
+  require('./resgatarSalas'),
   require('./configCanalFila'),
   require('./feedback'),
 ];

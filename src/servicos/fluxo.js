@@ -610,7 +610,7 @@ async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }
     '',
     '━━━━━━━━━━━━━━━━━━━━',
     '',
-    '⚠️ *Não perca tempo enviando comprovantefalso*',
+    '⚠️ *Não perca tempo enviando comprovante falso!!!*',
   ]
     .join('\n');
 

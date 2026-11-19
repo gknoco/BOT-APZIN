@@ -40,6 +40,23 @@ BEGIN
   RETURN jsonb_build_object('guild_id', trim(p_guild_id), 'user_id', trim(p_user_id), 'salas_disponiveis', v_saldo);
 END; $$;
 
+CREATE OR REPLACE FUNCTION public.royal_mediator_grant_room_quota(
+  p_guild_id text, p_user_id text, p_quantidade bigint DEFAULT 10
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_saldo bigint;
+BEGIN
+  IF COALESCE(trim(p_guild_id), '') = '' OR COALESCE(trim(p_user_id), '') = '' OR p_quantidade < 1 THEN
+    RAISE EXCEPTION 'INVALID_MEDIATOR_QUOTA_GRANT';
+  END IF;
+  INSERT INTO public.royal_mediator_room_quotas (guild_id, user_id, salas_disponiveis)
+    VALUES (trim(p_guild_id), trim(p_user_id), p_quantidade)
+    ON CONFLICT (guild_id, user_id) DO UPDATE
+      SET salas_disponiveis = public.royal_mediator_room_quotas.salas_disponiveis + EXCLUDED.salas_disponiveis,
+          atualizado_em = now()
+    RETURNING salas_disponiveis INTO v_saldo;
+  RETURN jsonb_build_object('guild_id', trim(p_guild_id), 'user_id', trim(p_user_id), 'salas_disponiveis', v_saldo);
+END; $$;
+
 CREATE OR REPLACE FUNCTION public.royal_mediator_restore_room_quota(
   p_guild_id text, p_user_id text
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -60,7 +77,9 @@ END; $$;
 REVOKE ALL ON TABLE public.royal_mediator_room_quotas FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.royal_mediator_ensure_room_quota(text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.royal_mediator_reserve_room_quota(text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.royal_mediator_grant_room_quota(text, text, bigint) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.royal_mediator_restore_room_quota(text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.royal_mediator_ensure_room_quota(text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.royal_mediator_reserve_room_quota(text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.royal_mediator_grant_room_quota(text, text, bigint) TO service_role;
 GRANT EXECUTE ON FUNCTION public.royal_mediator_restore_room_quota(text, text) TO service_role;

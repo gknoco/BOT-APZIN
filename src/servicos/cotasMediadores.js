@@ -21,6 +21,12 @@ function inicializarMemoria(guildId, userId) {
   return memoria.get(id);
 }
 
+function sincronizarMemoria(guildId, userId, saldo) {
+  const valor = Math.max(0, Math.trunc(Number(saldo)));
+  memoria.set(chave(guildId, userId), valor);
+  return valor;
+}
+
 function erroDeCota() {
   const erro = new Error(mensagemCotaEsgotada);
   erro.codigo = 'MEDIATOR_ROOM_QUOTA_EXHAUSTED';
@@ -34,7 +40,7 @@ async function inicializar(db, guildId, userId) {
       p_user_id: String(userId),
     });
     if (error) throw error;
-    return saldoDaResposta(data);
+    return sincronizarMemoria(guildId, userId, saldoDaResposta(data));
   } catch (erro) {
     console.warn('[cotas] usando fallback em memória:', erro.message);
     return inicializarMemoria(guildId, userId);
@@ -51,15 +57,35 @@ async function reservar(db, guildId, userId) {
       if (/MEDIATOR_ROOM_QUOTA_EXHAUSTED/i.test(error.message || '')) throw erroDeCota();
       throw error;
     }
-    return { saldo: saldoDaResposta(data), persistente: true };
+    const saldo = sincronizarMemoria(guildId, userId, saldoDaResposta(data));
+    return { saldo, persistente: true };
   } catch (erro) {
     if (erro?.codigo === 'MEDIATOR_ROOM_QUOTA_EXHAUSTED') throw erro;
     console.warn('[cotas] reserva Supabase indisponível; usando fallback:', erro.message);
-    const id = chave(guildId, userId);
     const atual = inicializarMemoria(guildId, userId);
     if (atual < 1) throw erroDeCota();
-    memoria.set(id, atual - 1);
-    return { saldo: atual - 1, persistente: false };
+    const saldo = sincronizarMemoria(guildId, userId, atual - 1);
+    return { saldo, persistente: false };
+  }
+}
+
+async function resgatar(db, guildId, userId, quantidade = COTA_INICIAL) {
+  const valor = Math.max(1, Math.trunc(Number(quantidade) || COTA_INICIAL));
+  try {
+    const { data, error } = await db.client.rpc('royal_mediator_grant_room_quota', {
+      p_guild_id: String(guildId),
+      p_user_id: String(userId),
+      p_quantidade: valor,
+    });
+    if (error) throw error;
+    const saldo = sincronizarMemoria(guildId, userId, saldoDaResposta(data));
+    return { saldo, persistente: true };
+  } catch (erro) {
+    console.warn('[cotas] resgate Supabase indisponível; usando fallback:', erro.message);
+    const id = chave(guildId, userId);
+    const atual = memoria.has(id) ? memoria.get(id) : 0;
+    const saldo = sincronizarMemoria(guildId, userId, atual + valor);
+    return { saldo, persistente: false };
   }
 }
 
@@ -82,5 +108,6 @@ module.exports = {
   mensagemCotaEsgotada,
   inicializar,
   reservar,
+  resgatar,
   devolver,
 };
