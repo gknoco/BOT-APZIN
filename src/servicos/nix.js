@@ -46,15 +46,16 @@ class ErroNix extends Error {
 
 /** Lê a chave do ambiente (testes e hospedagem podem trocar em tempo real). */
 function chave() {
-  if (Object.prototype.hasOwnProperty.call(process.env, 'NIX_API_KEY')) {
-    return String(process.env.NIX_API_KEY ?? '').trim();
-  }
-  return String(config.NIX_API_KEY || '').trim();
+  const ambiente = String(process.env.NIX_API_KEY ?? '').trim();
+  return ambiente || String(config.NIX_API_KEY || '').trim();
 }
 
 function base() {
   const bruta = String(process.env.NIX_API_URL || config.NIX_API_URL || BASE_PADRAO).trim();
-  return (bruta || BASE_PADRAO).replace(/\/+$/, '');
+  const normalizada = (bruta || BASE_PADRAO)
+    .replace(/\/(?:api|v1)\/?$/i, '')
+    .replace(/\/+$/, '');
+  return normalizada || BASE_PADRAO;
 }
 
 /** Chave preenchida e que não é o texto de exemplo. */
@@ -72,7 +73,7 @@ function exigirConfiguracao() {
 }
 
 /** Traduz o status HTTP da Nix para uma frase que o jogador entende. */
-function mensagemErro(status, dados) {
+function mensagemErro(status, dados, rota = '') {
   const detalhe = String(dados?.detail || dados?.message || '').trim();
   const rodape = detalhe ? `\nDetalhe da Nix: ${detalhe}` : '';
   switch (Number(status)) {
@@ -83,6 +84,9 @@ function mensagemErro(status, dados) {
     case 403:
       return `A chave da Nix está válida, mas desabilitada ou sem permissão para essa rota (403).${rodape}`;
     case 404:
+      if (/^\/rooms\/?$/i.test(String(rota))) {
+        return `A API da Nix não aceitou a requisição de criação da sala (404). A integração tentou uma nova requisição limpa, mas a rota/base configurada não foi encontrada.${rodape}`;
+      }
       return `A sessão não existe mais (404). A sala expirou, já deu start ou já foi liberada.${rodape}`;
     case 409:
       return `Ação inválida para o estado atual da sala (409) — por exemplo, iniciar uma sala que já começou.${rodape}`;
@@ -144,7 +148,7 @@ async function requisitar(rota, { metodo = 'GET', corpo = null, tempoLimite = TE
   }
 
   if (!resposta.ok) {
-    throw new ErroNix(mensagemErro(resposta.status, dados), {
+    throw new ErroNix(mensagemErro(resposta.status, dados, caminho), {
       status: resposta.status,
       detalhe: dados?.detail || dados?.raw || null,
     });
@@ -229,7 +233,19 @@ function validarCriacaoSala({
 
 async function criarSala(opcoes = {}) {
   const corpo = validarCriacaoSala(opcoes);
-  return requisitar('/rooms', { metodo: 'POST', corpo });
+  let dados;
+  try {
+    dados = await requisitar('/rooms', { metodo: 'POST', corpo });
+  } catch (erro) {
+    // Alguns proxies da hospedagem diferenciam /rooms de /rooms/. Ambas são
+    // a mesma rota oficial; nunca reutilizamos session_id nessa recuperação.
+    if (Number(erro?.status) !== 404) throw erro;
+    dados = await requisitar('/rooms/', { metodo: 'POST', corpo });
+  }
+  if (!dados || !dados.session_id || dados.room_id == null || !dados.password) {
+    throw new ErroNix('A Nix respondeu sem os dados completos da sala (session_id, room_id e senha). O crédito permaneceu reservado para reconciliação segura.', { status: 502, detalhe: 'invalid_create_room_response' });
+  }
+  return dados;
 }
 
 /** POST /rooms/{session_id}/start — inicia a partida. */
