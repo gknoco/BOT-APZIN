@@ -11,7 +11,6 @@ const filas = require('../servicos/filas');
 const paineis = require('../servicos/paineis');
 const plantao = require('../servicos/plantao');
 const plantaoModalidade = require('../servicos/plantaoModalidade');
-const salas = require('../servicos/salas');
 const mediadores = require('../servicos/mediadores');
 const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
@@ -399,7 +398,7 @@ async function handleBotao(interaction, ctx) {
   const abreModal =
     acao === 'filasavatar' || acao === 'filasbanner' || acao === 'addsalas' || acao === 'regras' || acao === 'liberar' || acao.startsWith('bot') || acao === 'pixregistrar' || acao === 'pixsssregistrar' || acao === 'comprar' ||
     acao === 'comprarsaldo' ||
-    acao === 'recargapix' || acao === 'recargasemanal' || acao === 'recargamensal';
+    acao === 'recargapix' || acao === 'recargasemanal' || acao === 'recargamensal' || acao === 'renomear';
   const painelRecargaPrivado = mensagemEfemera(interaction) &&
     ['recargasalainfinita', 'recargavoltar', 'extratovoltar'].includes(acao);
   const respostaPrivadaRecarga = acao === 'recargasalainfinita' || acao === 'recargaextrato';
@@ -510,6 +509,12 @@ async function handleBotao(interaction, ctx) {
       case 'pix':
         await enviarPix(interaction, ctx, args[0]);
         return true;
+
+      case 'renomear': {
+        const modais = require('./modais');
+        await modais.abrirModalRenomear(interaction, db, args[0]);
+        return true;
+      }
 
       case 'pago':
         await pagamentoRecebido(interaction, ctx, args[0]);
@@ -1095,48 +1100,6 @@ async function handleBotao(interaction, ctx) {
         });
         await interaction.editReply(vendasUI.embedPainelPermissoes(salvo));
         await responderPrivado(interaction, { content: '✅ Todos os cargos autorizados foram removidos com sucesso do Supabase. As compras por botão ficam bloqueadas até selecionar novos cargos.' });
-        return true;
-      }
-
-      case 'criarsala': {
-        const partida = await partidas.buscar(db, args[0]);
-        if (!partida) {
-          await responderErro(interaction, 'Sala não encontrada.');
-          return true;
-        }
-        if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user.id)) {
-          await responderErro(interaction, 'você nao é o mediador que assumiu essa sala');
-          return true;
-        }
-        if (!(await mediadores.ehMediador(db, interaction.guildId, interaction.member))) {
-          await responderErro(interaction, 'Só o mediador desta sala pode criar a sala do jogo.');
-          return true;
-        }
-        try {
-          const criada = await salas.criarSalaDaPartida(client, db, {
-            partidaId: args[0],
-            actorId: interaction.user.id,
-            requestId: interaction.id,
-          });
-          await fluxo.atualizarPartida(client, db, args[0]);
-          await auditoria.registrar(db, client, {
-            guildId: interaction.guildId,
-            autorId: interaction.user.id,
-            acao: 'Sala do jogo criada',
-            detalhe: `Sala ${args[0]} · room ${criada.dados.room_id}`,
-          });
-          await responderPrivado(interaction, {
-            embeds: [
-              embedSucesso(
-                `Sala criada! 🎮\n**ID:** \`${criada.dados.room_id}\` · **Senha:** \`${criada.dados.password}\`` +
-                  (criada.canalId ? `\nID e senha publicados em <#${criada.canalId}>.` : '') +
-                  (criada.creditoLiquidado ? '' : '\n⚠️ O crédito ficou reservado e precisa de reconciliação pela administração.'),
-              ),
-            ],
-          });
-        } catch (erro) {
-          await responderErro(interaction, erro.message);
-        }
         return true;
       }
 

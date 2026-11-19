@@ -2,6 +2,26 @@ BEGIN;
 
 -- Credita o resgate inicial na mesma carteira/ledger usados pela aprovação
 -- de compras. O request_id impede créditos duplicados mesmo após retries.
+CREATE TABLE IF NOT EXISTS public.royal_room_initial_redemptions (
+  guild_id text NOT NULL,
+  user_id text NOT NULL,
+  request_id text NOT NULL,
+  rooms_quantity bigint NOT NULL DEFAULT 10,
+  redeemed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (guild_id, user_id),
+  UNIQUE (request_id)
+);
+
+INSERT INTO public.royal_room_initial_redemptions (guild_id, user_id, request_id, rooms_quantity)
+SELECT guild_id, user_id, request_id, COALESCE((detail ->> 'rooms_quantity')::bigint, delta_rooms)
+  FROM public.royal_room_ledger
+ WHERE event_type = 'admin_grant'
+   AND detail ->> 'source' = 'initial_redemption'
+ON CONFLICT DO NOTHING;
+
+REVOKE ALL ON TABLE public.royal_room_initial_redemptions FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT ON TABLE public.royal_room_initial_redemptions TO service_role;
+
 CREATE OR REPLACE FUNCTION public.royal_room_credit_initial_redemption(
   p_guild_id text,
   p_user_id text,
@@ -29,6 +49,22 @@ BEGIN
   END IF;
 
   PERFORM pg_advisory_xact_lock(hashtextextended('initial-room-redeem:' || trim(p_guild_id) || ':' || trim(p_user_id), 0));
+
+  IF EXISTS (
+    SELECT 1 FROM public.royal_room_initial_redemptions
+     WHERE guild_id = trim(p_guild_id) AND user_id = trim(p_user_id)
+  ) THEN
+    SELECT purchased_rooms, reserved_rooms, consumed_rooms, reversed_rooms
+      INTO v_purchased, v_reserved, v_consumed, v_reversed
+      FROM public.royal_room_wallets
+     WHERE guild_id = trim(p_guild_id) AND user_id = trim(p_user_id);
+    v_available := COALESCE(v_purchased, 0) - COALESCE(v_reserved, 0)
+      - COALESCE(v_consumed, 0) + COALESCE(v_reversed, 0);
+    RETURN jsonb_build_object(
+      'guild_id', trim(p_guild_id), 'user_id', trim(p_user_id),
+      'available_rooms', GREATEST(v_available, 0), 'redeemed', false, 'idempotent', true
+    );
+  END IF;
 
   SELECT purchased_rooms, reserved_rooms, consumed_rooms, reversed_rooms
     INTO v_purchased, v_reserved, v_consumed, v_reversed
@@ -62,6 +98,9 @@ BEGIN
     trim(p_guild_id), trim(p_user_id), trim(p_request_id), 'admin_grant', p_rooms_quantity,
     jsonb_build_object('source', 'initial_redemption', 'rooms_quantity', p_rooms_quantity)
   );
+
+  INSERT INTO public.royal_room_initial_redemptions (guild_id, user_id, request_id, rooms_quantity)
+    VALUES (trim(p_guild_id), trim(p_user_id), trim(p_request_id), p_rooms_quantity);
 
   SELECT purchased_rooms, reserved_rooms, consumed_rooms, reversed_rooms
     INTO v_purchased, v_reserved, v_consumed, v_reversed

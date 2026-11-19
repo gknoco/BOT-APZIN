@@ -83,13 +83,6 @@ function embedPartida(partida, lista) {
     { name: 'Aposta', value: reais(partida.preco), inline: true },
     { name: 'Tipo', value: variante ? `${variante.emoji} ${variante.nome}` : partida.gelo, inline: true },
     { name: 'Jogadores', value: textoJogadores(lista), inline: false },
-    {
-      name: 'Regra da partida',
-      value: partida.regras
-        ? `${partida.regras}\n— por ${mencao(partida.regras_por)}`
-        : '`ninguém enviou ainda`',
-      inline: false,
-    },
   ];
 
   let titulo = `🎯 AP ${modo ? modo.titulo : partida.modo} · ${reais(partida.preco)}`;
@@ -100,11 +93,6 @@ function embedPartida(partida, lista) {
     case STATUS.AGUARDANDO_MEDIADOR:
       descricao = `**Passo 2 · Mediação**\nRegras confirmadas. Aguardando ${mencaoCargo(config.CARGO_MEDIADOR_ID)} assumir a sala.`;
       cor = config.CORES.aviso;
-      campos.push({
-        name: 'PIX do mediador',
-        value: `**Valor por capitão (1 por time):** ${reais(valorPorCapitao(partida))}\naparece aqui quando o mediador enviar a chave PIX`,
-        inline: false,
-      });
       break;
     case STATUS.AGUARDANDO_PAGAMENTO:
       descricao =
@@ -112,22 +100,10 @@ function embedPartida(partida, lista) {
         `Mediador: ${mencao(partida.mediador_id)}\n` +
         'Clique em **Enviar PIX** para mandar a chave, e em **Pagamento recebido** depois de conferir os comprovantes.';
       cor = config.CORES.aviso;
-      campos.push({
-        name: 'PIX do mediador',
-        value: `**Valor por capitão (1 por time):** ${reais(valorPorCapitao(partida))}\nconsulte a mensagem de pagamento enviada pelo mediador nesta sala`,
-        inline: false,
-      });
       break;
     case STATUS.PAGO:
-      descricao =
-        '**Passo 4 · Sala**\nPagamento confirmado ✅\n' +
-        'Clique em **Criar sala (Nix)**: o ID e a senha são publicados automaticamente no canal da fila.';
+      descricao = '**Pagamento confirmado ✅**\nO mediador responsável pode renomear este canal se necessário.';
       cor = config.CORES.gelo;
-      campos.push({
-        name: 'PIX do mediador',
-        value: 'pagamento confirmado',
-        inline: true,
-      });
       break;
     case STATUS.SALA_LIBERADA:
       descricao =
@@ -215,7 +191,7 @@ function componentesPartida(partida) {
     case STATUS.PAGO:
       linhas.push(
         linha(
-          botao(`ap:criarsala:${id}`, 'Criar sala (Nix)', '🎮', ButtonStyle.Primary),
+          botao(`ap:renomear:${id}`, 'Renomear', '✏️', ButtonStyle.Primary),
           botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
         ),
       );

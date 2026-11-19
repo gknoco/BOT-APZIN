@@ -101,6 +101,35 @@ async function abrirModalSala(interaction, db, partidaId) {
   return interaction.showModal(modal);
 }
 
+async function abrirModalRenomear(interaction, db, partidaId) {
+  const partida = await partidas.buscar(db, partidaId);
+  if (!partida) return responderErro(interaction, 'Sala não encontrada.');
+  if (String(partida.mediador_id || '') !== String(interaction.user.id)) {
+    return responderErro(interaction, 'Só o mediador que assumiu esta fila pode renomear o canal.');
+  }
+  if (String(interaction.channelId || '') !== String(partida.canal_id || '')) {
+    return responderErro(interaction, 'Este botão só pode ser usado no canal da fila de origem.');
+  }
+
+  return interaction.showModal(
+    new ModalBuilder()
+      .setCustomId(`ap:modalrenomear:${partidaId}`)
+      .setTitle('Renomear canal da fila')
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('novo_nome')
+            .setLabel('Novo nome do canal')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Ex.: pagar-2-00')
+            .setMinLength(1)
+            .setMaxLength(100)
+            .setRequired(true),
+        ),
+      ),
+  );
+}
+
 /** Campos do painel /botperfil: o modal é montado a partir daqui. */
 const CAMPOS_BOT = {
   nome: {
@@ -668,7 +697,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalpixss', 'modalregras', 'modalsala', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila'].includes(tipo);
+    ['modalpix', 'modalpixss', 'modalregras', 'modalsala', 'modalrenomear', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
@@ -792,6 +821,34 @@ async function handleModal(interaction, { db, client }) {
       return true;
     }
 
+    if (tipo === 'modalrenomear') {
+      const partida = await partidas.buscar(db, partidaId);
+      if (!partida) throw new Error('Sala não encontrada.');
+      if (String(partida.mediador_id || '') !== String(interaction.user.id)) {
+        throw new Error('Só o mediador que assumiu esta fila pode renomear o canal.');
+      }
+      if (String(interaction.channelId || '') !== String(partida.canal_id || '')) {
+        throw new Error('Este modal só pode ser usado no canal da fila de origem.');
+      }
+
+      const informado = String(interaction.fields.getTextInputValue('novo_nome') || '').trim();
+      const nome = informado
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^[-_]+|[-_]+$/g, '')
+        .slice(0, 100);
+      if (!nome) throw new Error('Informe um nome válido para o canal.');
+
+      const canal = await interaction.guild.channels.fetch(partida.canal_id).catch(() => null);
+      if (!canal || typeof canal.setName !== 'function') throw new Error('O canal original da fila não foi encontrado.');
+      await canal.setName(nome, `Renomeação da fila ${partida.id} pelo mediador responsável`);
+      await responderPrivado(interaction, { content: `✅ Canal renomeado para **#${nome}**.` });
+      return true;
+    }
+
     if (tipo === 'modalsala') {
       if (!ehMediador(interaction.member)) {
         await responderErro(interaction, 'Só o mediador pode liberar a sala.');
@@ -818,6 +875,7 @@ async function handleModal(interaction, { db, client }) {
 module.exports = {
   abrirModalRegras,
   abrirModalSala,
+  abrirModalRenomear,
   abrirModalBotPerfil,
   abrirModalPix,
   abrirModalCompra,

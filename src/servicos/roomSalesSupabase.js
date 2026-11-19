@@ -228,6 +228,17 @@ async function estatisticasSalas(guildId, userId) {
 }
 
 async function creditarResgateDireto({ guildId, userId, requestId, quantidade }) {
+  const { data: resgateExistente, error: erroResgate } = await cliente()
+    .from('royal_room_initial_redemptions')
+    .select('guild_id,user_id,request_id,rooms_quantity')
+    .eq('guild_id', String(guildId))
+    .eq('user_id', String(userId))
+    .maybeSingle();
+  if (!erroResgate && resgateExistente) {
+    const saldoAtual = await estatisticasSalas(guildId, userId);
+    return { redeemed: false, available_rooms: saldoResposta(saldoAtual), idempotent: true };
+  }
+
   const { data: existente, error: erroLedger } = await cliente()
     .from('royal_room_ledger')
     .select('request_id')
@@ -272,6 +283,16 @@ async function creditarResgateDireto({ guildId, userId, requestId, quantidade })
     });
   if (erroInsercao && !/duplicate|unique/i.test(erroInsercao.message || '')) throw erroInsercao;
 
+  const { error: erroResgateInsercao } = await cliente()
+    .from('royal_room_initial_redemptions')
+    .insert({
+      guild_id: String(guildId),
+      user_id: String(userId),
+      request_id: String(requestId),
+      rooms_quantity: quantidade,
+    });
+  if (erroResgateInsercao && !/duplicate|unique/i.test(erroResgateInsercao.message || '')) throw erroResgateInsercao;
+
   const saldo = Math.max(0, comprado - Number(carteira?.reserved_rooms || 0)
     - Number(carteira?.consumed_rooms || 0) + Number(carteira?.reversed_rooms || 0));
   return { redeemed: !erroInsercao, available_rooms: saldo, direct_fallback: true };
@@ -283,6 +304,18 @@ async function resgatarSalasIniciais({ guildId, userId, quantidade = 10 }) {
   const valor = Math.max(1, Math.trunc(Number(quantidade) || 10));
   const requestId = requestResgateInicial(guildId, userId);
   try {
+    const { data: resgatePersistido, error: erroResgatePersistido } = await cliente()
+      .from('royal_room_initial_redemptions')
+      .select('guild_id,user_id,request_id,rooms_quantity')
+      .eq('guild_id', String(guildId))
+      .eq('user_id', String(userId))
+      .maybeSingle();
+    if (!erroResgatePersistido && resgatePersistido) {
+      const saldoAtual = await estatisticasSalas(guildId, userId);
+      resgatesMemoria.add(id);
+      return { redeemed: false, available_rooms: saldoResposta(saldoAtual), idempotent: true };
+    }
+
     const { data: marcadorLegado, error: erroMarcadorLegado } = await cliente()
       .from('royal_mediator_room_quotas')
       .select('resgate_inicial_realizado')
