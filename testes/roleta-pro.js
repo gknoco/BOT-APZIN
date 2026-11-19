@@ -7,6 +7,7 @@ const { test } = require('node:test');
 const { PermissionFlagsBits, ChannelType } = require('discord.js');
 
 const chamadas = [];
+const temporizacoes = [];
 const base = { historico: [], entregas: [], premios: [], itens: [], perfis: new Map(), resultados: new Map() };
 const fsFalso = { existe: false, existsSync() { return this.existe; } };
 const supabase = {
@@ -105,7 +106,9 @@ function clienteMemoria() {
 const loadOriginal = Module._load;
 Module._load = function(request, parent, isMain) {
   if (parent?.filename === path.resolve(__dirname, '../src/comandos/roletaPro.js') && request === 'node:fs') return fsFalso;
-  if (parent?.filename === path.resolve(__dirname, '../src/servicos/roletaAnimada.js') && request === 'node:timers/promises') return { setTimeout: async () => {} };
+  if (parent?.filename === path.resolve(__dirname, '../src/servicos/roletaAnimada.js') && request === 'node:timers/promises') return {
+    setTimeout: async (ms) => { temporizacoes.push(ms); }, setImmediate: async () => {},
+  };
   if (parent?.filename === path.resolve(__dirname, '../src/comandos/roletaPro.js') && request === '../servicos/avisosEconomia') return avisos;
   const filename = Module._resolveFilename(request, parent, isMain);
   if (filename === path.resolve(__dirname, '../src/servicos/royalSupabase.js')) return royal;
@@ -118,6 +121,7 @@ finally { Module._load = loadOriginal; }
 
 function preparar() {
   chamadas.length = 0;
+  temporizacoes.length = 0;
   base.historico = []; base.entregas = []; base.premios = []; base.itens = []; base.erroSnapshots = false; base.erroEntregas = false; base.perfis = new Map(); base.resultados = new Map();
   base.perfis.set('guild-a:user-a', { spins: 5, coins: 0 });
   base.perfis.set('guild-a:user-b', { spins: 2, coins: 0 });
@@ -142,8 +146,7 @@ function interacao({ id = 'interaction-001', usuario = 'user-a', guild = 'guild-
   return i;
 }
 async function publicar(interaction, ctx = {}) {
-  if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: 64 });
-  return roleta.publicarPainel(interaction, ctx);
+  return roleta.comando.executar(interaction, ctx);
 }
 function corpo(interaction) { return interaction.respostas.at(-1).embeds[0].toJSON().description; }
 function botoes(payload) { return payload.components.flatMap((row) => row.toJSON().components); }
@@ -162,7 +165,7 @@ test('contrato do comando e prefixo: IDs estranhos não são consumidos', async 
   preparar();
   const json = roleta.comando.data.toJSON();
   assert.equal(json.name, 'roleta');
-  assert.deepEqual(json.options.map((o) => o.name), ['girar']);
+  assert.deepEqual(json.options.map((o) => o.name), ['painel', 'girar']);
   const i = interacao({ componente: 'outro:botao' });
   assert.equal(await roleta.handleComponent(i), false);
   assert.deepEqual(chamadas, []);
@@ -186,6 +189,7 @@ test('painel somente para admin é enviado realmente em canal e confirmação é
   assert.deepEqual(botoes(painel).map((b) => [b.custom_id, b.label]), [
     ['roletapro:girar', '🎰 Girar'], ['roletapro:premios', '🎁 Meus Prêmios'],
   ]);
+  assert.equal(painel.embeds[0].toJSON().color, 0xb20d1c);
   assert.doesNotMatch(painel.embeds[0].toJSON().description, /5|2|Giros disponíveis/);
   assert.deepEqual(supabase.configs[0].slice(0, 3), ['guild-a', 'painel_roleta', '{"channel_id":"canal-1","message_id":"mensagem-1"}']);
   assert.match(corpo(admin), /publicado/);
@@ -224,8 +228,15 @@ test('painel calcula chances dos pesos elegíveis e avisa que é preciso republi
   assert.match(descricao, /Coins · \*\*75,00%\*\*/);
   assert.match(descricao, /Item · \*\*25,00%\*\*/);
   assert.doesNotMatch(descricao, /Esgotado|Item indisponível|Outro servidor|Inativo/);
-  assert.match(descricao, /Imagem ilustrativa/);
-  assert.match(descricao, /republique o painel/);
+  assert.equal(descricao,
+    '**A sorte está na sua mão.**\n' +
+    'Use seus giros para disputar os prêmios disponíveis na roleta.\n\n' +
+    '**Girar** · realiza um sorteio com um dos seus giros.\n' +
+    '**Meus Prêmios** · veja seu saldo e o histórico privado de prêmios.\n\n' +
+    '**Prêmios e chances na publicação**\n• Coins · **75,00%**\n• Item · **25,00%**\n\n' +
+    'Imagem ilustrativa; os prêmios e seus pesos são definidos pela configuração da roleta.\n' +
+    'Chances reais dependem dos pesos e estoques no momento do giro. Após alterações, republique o painel para atualizar a lista.\n' +
+    'Os resultados e saldos são exibidos somente para você.');
   assert.ok(chamadas.indexOf('defer') < chamadas.indexOf('consulta:royal_roulette_prizes'));
 });
 
@@ -538,8 +549,14 @@ test('quadros e resultado final usam o prêmio exato retornado pela RPC, mesmo a
   const i = interacao({ componente: 'roletapro:girar' });
   await roleta.handleComponent(i);
   const quadros = i.respostas.filter((r) => r.files?.length);
-  assert.equal(quadros.length, 13);
-  assert.equal(new Set(quadros.map((q) => q.files[0].name)).size, 13);
+  assert.equal(quadros.length, 2);
+  assert.match(quadros[0].files[0].name, /-giro\.gif$/);
+  assert.match(quadros[1].files[0].name, /-resultado\.png$/);
+  assert.deepEqual(temporizacoes, [1000]);
+  assert.deepEqual(i.respostas[0].files, []);
+  assert.deepEqual(i.respostas[0].attachments, []);
+  assert.deepEqual(i.respostas[0].components, []);
+  assert.equal(i.respostas[0].embeds[0].toJSON().image, undefined);
   assert.match(corpo(i), /Você ganhou \*\*Prêmio confirmado\*\*/);
   assert.match(corpo(i), /coins foram creditadas/);
   assert.equal(royal.ultimoGiro.request, i.id);
@@ -604,7 +621,34 @@ test('o despachante do botão legado também usa a roleta animada e resposta pri
   const { handleBotao } = require('../src/interacoes/botoes');
   assert.equal(await handleBotao(i, {}), true);
   assert.equal(i.deferPayload.flags & 64, 64);
-  assert.equal(i.respostas.filter((r) => r.files?.length).length, 13);
+  assert.equal(i.respostas.filter((r) => r.files?.length).length, 2);
   assert.match(corpo(i), /Você ganhou/);
   assert.equal(chamadas.filter((x) => x === 'girar').length, 1);
+});
+
+
+test('restaura o painel salvo na inicialização sem substituir imagem, botões ou mensagem', async () => {
+  preparar();
+  supabase.valores.set('guild-a:painel_roleta', JSON.stringify({ channel_id: 'canal-1', message_id: 'painel-1' }));
+  const i = interacao({ sub: 'painel', admin: true });
+  i.guild.client = { user: { id: 'bot-a' } };
+  const descricao = 'Texto original\nNa animação, os setores identificam os prêmios e não representam suas chances.\nFinal original.';
+  const original = { title: 'ROLETA ROYAL AP', description: descricao, color: 0xfacc15,
+    image: { url: 'https://cdn.discordapp.com/attachments/canal/painel/roleta-royal-ap.png' },
+    footer: { text: 'ROYAL AP  •  ROLETA  •  SORTEIOS REGISTRADOS' } };
+  let alteracao;
+  const mensagem = { author: { id: 'bot-a' }, embeds: [original], async edit(payload) { alteracao = payload; } };
+  i.guild.channels.cache.set('canal-1', { guildId: 'guild-a', messages: { async fetch(id) { assert.equal(id, 'painel-1'); return mensagem; } } });
+  assert.equal(await roleta.restaurarPainelSalvo(i.guild, { db: { client: supabase.cliente } }), true);
+  assert.equal(alteracao.embeds[0].toJSON().description, 'Texto original\nFinal original.');
+  assert.equal(alteracao.embeds[0].toJSON().color, 0xb20d1c);
+  assert.deepEqual(alteracao.embeds[0].toJSON().image, original.image);
+  assert.equal(alteracao.components, undefined);
+  assert.equal(alteracao.files, undefined);
+  assert.equal(alteracao.attachments, undefined);
+  assert.equal(supabase.configs.length, 0);
+  mensagem.author.id = 'outro-bot';
+  alteracao = null;
+  assert.equal(await roleta.restaurarPainelSalvo(i.guild, { db: { client: supabase.cliente } }), false);
+  assert.equal(alteracao, null);
 });

@@ -44,7 +44,7 @@ function painelPublico(catalogo) {
         return `• ${textoSeguro(premio.name, 70)} · **${chance}**`;
       }).join('\n') + (catalogo.length > 20 ? `\n... e outros ${catalogo.length - 20} prêmio(s).` : '');
   const painel = new EmbedBuilder()
-    .setColor(COR)
+    .setColor(0xb20d1c)
     .setTitle('ROLETA ROYAL AP')
     .setDescription(
       '**A sorte está na sua mão.**\n' +
@@ -54,7 +54,6 @@ function painelPublico(catalogo) {
       `**Prêmios e chances na publicação**\n${linhas}\n\n` +
       'Imagem ilustrativa; os prêmios e seus pesos são definidos pela configuração da roleta.\n' +
       'Chances reais dependem dos pesos e estoques no momento do giro. Após alterações, republique o painel para atualizar a lista.\n' +
-      'Na animação, os setores identificam os prêmios e não representam suas chances.\n' +
       'Os resultados e saldos são exibidos somente para você.',
     )
     .setFooter({ text: 'ROYAL AP  •  ROLETA  •  SORTEIOS REGISTRADOS' });
@@ -188,7 +187,7 @@ async function realizarGiro(interaction, ctx = {}) {
 async function executarGiro(interaction, ctx) {
   const embedGiro = () => card('ROLETA  •  SORTEANDO', 'A roleta está girando... aguarde o resultado.');
   await editarPrivado(interaction, {
-    embeds: [embedGiro()],
+    embeds: [embedGiro()], components: [], attachments: [], files: [],
   });
   let catalogo = [];
   try { catalogo = await buscarCatalogo(ctx.db?.client || supabase.obterCliente(), interaction.guildId); }
@@ -354,6 +353,26 @@ async function mostrarPremios(interaction, pagina = 0, ctx = {}) {
   });
 }
 
+// Corrige o painel já publicado sem republicar, mudar seus botões ou perder a fixação.
+async function restaurarPainelSalvo(guild, ctx = {}) {
+  const cliente = ctx.db?.client || supabase.obterCliente();
+  const registro = await supabase.obterConfig(guild.id, CHAVE_PAINEL, cliente);
+  if (!registro) return false;
+  const { channel_id: canalId, message_id: mensagemId } = JSON.parse(registro);
+  if (!canalId || !mensagemId) return false;
+  const canal = guild.channels?.cache?.get(String(canalId)) || await guild.channels?.fetch?.(String(canalId));
+  if (!canal || String(canal.guildId || canal.guild?.id || '') !== String(guild.id) || !canal.messages?.fetch) return false;
+  const mensagem = await canal.messages.fetch(String(mensagemId));
+  if (!guild.client?.user?.id || String(mensagem?.author?.id || '') !== String(guild.client.user.id)) return false;
+  const original = mensagem.embeds?.[0];
+  if (original?.title !== 'ROLETA ROYAL AP' || typeof original.description !== 'string') return false;
+  const descricao = original.description.replace('Na animação, os setores identificam os prêmios e não representam suas chances.\n', '');
+  if (descricao === original.description && original.color === 0xb20d1c) return false;
+  const embed = EmbedBuilder.from(original).setColor(0xb20d1c).setDescription(descricao);
+  await mensagem.edit({ embeds: [embed], allowedMentions: { parse: [] } });
+  return true;
+}
+
 async function publicarPainel(interaction, ctx = {}) {
   const dono = interaction.guild?.ownerId && String(interaction.guild.ownerId) === String(interaction.user.id);
   const administrador = interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator) || ehAdmin(interaction.member);
@@ -404,12 +423,14 @@ const comando = {
   data: new SlashCommandBuilder()
     .setName('roleta')
     .setDescription('Painel e sorteios da Roleta Royal AP')
+    .addSubcommand((sub) => sub.setName('painel').setDescription('Publica o painel da roleta no canal configurado ou atual (admin)'))
     .addSubcommand((sub) => sub.setName('girar').setDescription('Gira a roleta usando um giro disponível')),
   async executar(interaction, ctx = {}) {
     await adiarPrivado(interaction);
     if (!contextoValido(interaction)) {
       return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use este comando dentro de um servidor.')] });
     }
+    if (interaction.options.getSubcommand() === 'painel') return publicarPainel(interaction, ctx);
     return realizarGiro(interaction, ctx);
   },
 };
@@ -438,4 +459,4 @@ async function handleComponent(interaction, ctx = {}) {
   return true;
 }
 
-module.exports = { comando, publicarPainel, handleComponent };
+module.exports = { comando, publicarPainel, restaurarPainelSalvo, handleComponent };

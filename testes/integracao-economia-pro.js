@@ -28,6 +28,7 @@ test('as definições registradas são únicas e contêm os painéis solicitados
   const nomes = definicoes.map((c) => c.name);
   assert.equal(nomes.length, new Set(nomes).size);
   const subs = (nome) => definicoes.find((c) => c.name === nome).options.map((o) => o.name);
+  assert.ok(subs('roleta').includes('painel'));
   assert.ok(subs('roleta').includes('girar'));
   assert.ok(subs('lojinha').includes('listar'));
   assert.ok(subs('loja').includes('addcoins'));

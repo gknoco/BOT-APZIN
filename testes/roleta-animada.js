@@ -48,3 +48,50 @@ test('renderiza PNGs diferentes e trata caracteres especiais dos prêmios', () =
   assert.deepEqual(primeiro.subarray(0, 8), Buffer.from('89504e470d0a1a0a', 'hex'));
   assert.notDeepEqual(primeiro, ultimo);
 });
+
+
+test('GIF gira uma vez por 1 segundo e termina no mesmo quadro PNG do resultado', async () => {
+  const { parseGIF, decompressFrames } = require('gifuct-js');
+  const { PNG } = require('pngjs');
+  const lista = [
+    { id: 'a', name: 'Coins' },
+    { id: 'b', name: 'PIX sorteado' },
+    { id: 'c', name: 'Cargo VIP' },
+  ];
+  const indice = 1;
+  const { gif, imagemFinal } = await animacao.gerarAnimacao(lista, indice);
+  const quadros = decompressFrames(parseGIF(gif), true);
+  assert.equal(quadros.length, 13);
+  assert.equal(quadros.reduce((soma, quadro) => soma + quadro.delay, 0), 1000);
+  assert.ok(!gif.includes(Buffer.from('NETSCAPE2.0')));
+  assert.notDeepEqual(quadros[0].patch, quadros.at(-1).patch);
+  const angulo = animacao.planejarGiro(indice, lista.length).at(-1);
+  assert.equal(animacao.indiceNoPonteiro(angulo, lista.length), indice);
+  assert.deepEqual(imagemFinal, animacao.desenharQuadro(lista, angulo));
+  const png = PNG.sync.read(imagemFinal);
+  const ultimo = quadros.at(-1);
+  assert.equal(ultimo.dims.width, png.width);
+  assert.equal(ultimo.dims.height, png.height);
+  let diferenca = 0;
+  for (let i = 0; i < ultimo.patch.length; i += 4) {
+    diferenca += Math.abs(ultimo.patch[i] - png.data[i]);
+    diferenca += Math.abs(ultimo.patch[i + 1] - png.data[i + 1]);
+    diferenca += Math.abs(ultimo.patch[i + 2] - png.data[i + 2]);
+  }
+  assert.ok(diferenca / (png.width * png.height * 3) < 2, 'o último quadro do GIF deve coincidir visualmente com o PNG final');
+});
+
+test('o resultado substitui a animação aproximadamente um segundo depois da publicação', async () => {
+  const { EmbedBuilder } = require('discord.js');
+  const instantes = [];
+  const respostas = [];
+  const interaction = { id: '123', async editReply(payload) { instantes.push(performance.now()); respostas.push(payload); } };
+  await animacao.animar(interaction, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }],
+    { prize_id: 'b', prize_name: 'B' }, { embeds: [new EmbedBuilder().setTitle('RESULTADO')] },
+    () => new EmbedBuilder().setTitle('GIRANDO'));
+  assert.equal(respostas.length, 2);
+  assert.match(respostas[0].files[0].name, /\.gif$/);
+  assert.match(respostas[1].files[0].name, /\.png$/);
+  assert.ok(instantes[1] - instantes[0] >= 950);
+  assert.ok(instantes[1] - instantes[0] < 2000);
+});

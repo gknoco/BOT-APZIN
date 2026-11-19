@@ -144,6 +144,11 @@ function montar(client, db) {
       await convites.atualizarCache(guild).catch(() => {});
     }
     automacoes.iniciar(conectado, db);
+    for (const guild of conectado.guilds.cache.values()) {
+      roletaPro.restaurarPainelSalvo(guild, ctx).catch((erro) => {
+        console.error('[roletapro] não foi possível restaurar o painel salvo:', erro.message);
+      });
+    }
   }
 
   client.on(Events.InteractionCreate, async (interaction) => {

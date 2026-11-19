@@ -1,13 +1,15 @@
 'use strict';
 
 const path = require('node:path');
-const { setTimeout: esperar } = require('node:timers/promises');
+const { setTimeout: esperar, setImmediate: proximoQuadro } = require('node:timers/promises');
 const { Resvg } = require('@resvg/resvg-js');
+const { GIFEncoder, quantize, applyPalette } = require('gifenc');
 const { AttachmentBuilder } = require('discord.js');
 
 const VOLTA = 2 * Math.PI;
 const PASSOS = 12;
-const INTERVALO_MS = 650;
+const INTERVALO_QUADRO_MS = 80;
+const DURACAO_MS = 1000;
 const FONTE = path.join(__dirname, '../../assets/fonts/DejaVuSans-Bold.ttf');
 const CORES = ['#a42b37', '#d39819', '#533481', '#176c77', '#b84f24', '#335b94', '#8b315e', '#3c7951'];
 const normalizar = (angulo) => ((angulo % VOLTA) + VOLTA) % VOLTA;
@@ -59,7 +61,7 @@ function linhasNome(valor) {
   return linhas.length ? linhas : ['Prêmio'];
 }
 
-function desenharQuadro(lista, angulo) {
+function renderizarQuadro(lista, angulo) {
   if (!lista.length) throw new Error('A roleta visual precisa de ao menos um prêmio.');
   const cx = 400, cy = 390, raio = 280;
   const tamanho = VOLTA / lista.length;
@@ -89,24 +91,53 @@ function desenharQuadro(lista, angulo) {
     <text x="400" y="709" text-anchor="middle" font-size="16" fill="#f8d665">PONTEIRO · SETOR ${atual + 1} / ${lista.length}</text>
     ${nome}
   </svg>`;
-  return new Resvg(svg, { font: { fontFiles: [FONTE], loadSystemFonts: false, defaultFontFamily: 'DejaVu Sans' } }).render().asPng();
+  return new Resvg(svg, {
+    fitTo: { mode: 'width', value: 600 },
+    font: { fontFiles: [FONTE], loadSystemFonts: false, defaultFontFamily: 'DejaVu Sans' },
+  }).render();
+}
+
+function desenharQuadro(lista, angulo) {
+  return renderizarQuadro(lista, angulo).asPng();
+}
+
+async function gerarAnimacao(lista, indice) {
+  const angulos = planejarGiro(indice, lista.length);
+  const gif = GIFEncoder();
+  let imagemFinal;
+  for (let i = 0; i < angulos.length; i++) {
+    const imagem = renderizarQuadro(lista, angulos[i]);
+    const palette = quantize(imagem.pixels, 256);
+    const indices = applyPalette(imagem.pixels, palette);
+    gif.writeFrame(indices, imagem.width, imagem.height, {
+      palette,
+      delay: i === angulos.length - 1 ? DURACAO_MS - PASSOS * INTERVALO_QUADRO_MS : INTERVALO_QUADRO_MS,
+      repeat: -1,
+    });
+    if (i === angulos.length - 1) imagemFinal = imagem.asPng();
+    // Permite ao bot reconhecer outras interações durante a geração dos quadros.
+    await proximoQuadro();
+  }
+  gif.finish();
+  return { gif: Buffer.from(gif.bytes()), imagemFinal };
 }
 
 async function animar(interaction, catalogo, resultado, payloadFinal, criarEmbedGiro) {
   const { lista, indice } = prepararPremios(catalogo, resultado);
-  const angulos = planejarGiro(indice, lista.length);
-  for (let i = 0; i < angulos.length; i++) {
-    if (i) await esperar(INTERVALO_MS);
-    const nome = `roleta-${interaction.id}-${i}.png`;
-    const imagem = new AttachmentBuilder(desenharQuadro(lista, angulos[i]), { name: nome });
-    const final = i === angulos.length - 1;
-    const embed = final ? payloadFinal.embeds[0] : criarEmbedGiro();
-    embed.setImage(`attachment://${nome}`);
-    await interaction.editReply({
-      ...(final ? payloadFinal : {}),
-      embeds: [embed], files: [imagem], attachments: [], allowedMentions: { parse: [] },
-    });
-  }
+  const { gif, imagemFinal } = await gerarAnimacao(lista, indice);
+  const nomeGiro = `roleta-${interaction.id}-giro.gif`;
+  await interaction.editReply({
+    embeds: [criarEmbedGiro().setImage(`attachment://${nomeGiro}`)],
+    files: [new AttachmentBuilder(gif, { name: nomeGiro })], attachments: [], allowedMentions: { parse: [] },
+  });
+  // Um único GIF evita os limites de edição do Discord e desacelera em 1 s.
+  await esperar(DURACAO_MS);
+  const nomeFinal = `roleta-${interaction.id}-resultado.png`;
+  payloadFinal.embeds[0].setImage(`attachment://${nomeFinal}`);
+  return interaction.editReply({
+    ...payloadFinal, files: [new AttachmentBuilder(imagemFinal, { name: nomeFinal })],
+    attachments: [], allowedMentions: { parse: [] },
+  });
 }
 
-module.exports = { prepararPremios, indiceNoPonteiro, planejarGiro, desenharQuadro, animar };
+module.exports = { prepararPremios, indiceNoPonteiro, planejarGiro, desenharQuadro, gerarAnimacao, animar };
