@@ -10,7 +10,7 @@ const animacaoReal = require('../src/servicos/roletaAnimada');
 const chamadas = [];
 const temporizacoes = [];
 const girosAnimados = [];
-const base = { historico: [], entregas: [], premios: [], itens: [], perfis: new Map(), resultados: new Map() };
+const base = { historico: [], entregas: [], premios: [], itens: [], perfis: new Map(), resultados: new Map(), paineis: new Map() };
 const fsFalso = { existe: false, existsSync() { return this.existe; } };
 const supabase = {
   configs: [],
@@ -26,6 +26,7 @@ const supabase = {
     chamadas.push('config');
     if (this.erroConfig) throw new Error('indisponível');
     this.configs.push(args);
+    this.valores.set(`${args[0]}:${args[1]}`, args[2]);
   },
 };
 const avisos = { chamados: [], falhar: false, async avisarStaff(interaction, dados) {
@@ -144,7 +145,7 @@ function preparar() {
   chamadas.length = 0;
   temporizacoes.length = 0;
   girosAnimados.length = 0;
-  base.historico = []; base.entregas = []; base.premios = []; base.itens = []; base.erroSnapshots = false; base.erroEntregas = false; base.perfis = new Map(); base.resultados = new Map();
+  base.historico = []; base.entregas = []; base.premios = []; base.itens = []; base.erroSnapshots = false; base.erroEntregas = false; base.perfis = new Map(); base.resultados = new Map(); base.paineis = new Map();
   base.perfis.set('guild-a:user-a', { spins: 5, coins: 0 });
   base.perfis.set('guild-a:user-b', { spins: 2, coins: 0 });
   supabase.configs = []; supabase.erroConfig = null; supabase.erroLeitura = null; supabase.valores = new Map(); supabase.cliente = clienteMemoria();
@@ -153,15 +154,40 @@ function preparar() {
   royal.erroGiro = null; royal.erroPerfil = null; royal.erroMarca = null; royal.auditados = []; royal.marcados = [];
   fsFalso.existe = false;
 }
-function interacao({ id = 'interaction-001', usuario = 'user-a', guild = 'guild-a', componente = null, sub = 'girar', admin = false } = {}) {
+function interacao({ id = 'interaction-001', usuario = 'user-a', guild = 'guild-a', componente = null, sub = 'girar', admin = false, tipo = 'button', fields = {} } = {}) {
   const role = { id: '123456789012345678', position: 1, managed: false, editable: true };
+  const mensagens = new Map();
   const membro = { roles: { cache: new Map(), async add(cargo) { this.cache.set(cargo.id, true); } } };
-  const i = {
+  let i;
+  const canal = {
+    id: 'canal-1', guildId: guild, type: ChannelType.GuildText,
+    permissionsFor: () => ({ has: () => true }),
+    messages: { async fetch(messageId) { const m = mensagens.get(String(messageId)) || base.paineis.get(`${guild}:canal-1:${messageId}`); if (!m) throw new Error('mensagem não encontrada'); return m; } },
+    async send(payload) {
+      chamadas.push('send'); i.publicados.push(payload);
+      const m = { id: 'mensagem-1', author: { id: 'bot-a' }, embeds: payload.embeds.map((e) => e.toJSON()), components: payload.components,
+        async pin() { chamadas.push('pin'); },
+        async edit(atualizacao) {
+          chamadas.push('editar-painel');
+          Object.assign(m, atualizacao);
+          if (atualizacao.embeds) m.embeds = atualizacao.embeds.map((e) => e.toJSON());
+        },
+      };
+      mensagens.set(m.id, m);
+      base.paineis.set(`${guild}:canal-1:${m.id}`, m);
+      return m;
+    },
+  };
+  i = {
     id, guildId: guild, user: { id: usuario }, customId: componente, deferred: false, replied: false,
-    guild: { id: guild, ownerId: 'owner', members: { me: { permissions: { has: (p) => p === PermissionFlagsBits.ManageRoles }, roles: { highest: { position: 5 } } }, cache: new Map([[usuario, membro]]) }, roles: { cache: new Map([[role.id, role], ['role-1', { id: 'role-1', position: 1, managed: false, editable: true }]]) }, channels: { cache: new Map() } }, member: membro,
+    guild: { id: guild, ownerId: 'owner', client: { user: { id: 'bot-a' } }, members: { me: { permissions: { has: (p) => p === PermissionFlagsBits.ManageRoles }, roles: { highest: { position: 5 } } }, cache: new Map([[usuario, membro]]) }, roles: { cache: new Map([[role.id, role], ['role-1', { id: 'role-1', position: 1, managed: false, editable: true }]]) }, channels: { cache: new Map([['canal-1', canal]]), async fetch(id) { return id === 'canal-1' ? canal : null; } } }, member: membro,
     memberPermissions: { has: (permission) => admin && permission === PermissionFlagsBits.Administrator },
-    channel: { id: 'canal-1', guildId: guild, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }), async send(payload) { chamadas.push('send'); i.publicados.push(payload); return { id: 'mensagem-1', async pin() { chamadas.push('pin'); } }; } },
+    channel: canal,
     options: { getSubcommand: () => sub }, publicados: [], respostas: [],
+    fields: { getTextInputValue: (key) => fields[key] ?? '' },
+    isButton: () => tipo === 'button', isModalSubmit: () => tipo === 'modal',
+    async showModal(modal) { chamadas.push('showModal'); i.modal = modal.toJSON(); i.replied = true; },
+    async reply(payload) { chamadas.push('reply'); i.respostas.push(payload); i.replied = true; },
     async deferReply(payload) { chamadas.push('defer'); i.deferPayload = payload; i.deferred = true; },
     async editReply(payload) { chamadas.push('edit'); i.respostas.push(payload); return payload; },
   };
@@ -215,6 +241,9 @@ test('painel somente para admin é enviado realmente em canal e confirmação é
   assert.doesNotMatch(painel.embeds[0].toJSON().description, /5|2|Giros disponíveis/);
   assert.deepEqual(supabase.configs[0].slice(0, 3), ['guild-a', 'painel_roleta', '{"channel_id":"canal-1","message_id":"mensagem-1"}']);
   assert.match(corpo(admin), /publicado/);
+  assert.deepEqual(botoes(admin.respostas.at(-1)).map((b) => [b.custom_id, b.label]), [
+    ['roletapro:editarpainel:guild-a:user-a', 'editar msm painel'],
+  ]);
 });
 
 test('banner usa AttachmentBuilder e attachment://; ausência tem fallback válido', async () => {
@@ -230,59 +259,64 @@ test('banner usa AttachmentBuilder e attachment://; ausência tem fallback váli
   assert.equal(i.publicados[0].embeds[0].toJSON().image.url, 'attachment://roleta-royal-ap.png');
 });
 
-test('painel calcula chances dos pesos elegíveis e avisa que é preciso republicar', async () => {
+test('editar msm painel abre modal preenchido, atualiza a mensagem existente e persiste a personalização', async () => {
   preparar();
-  base.premios = [
-    { id: 'a', guild_id: 'guild-a', active: true, name: 'Coins', reward_type: 'coins', reward_value: '10', weight: 30, stock: null },
-    { id: 'b', guild_id: 'guild-a', active: true, name: 'Item', reward_type: 'shop_item', reward_value: 'item-ok', weight: 10, stock: 1 },
-    { id: 'c', guild_id: 'guild-a', active: true, name: 'Esgotado', reward_type: 'spins', reward_value: '1', weight: 60, stock: 0 },
-    { id: 'd', guild_id: 'guild-a', active: true, name: 'Item indisponível', reward_type: 'shop_item', reward_value: 'item-out', weight: 10, stock: null },
-    { id: 'e', guild_id: 'guild-b', active: true, name: 'Outro servidor', reward_type: 'coins', reward_value: '1', weight: 50, stock: null },
-    { id: 'f', guild_id: 'guild-a', active: false, name: 'Inativo', reward_type: 'coins', reward_value: '1', weight: 50, stock: null },
-  ];
-  base.itens = [
-    { id: 'item-ok', guild_id: 'guild-a', active: true, stock: 1 },
-    { id: 'item-out', guild_id: 'guild-a', active: true, stock: 0 },
-  ];
+  const publicador = interacao({ sub: 'painel', admin: true });
+  await publicar(publicador);
+  const publico = publicador.publicados[0];
+  const botao = interacao({ id: 'edit-button', componente: 'roletapro:editarpainel:guild-a:user-a', admin: true });
+  await roleta.handleComponent(botao);
+  assert.equal(chamadas.includes('showModal'), true);
+  assert.equal(botao.deferred, false);
+  const input = botao.modal.components[0].components[0];
+  assert.equal(input.custom_id, 'texto');
+  assert.equal(input.value, publico.embeds[0].toJSON().description);
+  assert.equal(botao.modal.title, 'Editar painel da roleta');
+
+  const textoNovo = '🎰 **ROLETA ROYAL AP**\n\nTexto personalizado\nLinha final.';
+  const modal = interacao({ id: 'edit-modal', componente: 'roletapro:editarpainel:guild-a:user-a:modal', admin: true, tipo: 'modal', fields: { texto: textoNovo } });
+  await roleta.handleComponent(modal);
+  assert.equal(modal.deferPayload.flags & 64, 64);
+  assert.match(corpo(modal), /atualizado e salvo/);
+  assert.equal(base.paineis.get('guild-a:canal-1:mensagem-1').embeds[0].description, textoNovo);
+  assert.equal(base.paineis.get('guild-a:canal-1:mensagem-1').embeds[0].title, undefined);
+  assert.equal(base.paineis.get('guild-a:canal-1:mensagem-1').components[0].components.length, 2);
+  assert.equal(supabase.valores.get('guild-a:painel_roleta_texto'), textoNovo);
+
+  const novaPublicacao = interacao({ id: 'republish', sub: 'painel', admin: true });
+  await publicar(novaPublicacao);
+  assert.equal(novaPublicacao.publicados[0].embeds[0].toJSON().description, textoNovo);
+});
+
+test('somente administradores podem abrir o modal de edição do painel', async () => {
+  preparar();
+  const i = interacao({ componente: 'roletapro:editarpainel:guild-a:user-a', admin: false });
+  await roleta.handleComponent(i);
+  assert.equal(i.modal, undefined);
+  assert.match(i.respostas[0].embeds[0].toJSON().description, /Somente administradores/);
+});
+
+test('painel apresenta exatamente a mensagem padrão e os dez prêmios informados', async () => {
+  preparar();
   const i = interacao({ sub: 'painel', admin: true });
   await publicar(i);
-  const descricao = i.publicados[0].embeds[0].toJSON().description;
-  assert.match(descricao, /Coins · \*\*75,00%\*\*/);
-  assert.match(descricao, /Item · \*\*25,00%\*\*/);
-  assert.doesNotMatch(descricao, /Esgotado|Item indisponível|Outro servidor|Inativo/);
-  assert.equal(descricao,
-    '**A sorte está na sua mão.**\n' +
-    'Use seus giros para disputar os prêmios disponíveis na roleta.\n\n' +
-    '**Girar** · realiza um sorteio com um dos seus giros.\n' +
-    '**Meus Prêmios** · veja seu saldo e o histórico privado de prêmios.\n\n' +
-    '**Prêmios e chances na publicação**\n• Coins · **75,00%**\n• Item · **25,00%**\n\n' +
-    'Imagem ilustrativa; os prêmios e seus pesos são definidos pela configuração da roleta.\n' +
-    'Chances reais dependem dos pesos e estoques no momento do giro. Após alterações, republique o painel para atualizar a lista.\n' +
-    'Os resultados e saldos são exibidos somente para você.');
-  assert.ok(chamadas.indexOf('defer') < chamadas.indexOf('consulta:royal_roulette_prizes'));
-});
-
-test('catálogo é paginado integralmente, inclusive os prêmios não exibidos no limite visual', async () => {
-  preparar();
-  base.premios = Array.from({ length: 201 }, (_, indice) => ({
-    id: String(indice).padStart(3, '0'), guild_id: 'guild-a', active: true, name: `Prêmio ${indice}`,
-    reward_type: 'coins', reward_value: '1', weight: 1, stock: null,
-  }));
-  const i = interacao({ sub: 'painel', admin: true }); await publicar(i);
-  const descricao = i.publicados[0].embeds[0].toJSON().description;
-  assert.match(descricao, /\*\*0,50%\*\*/);
-  assert.match(descricao, /outros 181 prêmio/);
-  assert.equal(supabase.cliente.consultas.filter((q) => q.tabela === 'royal_roulette_prizes').length, 2);
-});
-
-test('valor inválido de prêmio não gera probabilidades falsas', async () => {
-  preparar();
-  base.premios = [{ id: 'a', guild_id: 'guild-a', active: true, name: 'Inválido', reward_type: 'coins', reward_value: '-1', weight: 1, stock: null }];
-  const i = interacao({ sub: 'painel', admin: true }); await publicar(i);
-  const descricao = i.publicados[0].embeds[0].toJSON().description;
-  assert.match(descricao, /Não foi possível consultar os prêmios/);
-  assert.doesNotMatch(descricao, /100,00%/);
-  assert.match(corpo(i), /lista de prêmios não pôde ser carregada/);
+  const painel = i.publicados[0].embeds[0].toJSON();
+  assert.equal(painel.title, undefined);
+  assert.equal(painel.description, [
+    '🎰 **ROLETA ROYAL AP**', '', 'A sorte está na sua mão.',
+    'Use seus **giros** para disputar os prêmios exclusivos da roleta.', '',
+    '━━━━━━━━━━━━━━━━━━━━', '', '🎯 **Como funciona**',
+    '• **Girar** — usa 1 giro e sorteia um prêmio',
+    '• **Meus Prêmios** — veja seu saldo e histórico privado', '',
+    '━━━━━━━━━━━━━━━━━━━━', '', '🏆 **Prêmios disponíveis**', '',
+    '• Fiel da Royal Ap', '• AURA MAXIMA', '• BABA OVO DO DONO', '• Real Trem',
+    '• Verdadeiro Gangster', '• Mira Chiclete', '• AURA + EGO', '• RAINHA DOS APS',
+    '• Dono Do Cabaré', '• AS LAVA PATRO', '', '━━━━━━━━━━━━━━━━━━━━', '',
+    '📌 *Os resultados e saldos são exibidos somente para você.*',
+    '*Imagem ilustrativa. Os prêmios e estoques são definidos pela configuração da roleta.*',
+  ].join('\n'));
+  assert.equal(painel.footer, undefined);
+  assert.equal(supabase.cliente.consultas.some((q) => q.tabela === 'royal_roulette_prizes'), false);
 });
 
 test('se configuração falha, informa que o painel já foi publicado sem induzir a republicação', async () => {
@@ -664,15 +698,25 @@ test('restaura o painel salvo na inicialização sem substituir imagem, botões 
   const mensagem = { author: { id: 'bot-a' }, embeds: [original], async edit(payload) { alteracao = payload; } };
   i.guild.channels.cache.set('canal-1', { guildId: 'guild-a', messages: { async fetch(id) { assert.equal(id, 'painel-1'); return mensagem; } } });
   assert.equal(await roleta.restaurarPainelSalvo(i.guild, { db: { client: supabase.cliente } }), true);
-  assert.equal(alteracao.embeds[0].toJSON().description, 'Texto original\nFinal original.');
+  assert.equal(alteracao.embeds[0].toJSON().description, roleta.TEXTO_PADRAO_PAINEL);
   assert.equal(alteracao.embeds[0].toJSON().color, 0xb20d1c);
   assert.deepEqual(alteracao.embeds[0].toJSON().image, original.image);
+  assert.equal(alteracao.embeds[0].toJSON().title, undefined);
+  assert.equal(alteracao.embeds[0].toJSON().footer, undefined);
   assert.equal(alteracao.components, undefined);
   assert.equal(alteracao.files, undefined);
   assert.equal(alteracao.attachments, undefined);
   assert.equal(supabase.configs.length, 0);
+  const personalizado = '🎰 **ROLETA ROYAL AP**\n\nVersão persistida.';
+  supabase.valores.set('guild-a:painel_roleta_texto', personalizado);
+  original.description = roleta.TEXTO_PADRAO_PAINEL;
+  original.title = undefined;
+  original.footer = undefined;
+  alteracao = null;
+  assert.equal(await roleta.restaurarPainelSalvo(i.guild, { db: { client: supabase.cliente } }), true);
+  assert.equal(alteracao.embeds[0].toJSON().description, personalizado);
   mensagem.author.id = 'outro-bot';
   alteracao = null;
-  assert.equal(await roleta.restaurarPainelSalvo(i.guild, { db: { client: supabase.cliente } }), false);
+  await assert.rejects(roleta.restaurarPainelSalvo(i.guild, { db: { client: supabase.cliente } }), /não pertence a este bot/);
   assert.equal(alteracao, null);
 });

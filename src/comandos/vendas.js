@@ -8,6 +8,7 @@ const {
   SlashCommandBuilder,
   StringSelectMenuBuilder,
   PermissionFlagsBits,
+  EmbedBuilder,
 } = require('discord.js');
 const config = require('../config');
 const vendasDb = require('../servicos/roomSalesSupabase');
@@ -23,20 +24,31 @@ const PACOTES_SALAS = [1, 5, 10, 20, 50, 100].map((quantidade) => ({
 const MAX_CARGOS_COMPRA = 10;
 
 function embedPainelCompra() {
-  return embed(
-    '⚡ ROYAL SALA · Central de créditos',
-    [
-      'Créditos para criar salas automatizadas de Free Fire pela Nix FF, com liberação após confirmação segura do pagamento.',
+  return new EmbedBuilder()
+    .setColor(config.CORES.ouro)
+    .setTitle('⚡ CRÉDITOS DE SALA · NIX FF')
+    .setDescription([
+      'Crie salas automatizadas de Free Fire com liberação segura após confirmação do pagamento.',
       '',
-      '**INVESTIMENTO**  ·  R$ 0,03 por sala',
-      '**PAGAMENTO**  ·  Pix processado pelo Mercado Pago',
-      '**CRÉDITOS**  ·  entram automaticamente após aprovação',
-      '**USO**  ·  cada crédito libera uma criação de sala Nix',
+      '━━━━━━━━━━━━━━━━━━━━',
       '',
-      'Use **Adquirir Sala** para escolher a quantidade ou **Ver pacotes de salas** para comparar as opções disponíveis.',
-    ].join('\n'),
-    { cor: config.CORES.ouro, rodape: 'ORG ROYAL AP  ·  Seguro · Automático · Persistido no Supabase' },
-  );
+      '💰 **Investimento**',
+      '`R$ 0,03` por sala',
+      '',
+      '💳 **Pagamento**',
+      'Pix processado pelo **Mercado Pago**',
+      '',
+      '🔄 **Créditos**',
+      'Entram automaticamente após aprovação',
+      '',
+      '🎮 **Uso**',
+      'Cada crédito libera **1 criação** de sala Nix',
+      '',
+      '━━━━━━━━━━━━━━━━━━━━',
+      '',
+      '📌 Use **Adquirir Sala** para escolher a quantidade  ',
+      'ou **Ver pacotes de salas** para comparar as opções.',
+    ].join('\n'));
 }
 
 function componentesPainelCompra() {

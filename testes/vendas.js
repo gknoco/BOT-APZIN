@@ -118,12 +118,19 @@ function clientePedidos(pedidos, consultas) {
 
 test('painel principal mantém o desenho original e adiciona Usar Saldo sem remover os dois botões existentes', () => {
   const card = vendas.embedPainelCompra().toJSON();
-  assert.equal(card.title, '⚡ ROYAL SALA · Central de créditos');
-  assert.match(card.description, /R\$ 0,03 por sala/);
-  assert.match(card.description, /Adquirir Sala/);
-  assert.match(card.description, /Ver pacotes de salas/);
-  assert.doesNotMatch(card.description, /━{3,}|-{3,}/);
-  assert.match(card.description, /automaticamente/);
+  assert.equal(card.title, '⚡ CRÉDITOS DE SALA · NIX FF');
+  assert.equal(card.description, [
+    'Crie salas automatizadas de Free Fire com liberação segura após confirmação do pagamento.', '',
+    '━━━━━━━━━━━━━━━━━━━━', '', '💰 **Investimento**', '`R$ 0,03` por sala', '',
+    '💳 **Pagamento**', 'Pix processado pelo **Mercado Pago**', '',
+    '🔄 **Créditos**', 'Entram automaticamente após aprovação', '',
+    '🎮 **Uso**', 'Cada crédito libera **1 criação** de sala Nix', '',
+    '━━━━━━━━━━━━━━━━━━━━', '',
+    '📌 Use **Adquirir Sala** para escolher a quantidade  ',
+    'ou **Ver pacotes de salas** para comparar as opções.',
+  ].join('\n'));
+  assert.equal(card.footer, undefined);
+  assert.equal(card.fields, undefined);
   assert.equal(card.fields, undefined);
   const componentes = vendas.componentesPainelCompra().flatMap((row) => row.toJSON().components);
   assert.deepEqual(componentes.map((item) => [item.custom_id, item.label]), [
@@ -574,7 +581,7 @@ test('/comprar expira em 30 minutos e /painelcomprar fixa no canal atual e salva
     id: 'canal-atual', guildId: 'guild-a',
     send: async (payload) => {
       enviadoNoCanal = true;
-      assert.equal(payload.embeds[0].toJSON().title, '⚡ ROYAL SALA · Central de créditos');
+      assert.equal(payload.embeds[0].toJSON().title, '⚡ CRÉDITOS DE SALA · NIX FF');
       assert.deepEqual(payload.components[0].toJSON().components.map((item) => item.label), ['Adquirir Sala', 'Ver pacotes de salas', 'Usar Saldo']);
       return permanente;
     },
@@ -591,7 +598,7 @@ test('/comprar expira em 30 minutos e /painelcomprar fixa no canal atual e salva
       await vendas.comandos.find((item) => item.data.name === 'comprar').executar(interaction);
       assert.equal(tarefas.length, 1);
       assert.equal(tarefas[0].atraso, 30 * 60 * 1000);
-      assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, '⚡ ROYAL SALA · Central de créditos');
+      assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, '⚡ CRÉDITOS DE SALA · NIX FF');
       await vendas.comandos.find((item) => item.data.name === 'painelcomprar').executar(interaction);
       assert.equal(tarefas.length, 1);
       assert.equal(enviadoNoCanal, true);

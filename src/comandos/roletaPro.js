@@ -8,9 +8,12 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  ModalBuilder,
   PermissionFlagsBits,
   ChannelType,
   SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require('discord.js');
 const royal = require('../servicos/royalSupabase');
 const supabase = require('../servicos/supabase');
@@ -24,8 +27,41 @@ const PREFIXO = 'roletapro:';
 const BANNER_NOME = 'roleta-royal-ap.png';
 const BANNER = path.join(__dirname, '../../assets', BANNER_NOME);
 const CHAVE_PAINEL = 'painel_roleta';
+const CHAVE_TEXTO_PAINEL = 'painel_roleta_texto';
 const CHAVE_DURACAO = 'roleta_duracao_segundos';
 const COR = 0xfacc15;
+const TEXTO_PADRAO_PAINEL = [
+  '🎰 **ROLETA ROYAL AP**',
+  '',
+  'A sorte está na sua mão.',
+  'Use seus **giros** para disputar os prêmios exclusivos da roleta.',
+  '',
+  '━━━━━━━━━━━━━━━━━━━━',
+  '',
+  '🎯 **Como funciona**',
+  '• **Girar** — usa 1 giro e sorteia um prêmio',
+  '• **Meus Prêmios** — veja seu saldo e histórico privado',
+  '',
+  '━━━━━━━━━━━━━━━━━━━━',
+  '',
+  '🏆 **Prêmios disponíveis**',
+  '',
+  '• Fiel da Royal Ap',
+  '• AURA MAXIMA',
+  '• BABA OVO DO DONO',
+  '• Real Trem',
+  '• Verdadeiro Gangster',
+  '• Mira Chiclete',
+  '• AURA + EGO',
+  '• RAINHA DOS APS',
+  '• Dono Do Cabaré',
+  '• AS LAVA PATRO',
+  '',
+  '━━━━━━━━━━━━━━━━━━━━',
+  '',
+  '📌 *Os resultados e saldos são exibidos somente para você.*',
+  '*Imagem ilustrativa. Os prêmios e estoques são definidos pela configuração da roleta.*',
+].join('\n');
 const POR_PAGINA = 8;
 const girosEmAndamento = new Set();
 
@@ -33,31 +69,11 @@ function textoSeguro(valor, limite = 100) {
   return String(valor ?? '').replace(/[\r\n\t]+/g, ' ').replace(/([\\*_~`|>])/g, '\\$1').slice(0, limite) || '—';
 }
 
-function painelPublico(catalogo) {
+function painelPublico(texto = TEXTO_PADRAO_PAINEL) {
   const arteDisponivel = fs.existsSync(BANNER);
-  const linhas = catalogo === null
-    ? 'Não foi possível consultar os prêmios. Consulte a staff.'
-    : !catalogo.length
-      ? 'Não há prêmios disponíveis no momento da publicação.'
-      : catalogo.slice(0, 20).map((premio) => {
-        const porcentagem = 100 * premio.weight / catalogo.totalPeso;
-        const chance = porcentagem < 0.01 ? '<0,01%' : `${porcentagem.toFixed(2).replace('.', ',')}%`;
-        return `• ${textoSeguro(premio.name, 70)} · **${chance}**`;
-      }).join('\n') + (catalogo.length > 20 ? `\n... e outros ${catalogo.length - 20} prêmio(s).` : '');
   const painel = new EmbedBuilder()
     .setColor(0xb20d1c)
-    .setTitle('ROLETA ROYAL AP')
-    .setDescription(
-      '**A sorte está na sua mão.**\n' +
-      'Use seus giros para disputar os prêmios disponíveis na roleta.\n\n' +
-      '**Girar** · realiza um sorteio com um dos seus giros.\n' +
-      '**Meus Prêmios** · veja seu saldo e o histórico privado de prêmios.\n\n' +
-      `**Prêmios e chances na publicação**\n${linhas}\n\n` +
-      'Imagem ilustrativa; os prêmios e seus pesos são definidos pela configuração da roleta.\n' +
-      'Chances reais dependem dos pesos e estoques no momento do giro. Após alterações, republique o painel para atualizar a lista.\n' +
-      'Os resultados e saldos são exibidos somente para você.',
-    )
-    .setFooter({ text: 'ROYAL AP  •  ROLETA  •  SORTEIOS REGISTRADOS' });
+    .setDescription(String(texto));
   if (arteDisponivel) painel.setImage(`attachment://${BANNER_NOME}`);
   return {
     embeds: [painel],
@@ -365,23 +381,54 @@ async function mostrarPremios(interaction, pagina = 0, ctx = {}) {
   });
 }
 
-// Corrige o painel já publicado sem republicar, mudar seus botões ou perder a fixação.
+async function obterMensagemPainel(guild, cliente) {
+  const registro = await supabase.obterConfig(guild.id, CHAVE_PAINEL, cliente);
+  if (!registro) throw new Error('O painel da roleta ainda não foi registrado. Publique-o com /roletapainel.');
+  let referencia;
+  try { referencia = JSON.parse(registro); } catch { throw new Error('A referência salva do painel é inválida.'); }
+  const { channel_id: canalId, message_id: mensagemId } = referencia || {};
+  if (!canalId || !mensagemId) throw new Error('A referência salva do painel está incompleta.');
+  const canal = guild.channels?.cache?.get(String(canalId)) || await guild.channels?.fetch?.(String(canalId));
+  if (!canal || String(canal.guildId || canal.guild?.id || '') !== String(guild.id) || !canal.messages?.fetch) {
+    throw new Error('O canal do painel salvo não está disponível neste servidor.');
+  }
+  const mensagem = await canal.messages.fetch(String(mensagemId));
+  if (!guild.client?.user?.id || String(mensagem?.author?.id || '') !== String(guild.client.user.id)) {
+    throw new Error('A mensagem salva não pertence a este bot.');
+  }
+  const original = mensagem.embeds?.[0];
+  if (!original || typeof original.description !== 'string') throw new Error('A mensagem salva não contém o painel da roleta.');
+  return { mensagem, original };
+}
+
+async function textoSalvoPainel(guildId, cliente) {
+  const salvo = await supabase.obterConfig(guildId, CHAVE_TEXTO_PAINEL, cliente);
+  const texto = salvo == null ? TEXTO_PADRAO_PAINEL : String(salvo);
+  return texto.length <= 4000 && texto.trim() ? texto : TEXTO_PADRAO_PAINEL;
+}
+
+function modalEditarPainel(guildId, userId, texto) {
+  const entrada = new TextInputBuilder().setCustomId('texto').setLabel('Texto do painel')
+    .setStyle(TextInputStyle.Paragraph).setRequired(true).setMinLength(1).setMaxLength(4000)
+    .setValue(texto);
+  return new ModalBuilder().setCustomId(`${PREFIXO}editarpainel:${guildId}:${userId}:modal`)
+    .setTitle('Editar painel da roleta')
+    .addComponents(new ActionRowBuilder().addComponents(entrada));
+}
+
+// Reaplica o texto persistido sem republicar, trocar botões ou perder a fixação.
 async function restaurarPainelSalvo(guild, ctx = {}) {
   const cliente = ctx.db?.client || supabase.obterCliente();
   const registro = await supabase.obterConfig(guild.id, CHAVE_PAINEL, cliente);
   if (!registro) return false;
-  const { channel_id: canalId, message_id: mensagemId } = JSON.parse(registro);
-  if (!canalId || !mensagemId) return false;
-  const canal = guild.channels?.cache?.get(String(canalId)) || await guild.channels?.fetch?.(String(canalId));
-  if (!canal || String(canal.guildId || canal.guild?.id || '') !== String(guild.id) || !canal.messages?.fetch) return false;
-  const mensagem = await canal.messages.fetch(String(mensagemId));
-  if (!guild.client?.user?.id || String(mensagem?.author?.id || '') !== String(guild.client.user.id)) return false;
-  const original = mensagem.embeds?.[0];
-  if (original?.title !== 'ROLETA ROYAL AP' || typeof original.description !== 'string') return false;
-  const descricao = original.description.replace('Na animação, os setores identificam os prêmios e não representam suas chances.\n', '');
-  if (descricao === original.description && original.color === 0xb20d1c) return false;
-  const embed = EmbedBuilder.from(original).setColor(0xb20d1c).setDescription(descricao);
-  await mensagem.edit({ embeds: [embed], allowedMentions: { parse: [] } });
+  const texto = await textoSalvoPainel(guild.id, cliente);
+  const { mensagem, original } = await obterMensagemPainel(guild, cliente);
+  if (original.title !== 'ROLETA ROYAL AP' && original.description !== texto &&
+      !original.description.startsWith('🎰 **ROLETA ROYAL AP**')) return false;
+  if (original.description === texto && original.title == null && original.footer == null && original.color === 0xb20d1c) return false;
+  const painel = EmbedBuilder.from(original).setTitle(null).setColor(0xb20d1c)
+    .setDescription(texto).setFooter(null);
+  await mensagem.edit({ embeds: [painel], allowedMentions: { parse: [] } });
   return true;
 }
 
@@ -393,9 +440,13 @@ async function publicarPainel(interaction, ctx = {}) {
   }
   let cliente;
   let idCanal;
+  let textoPainel;
   try {
     cliente = ctx.db?.client || supabase.obterCliente();
-    idCanal = await supabase.obterConfig(interaction.guildId, 'roleta_canal', cliente);
+    [idCanal, textoPainel] = await Promise.all([
+      supabase.obterConfig(interaction.guildId, 'roleta_canal', cliente),
+      textoSalvoPainel(interaction.guildId, cliente),
+    ]);
   } catch (erro) {
     console.error('[roletapro] falha ao consultar configuração:', erro.message);
     return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Não foi possível consultar a configuração da roleta; nenhum painel foi publicado.')] });
@@ -406,11 +457,8 @@ async function publicarPainel(interaction, ctx = {}) {
     console.error('[roletapro] canal de publicação indisponível:', erro.message);
     return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'O canal de publicação é inválido ou o bot não pode enviar mensagens nele. Verifique /configroleta; nenhum painel foi publicado.')] });
   }
-  let catalogo = null;
-  try { catalogo = await buscarCatalogo(cliente, interaction.guildId); }
-  catch (erro) { console.error('[roletapro] catálogo indisponível para painel:', erro.message); }
   let mensagem;
-  try { mensagem = await canal.send(painelPublico(catalogo)); }
+  try { mensagem = await canal.send(painelPublico(textoPainel)); }
   catch (erro) {
     console.error('[roletapro] falha ao publicar:', erro.message);
     return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Não consegui publicar o painel. Confira as permissões de envio e anexos do bot.')] });
@@ -426,9 +474,14 @@ async function publicarPainel(interaction, ctx = {}) {
     salvo = true;
   } catch (erro) { console.error('[roletapro] painel publicado sem salvar configuração:', erro.message); }
   const status = `Painel publicado em <#${canal.id}>${fixado ? ' e fixado' : ' (não fixado)'}. ` +
-    (salvo ? 'Canal e mensagem registrados.' : 'Não foi possível salvar a referência no Supabase; o painel continua publicado.') +
-    (catalogo === null ? ' A lista de prêmios não pôde ser carregada.' : '');
-  return editarPrivado(interaction, { embeds: [card('ROLETA  •  PAINEL', status)] });
+    (salvo ? 'Canal e mensagem registrados.' : 'Não foi possível salvar a referência no Supabase; o painel continua publicado.');
+  const componentes = salvo
+    ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`${PREFIXO}editarpainel:${interaction.guildId}:${interaction.user.id}`)
+        .setLabel('editar msm painel').setStyle(ButtonStyle.Primary),
+    )]
+    : [];
+  return editarPrivado(interaction, { embeds: [card('ROLETA  •  PAINEL', status)], components: componentes });
 }
 
 const comando = {
@@ -447,9 +500,74 @@ const comando = {
   },
 };
 
+async function responderErroEdicao(interaction, mensagem, modalSubmit) {
+  const resposta = { embeds: [card('ROLETA  •  ATENÇÃO', mensagem)], allowedMentions: { parse: [] } };
+  if (modalSubmit) {
+    await adiarPrivado(interaction);
+    return editarPrivado(interaction, resposta);
+  }
+  return interaction.reply({ ...resposta, flags: EFEMERO });
+}
+
+async function handleEditarPainel(interaction, ctx = {}) {
+  const partes = String(interaction.customId || '').split(':');
+  const modalSubmit = Boolean(interaction.isModalSubmit?.());
+  const idValido = partes[0] === 'roletapro' && partes[1] === 'editarpainel' &&
+    ((modalSubmit && partes.length === 5 && partes[4] === 'modal') ||
+      (!modalSubmit && interaction.isButton?.() && partes.length === 4));
+  if (!idValido || partes[2] !== String(interaction.guildId) || partes[3] !== String(interaction.user?.id) ||
+      !contextoValido(interaction)) {
+    await responderErroEdicao(interaction, 'Este controle pertence a outra pessoa ou servidor.', modalSubmit);
+    return true;
+  }
+  const dono = interaction.guild?.ownerId && String(interaction.guild.ownerId) === String(interaction.user.id);
+  const administrador = interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator) || ehAdmin(interaction.member);
+  if (!dono && !administrador) {
+    await responderErroEdicao(interaction, 'Somente administradores podem editar o painel da roleta.', modalSubmit);
+    return true;
+  }
+
+  if (!modalSubmit) {
+    try {
+      const cliente = ctx.db?.client || supabase.obterCliente();
+      const texto = await textoSalvoPainel(interaction.guildId, cliente);
+      await interaction.showModal(modalEditarPainel(interaction.guildId, interaction.user.id, texto));
+    } catch (erro) {
+      console.error('[roletapro] falha ao abrir edição do painel:', erro.message);
+      await responderErroEdicao(interaction, 'Não foi possível abrir a edição. Tente novamente.', false);
+    }
+    return true;
+  }
+
+  await adiarPrivado(interaction);
+  const texto = String(interaction.fields?.getTextInputValue?.('texto') ?? '');
+  if (!texto.trim() || texto.length > 4000) {
+    await editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Informe um texto de 1 a 4.000 caracteres.')] });
+    return true;
+  }
+  const cliente = ctx.db?.client || supabase.obterCliente();
+  try {
+    const { mensagem, original } = await obterMensagemPainel(interaction.guild, cliente);
+    const embed = EmbedBuilder.from(original).setTitle(null).setColor(0xb20d1c)
+      .setDescription(texto).setFooter(null);
+    await supabase.definirConfig(interaction.guildId, CHAVE_TEXTO_PAINEL, texto, cliente);
+    try {
+      await mensagem.edit({ embeds: [embed], allowedMentions: { parse: [] } });
+    } catch (erro) {
+      console.error('[roletapro] texto salvo, mas a mensagem ainda não atualizou:', erro.message);
+      return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'O texto foi salvo, mas não consegui atualizar a mensagem agora. Ele será reaplicado ao restaurar o painel.')] });
+    }
+    return editarPrivado(interaction, { embeds: [card('ROLETA  •  PAINEL', 'O texto do painel existente foi atualizado e salvo. Republicações e reinicializações manterão esta versão.')] });
+  } catch (erro) {
+    console.error('[roletapro] falha ao salvar edição do painel:', erro.message);
+    return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Não consegui atualizar o painel salvo. Confira se a mensagem continua disponível e tente novamente.')] });
+  }
+}
+
 async function handleComponent(interaction, ctx = {}) {
   const id = String(interaction.customId || '');
   if (!id.startsWith(PREFIXO) && id !== 'ap:roletagirar') return false;
+  if (id.startsWith(`${PREFIXO}editarpainel:`)) return handleEditarPainel(interaction, ctx);
   // Primeira operação assíncrona: o ACK privado chega antes de qualquer consulta.
   await adiarPrivado(interaction);
   try {
@@ -471,4 +589,4 @@ async function handleComponent(interaction, ctx = {}) {
   return true;
 }
 
-module.exports = { comando, publicarPainel, restaurarPainelSalvo, handleComponent };
+module.exports = { comando, publicarPainel, restaurarPainelSalvo, handleComponent, painelPublico, TEXTO_PADRAO_PAINEL };
