@@ -563,6 +563,28 @@ async function handleBotao(interaction, ctx) {
         return true;
       }
 
+      case 'filasenviar':
+      case 'filasapagar': {
+        if (!ehAdmin(interaction.member)) {
+          await responderErro(interaction, 'Só administradores podem gerenciar a publicação das filas.');
+          return true;
+        }
+        const painelFilas = require('../comandos/painelFilas');
+        if (acao === 'filasenviar') {
+          const resultado = await painelFilas.enviarTodasAsFilas({ db, client, guildId: interaction.guildId });
+          const avisoFalhas = resultado.falhas.length ? `\n⚠️ Falhas: ${resultado.falhas.join(' | ').slice(0, 800)}` : '';
+          await responderPrivado(interaction, {
+            embeds: [embedSucesso(`Todas as filas foram enviadas: **${resultado.enviadas.length} painel(is)** publicados nos canais oficiais.${avisoFalhas}`)],
+          });
+        } else {
+          const resultado = await painelFilas.apagarTodasAsFilas({ db, client, guildId: interaction.guildId });
+          await responderPrivado(interaction, {
+            embeds: [embedSucesso(`Filas apagadas com sucesso. **${resultado.apagadas}/${resultado.encontradas}** mensagem(ns) removida(s).`)],
+          });
+        }
+        return true;
+      }
+
       case 'addsalas': {
         if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem distribuir salas.'); return true; }
         const { selectAdm } = require('../comandos/addsalas');
