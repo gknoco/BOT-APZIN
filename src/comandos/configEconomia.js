@@ -204,6 +204,8 @@ function painel(i, dom) {
   if (dom === 'r') componentes.push(new ActionRowBuilder().addComponents(
     botao(i, dom, 'estoque', 'Estoque do prêmio'),
     botao(i, dom, 'giros', 'Ajustar giros', ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`roletapro:editarpainel:${i.guildId}:${i.user.id}`)
+      .setLabel('editar msm painel').setStyle(ButtonStyle.Success),
   ));
   componentes.push(new ActionRowBuilder().addComponents(
     botao(i, dom, 'excluir', 'Excluir item', ButtonStyle.Danger),

@@ -116,9 +116,12 @@ test('/configroleta mantém o painel completo privado, e /config mantém somente
   const rows = i.eventos[1][1].components.map((r) => r.toJSON());
   const botoes = rows.flatMap((r) => r.components);
   assert.deepEqual(botoes.map((b) => b.custom_id), [
-    'lista:0', 'criar', 'editar', 'estado', 'config', 'estoque', 'giros', 'excluir',
-  ].map((acao) => `configeco:${U}:${G}:r:${acao}`));
-  for (const botao of botoes) {
+    'lista:0', 'criar', 'editar', 'estado', 'config', 'estoque', 'giros',
+    `roletapro:editarpainel:${G}:${U}`, 'excluir',
+  ].map((acao) => acao.startsWith('roletapro:') ? acao : `configeco:${U}:${G}:r:${acao}`));
+  const botaoEditarPainel = botoes.find((b) => b.custom_id === `roletapro:editarpainel:${G}:${U}`);
+  assert.equal(botaoEditarPainel.label, 'editar msm painel');
+  for (const botao of botoes.filter((b) => b.custom_id.startsWith('configeco:'))) {
     const clique = interacao();
     clique.customId = botao.custom_id;
     await modulo.handleComponent(clique);
