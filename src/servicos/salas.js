@@ -103,7 +103,10 @@ async function publicarSalaLiberada(client, db, partidaId, dados) {
 async function criarSalaDaPartida(client, db, { partidaId, actorId, requestId }) {
   const partida = await partidas.buscar(db, partidaId);
   if (!partida) throw new Error('Sala não encontrada.');
-  if (!['pago', 'sala_liberada'].includes(partida.status)) {
+  if (partida.status === 'sala_liberada' || partida.sala_id) {
+    throw new Error('Esta partida já possui uma sala criada.');
+  }
+  if (partida.status !== 'pago') {
     throw new Error('Confirme o pagamento antes de criar a sala do jogo.');
   }
 

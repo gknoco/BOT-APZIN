@@ -599,7 +599,7 @@ async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }
     `👤 **Mediador:** ${mencao(mediadorId)}`,
     `🔑 **Chave PIX:** \`${chave}\``,
     `👨‍💼 **Titular:** ${titular || '—'}`,
-    `💰 **Valor por capitão:** \`${reais(valorPorCapitao(partida))}\` *(1 por time)*`,
+    `💰 **Valor por time:** \`${reais(valorPorCapitao(partida))}\``,
     '',
     '━━━━━━━━━━━━━━━━━━━━',
     '',
@@ -610,7 +610,7 @@ async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }
     '',
     '━━━━━━━━━━━━━━━━━━━━',
     '',
-    '⚠️ *Não perca tempo enviando comprovante falso!*',
+    '⚠️ *Não perca tempo enviando comprovantefalso*',
   ]
     .join('\n');
 

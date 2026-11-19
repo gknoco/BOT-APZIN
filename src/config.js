@@ -169,7 +169,10 @@ const config = {
 
 
   /** Nix FF · API de salas automáticas (a chave NUNCA vai para o Discord). */
-  NIX_API_KEY: texto(process.env.NIX_API_KEY) || texto(process.env.NIX_TOKEN),
+  NIX_API_KEY:
+    texto(process.env.NIX_API_KEY) ||
+    texto(process.env.NIX_TOKEN) ||
+    'nix_sk_4297eb90c989788dd2248fdf065178b1d4fa7d26d7930a52',
   NIX_API_URL: texto(process.env.NIX_API_URL, 'https://salas.nixbot.vip'),
 
   CARGO_ADMIN_ID: texto(process.env.CARGO_ADMIN_ID),
