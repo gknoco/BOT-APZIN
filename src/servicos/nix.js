@@ -16,6 +16,7 @@
 const config = require('../config');
 
 const BASE_PADRAO = 'https://nixff.vip';
+const BASE_API_OFICIAL = 'https://salas.nixbot.vip';
 const TEMPO_LIMITE = 15000;
 let prefixoRotasSala = '';
 
@@ -53,10 +54,12 @@ function chave() {
 
 function base() {
   const bruta = String(process.env.NIX_API_URL || config.NIX_API_URL || BASE_PADRAO).trim();
-  // Preserve a configured path prefix (for example /api/v1). Removing it
-  // turns a valid NIX_API_URL into a different API base and causes 404s.
+  // nixff.vip é o painel/site. A documentação oficial publica a API em
+  // salas.nixbot.vip; aceite o valor usado na Railway como alias sem mandar
+  // POST para as páginas do painel, que respondem 404 HTML.
   const normalizada = (bruta || BASE_PADRAO).replace(/\/+$/, '');
-  return normalizada || BASE_PADRAO;
+  if (/^https:\/\/nixff\.vip$/i.test(normalizada)) return BASE_API_OFICIAL;
+  return normalizada || BASE_API_OFICIAL;
 }
 
 function rotaSala(sufixo) {
@@ -90,7 +93,7 @@ function mensagemErro(status, dados, rota = '') {
       return `A chave da Nix está válida, mas desabilitada ou sem permissão para essa rota (403).${rodape}`;
     case 404:
       if (/^\/(?:api\/)?(?:v1\/)?rooms\/?$/i.test(String(rota))) {
-        return `A API da Nix não aceitou a requisição de criação da sala (404). A integração tentou uma nova requisição limpa, mas a rota/base configurada não foi encontrada.${rodape}`;
+        return `A API da Nix não encontrou a rota oficial de criação da sala (404). Confira o host da API e o endpoint POST /rooms.${rodape}`;
       }
       return `A sessão não existe mais (404). A sala expirou, já deu start ou já foi liberada.${rodape}`;
     case 409:
@@ -238,7 +241,8 @@ function validarCriacaoSala({
 
 async function criarSala(opcoes = {}) {
   const corpo = validarCriacaoSala(opcoes);
-  const rotas = ['/api/v1/rooms', '/api/rooms', '/v1/rooms', '/rooms'];
+  // Rota documentada pela NixFF: POST https://salas.nixbot.vip/rooms.
+  const rotas = ['/rooms'];
   let dados;
   let ultimoErro;
   let rotaUsada = '';

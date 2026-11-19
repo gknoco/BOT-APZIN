@@ -172,6 +172,7 @@ const config = {
   NIX_API_KEY:
     texto(process.env.NIX_API_KEY) ||
     texto(process.env.NIX_TOKEN),
+  // nixff.vip é o alias usado na Railway; o cliente resolve para o host oficial da API.
   NIX_API_URL: texto(process.env.NIX_API_URL || process.env.NIX_BASE_URL, 'https://nixff.vip'),
 
   CARGO_ADMIN_ID: texto(process.env.CARGO_ADMIN_ID),
