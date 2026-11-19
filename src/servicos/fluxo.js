@@ -594,14 +594,24 @@ async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }
   const jogadores = await partidas.jogadores(db, partidaId);
   const aviso = jogadores.map((linha) => mencao(linha.user_id)).join(' ');
   const texto = [
-    `💸 **PIX do mediador** — ${mencao(mediadorId)}`,
-    `**Chave:** \`${chave}\``,
-    titular ? `**Titular:** ${titular}` : null,
-    `**Valor por capitão (1 por time):** ${reais(valorPorCapitao(partida))}`,
+    '💸 **PIX DO MEDIADOR** 💸',
     '',
-    'Enviem o comprovante **nesta sala**. O mediador libera a sala depois de conferir.',
+    `👤 **Mediador:** ${mencao(mediadorId)}`,
+    `🔑 **Chave PIX:** \`${chave}\``,
+    `👨‍💼 **Titular:** ${titular || '—'}`,
+    `💰 **Valor por capitão:** \`${reais(valorPorCapitao(partida))}\` *(1 por time)*`,
+    '',
+    '━━━━━━━━━━━━━━━━━━━━',
+    '',
+    '📌 **Instruções:**',
+    '• Envie o comprovante **nesta sala**',
+    '• Aguarde a conferência do mediador',
+    '• A sala será liberada após a confirmação',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━',
+    '',
+    '⚠️ *Não perca tempo enviando comprovante falso!*',
   ]
-    .filter(Boolean)
     .join('\n');
 
   try {
