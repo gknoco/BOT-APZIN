@@ -269,15 +269,14 @@ async function enviarPix(interaction, { db, client }, partidaId) {
   if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) return responderErro(interaction, 'Só o mediador da sala pode enviar o PIX.');
   const partida = await partidas.buscar(db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
+  if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user.id)) {
+    return responderErro(interaction, 'Apenas o mediador que assumiu esta sala pode enviar o PIX.');
+  }
 
   const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
   if (!registro?.pix_chave) {
     return responderErro(interaction, 'Você ainda não cadastrou PIX. Use `/registrar_pix`.');
   }
-  if (partida.mediador_id && partida.mediador_id !== interaction.user.id) {
-    return responderErro(interaction, 'Essa sala é de outro mediador.');
-  }
-
   await fluxo.anunciarPix(client, db, {
     partidaId,
     mediadorId: interaction.user.id,
@@ -290,6 +289,11 @@ async function enviarPix(interaction, { db, client }, partidaId) {
 
 async function pagamentoRecebido(interaction, { db, client }, partidaId) {
   if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só o mediador pode confirmar o pagamento.');
+  const partida = await partidas.buscar(db, partidaId);
+  if (!partida) return responderErro(interaction, 'Sala não encontrada.');
+  if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user.id)) {
+    return responderErro(interaction, 'Apenas o mediador que assumiu esta sala pode confirmar o pagamento.');
+  }
   try {
     await partidas.marcarPago(db, partidaId);
     await fluxo.atualizarPartida(client, db, partidaId);
@@ -548,9 +552,22 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'cancelar': {
-        if (!ehMediador(interaction.member)) {
-          await responderErro(interaction, 'Só a staff pode cancelar um AP.');
+        const partida = await partidas.buscar(db, args[0]);
+        if (!partida) {
+          await responderErro(interaction, 'Sala não encontrada.');
           return true;
+        }
+        if (partida.mediador_id) {
+          if (String(partida.mediador_id) !== String(interaction.user.id)) {
+            await responderErro(interaction, 'Após um mediador assumir a fila, apenas o mediador responsável pode cancelar a sala.');
+            return true;
+          }
+        } else if (!ehMediador(interaction.member)) {
+          const jogadores = await partidas.jogadores(db, args[0]);
+          if (!jogadores.some((jogador) => String(jogador.user_id) === String(interaction.user.id))) {
+            await responderErro(interaction, 'Apenas os jogadores da partida ou a staff podem cancelar a sala antes do aceite.');
+            return true;
+          }
         }
         await fluxo.cancelarPartida(client, db, {
           partidaId: args[0],
