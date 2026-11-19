@@ -10,6 +10,28 @@ const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
 const { responderPrivado, responder } = require('../util/seguranca');
 const { embed, reais, numeroBR, dataBR, mencao } = require('../util/embeds');
+const TIPOS_RANKING = ['vitorias', 'coins', 'giros', 'invites'];
+
+function embedRanking(tipo, lista) {
+  const medalhas = ['🥇', '🥈', '🥉'];
+  const corpo = lista.length
+    ? lista
+        .map((linha, indice) => {
+          const posicao = medalhas[indice] ?? `**${indice + 1}.**`;
+          const valor = tipo === 'invites'
+            ? `${numeroBR(linha.total)} convite(s)`
+            : tipo === 'coins'
+              ? `${numeroBR(linha.coins)} ${config.MOEDA}`
+              : tipo === 'giros'
+                ? `${numeroBR(linha.giros)} giros`
+                : `${linha.wins}V / ${linha.losses}D`;
+          return `${posicao} ${mencao(linha.user_id)} — ${valor}`;
+        })
+        .join('\n')
+    : 'Ainda não tem ninguém no ranking. Publiquem os painéis e comecem os APs!';
+  const titulo = tipo === 'invites' ? '📨 Ranking de invites' : tipo === 'coins' ? '💰 Ranking de moedas' : tipo === 'giros' ? '🎰 Ranking de giros' : '🏆 Ranking de vitórias';
+  return embed(titulo, corpo, { rodape: 'ORG Royal AP' });
+}
 
 const comandos = [
   {
@@ -91,25 +113,21 @@ const comandos = [
     async executar(interaction, { db }) {
       const tipo = interaction.options.getString('tipo') ?? 'vitorias';
       const lista = await royalSupabase.ranking(interaction.guildId, tipo, config.LIMITES.RANKING);
-      const medalhas = ['🥇', '🥈', '🥉'];
+      return responder(interaction, { embeds: [embedRanking(tipo, lista)] });
+    },
+  },
 
-      const corpo = lista.length
-        ? lista
-            .map((linha, indice) => {
-              const posicao = medalhas[indice] ?? `**${indice + 1}.**`;
-              const valor = tipo === 'invites'
-                  ? `${numeroBR(linha.total)} convite(s)`
-                  : tipo === 'coins'
-                  ? `${numeroBR(linha.coins)} ${config.MOEDA}`
-                  : tipo === 'giros'
-                    ? `${numeroBR(linha.giros)} giros`
-                    : `${linha.wins}V / ${linha.losses}D`;
-              return `${posicao} ${mencao(linha.user_id)} — ${valor}`;
-            })
-            .join('\n')
-        : 'Ainda não tem ninguém no ranking. Publiquem os painéis e comecem os APs!';
-      const titulo = tipo === 'invites' ? '📨 Ranking de invites' : tipo === 'coins' ? '💰 Ranking de moedas' : tipo === 'giros' ? '🎰 Ranking de giros' : '🏆 Ranking de vitórias';
-      return responder(interaction, { embeds: [embed(titulo, corpo, { rodape: 'ORG Royal AP' })] });
+  {
+    data: new SlashCommandBuilder()
+      .setName('rankingall')
+      .setDescription('Publica os quatro rankings da ORG Royal AP'),
+    defer: 'publico',
+
+    async executar(interaction) {
+      const listas = await Promise.all(
+        TIPOS_RANKING.map((tipo) => royalSupabase.ranking(interaction.guildId, tipo, config.LIMITES.RANKING)),
+      );
+      return responder(interaction, { embeds: listas.map((lista, indice) => embedRanking(TIPOS_RANKING[indice], lista)) });
     },
   },
 

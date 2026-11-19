@@ -20,8 +20,18 @@ const criarSalaComCredito = require('../servicos/criarSalaComCredito');
 const mediadores = require('../servicos/mediadores');
 const { exigirStaff, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso, dataBR } = require('../util/embeds');
-
 const COR = config.CORES.gelo;
+const CARGOS_NIX_PERMITIDOS = [
+  '1543684071794802779',
+  '1543684119203029115',
+  '1543684022075531355',
+  '1543684028719173732',
+];
+const AVISO_CARGO_NIX = 'Você não tem permissão para usar os comandos /nix. É necessário possuir um dos cargos autorizados.';
+
+function podeUsarNix(member) {
+  return CARGOS_NIX_PERMITIDOS.some((id) => member?.roles?.cache?.has?.(id));
+}
 
 /**
  * Automação de salas exige um dos CARGOS configurados no painel de mediadores
@@ -372,6 +382,7 @@ const comandos = [
       ),
 
     async executar(interaction, ctx = {}) {
+      if (!podeUsarNix(interaction.member)) return responderErro(interaction, AVISO_CARGO_NIX);
       const sub = interaction.options.getSubcommand();
       const acao = ACOES[sub];
       if (!acao) return responderErro(interaction, 'Subcomando desconhecido. Use `/nix status`.');

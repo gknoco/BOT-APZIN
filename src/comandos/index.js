@@ -55,7 +55,7 @@ const porNome = new Map(comandos.map((comando) => [comando.data.name, comando]))
 const EFEMERO = MessageFlags?.Ephemeral ?? 64;
 
 /** Comandos cujo resultado deve ficar visível para todo o canal. */
-const PUBLICOS = new Set(['ranking', 'vencedor', 'wo']);
+const PUBLICOS = new Set(['ranking', 'rankingall', 'vencedor', 'wo']);
 
 /**
  * Tipo de resposta inicial de cada comando:
