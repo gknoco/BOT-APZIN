@@ -62,19 +62,19 @@ async function enviarTodasAsFilas({ db, client, guildId }) {
 async function apagarTodasAsFilas({ db, client, guildId }) {
   const valor = await persistenciaSupabase.obterConfig(guildId, CHAVE_LOTE, db.client);
   const lote = lerLote(valor);
-  let apagadas = 0;
-  for (const linha of lote) {
+  const resultados = await Promise.all(lote.map(async (linha) => {
     try {
       const canal = client.channels.cache.get(String(linha.channelId)) || await client.channels.fetch(String(linha.channelId));
       const mensagem = await canal?.messages?.fetch(String(linha.messageId)).catch(() => null);
-      if (mensagem) {
-        await mensagem.delete().catch(() => {});
-        apagadas += 1;
-      }
+      if (!mensagem) return 0;
+      await mensagem.delete().catch(() => {});
+      return 1;
     } catch (erro) {
       console.error(`[painelfilas] falha ao apagar mensagem ${linha.messageId}:`, erro);
+      return 0;
     }
-  }
+  }));
+  const apagadas = resultados.reduce((total, resultado) => total + resultado, 0);
   await persistenciaSupabase.removerConfig(guildId, CHAVE_LOTE, db.client);
   return { apagadas, encontradas: lote.length };
 }

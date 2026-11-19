@@ -28,7 +28,7 @@ function dataHoraBrasilia(data = new Date()) {
 
 function embedVersiculo(versiculo, data = new Date()) {
   const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
+    .setColor(0xfacc15)
     .setTitle('📿 Versículo do Dia')
     .setDescription(`*"${versiculo.texto}"*\n\n**— ${versiculo.referencia}**`)
     .setFooter({ text: `ORG Royal AP · ${dataHoraBrasilia(data)}` });

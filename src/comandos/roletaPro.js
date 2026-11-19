@@ -23,7 +23,7 @@ const PREFIXO = 'roletapro:';
 const BANNER_NOME = 'roleta-royal-ap.png';
 const BANNER = path.join(__dirname, '../../assets', BANNER_NOME);
 const CHAVE_PAINEL = 'painel_roleta';
-const COR = 0xb20d1c;
+const COR = 0xfacc15;
 const POR_PAGINA = 8;
 
 function textoSeguro(valor, limite = 100) {

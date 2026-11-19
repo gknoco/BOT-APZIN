@@ -114,7 +114,7 @@ test('embed privado de Extrato mostra identidade, saldos Supabase, histórico e 
   assert.equal(card.title, '✦ CARTEIRA DIGITAL · EXTRATO');
   assert.equal(card.author.name, '@Staff Teste');
   assert.equal(card.author.icon_url, 'https://cdn.discordapp.com/avatars/user-a/avatar.png');
-  assert.equal(card.color, 0x4B2E5D);
+  assert.equal(card.color, 0xfacc15);
   assert.match(card.fields[0].value, /R\$ 25,10/);
   assert.match(card.fields[1].value, /R\$ 40,00/);
   assert.match(card.fields[1].value, /R\$ 14,90/);

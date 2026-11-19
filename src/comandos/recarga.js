@@ -98,7 +98,7 @@ function embedExtratoCarteira(extrato = {}, usuario = {}) {
     .replace(/[\r\n<>]/g, '').replace(/^@+/, '').slice(0, 64);
 
   const painel = embed('✦ CARTEIRA DIGITAL · EXTRATO', 'Visão privada e atualizada da sua carteira.', {
-    cor: 0x4B2E5D,
+    cor: 0xfacc15,
     campos: [
       { name: '💰 Saldo Disponível', value: `**${saldo}**`, inline: false },
       { name: '📊 Fluxo Financeiro', value: `🟢 Total de Entradas: **${entradas}**\n🔴 Total de Saídas: **${saidas}**`, inline: false },

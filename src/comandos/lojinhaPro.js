@@ -16,7 +16,7 @@ const { numeroBR } = require('../util/embeds');
 
 const PREFIXO = 'lojinhapro:';
 const PAGINA = 25;
-const COR = 0xd9a52f;
+const COR = 0xfacc15;
 const ARTE = path.join(__dirname, '../../assets/lojinha-royal-ap.png');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIPOS = { pix: 'Pix', physical: 'Produto físico', role: 'Cargo', spins: 'Giros', coins: 'Moedas' };

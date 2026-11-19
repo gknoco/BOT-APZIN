@@ -22,7 +22,7 @@ async function avisarStaff(interaction, { origem, descricao, protocolo }) {
         typeof canal.send !== 'function' || (canal.isTextBased && !canal.isTextBased())) return false;
     const usuario = String(interaction.user.id).replace(/[^0-9]/g, '');
     const embed = new EmbedBuilder()
-      .setColor(0xd9a52f)
+      .setColor(0xfacc15)
       .setTitle('ECONOMIA  •  ATENDIMENTO PENDENTE')
       .setDescription(
         `**Origem:** ${textoSeguro(origem, 60)}\n` +

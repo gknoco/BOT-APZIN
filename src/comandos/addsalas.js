@@ -5,7 +5,7 @@ const { responderPrivado, responderErro, ehAdmin } = require('../util/seguranca'
 const CARGO_ADM = '1543684028719173732';
 
 function painel() {
-  return { embeds: [new EmbedBuilder().setColor(0x2ecc71).setTitle('Distribuição de salas').setDescription('Selecione um ADM para conceder créditos de salas Nix.')], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ap:addsalas:selecionar').setLabel('Selecionar adm').setStyle(ButtonStyle.Primary))] };
+  return { embeds: [new EmbedBuilder().setColor(0xfacc15).setTitle('Distribuição de salas').setDescription('Selecione um ADM para conceder créditos de salas Nix.')], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ap:addsalas:selecionar').setLabel('Selecionar adm').setStyle(ButtonStyle.Primary))] };
 }
 const comando = {
   data: new SlashCommandBuilder().setName('addsalas').setDescription('Distribui salas para um ADM').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),

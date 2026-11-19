@@ -70,7 +70,7 @@ const comandos = [
       const mensagem = await canal.send({
         embeds: [
           new EmbedBuilder()
-            .setColor(0x3498db)
+            .setColor(0xfacc15)
             .setTitle('💡 Nova sugestão')
             .setAuthor({ name: interaction.user.tag, iconURL: interaction.user.displayAvatarURL({ size: 128 }) })
             .setDescription(ideia.slice(0, 4096))

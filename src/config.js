@@ -206,13 +206,13 @@ const config = {
   CAPITAES_POR_PARTIDA,
 
   CORES: {
-    principal: 0x9b5cff,
-    sucesso: 0x2ecc71,
+    principal: 0xfacc15,
+    sucesso: 0xfacc15,
     erro: 0xfacc15,
-    aviso: 0xf1c40f,
-    neutro: 0x2b2d31,
-    ouro: 0xf5b942,
-    gelo: 0x5bc8f5,
+    aviso: 0xfacc15,
+    neutro: 0xfacc15,
+    ouro: 0xfacc15,
+    gelo: 0xfacc15,
   },
 
   /** Identificador do banco remoto, para mensagens de operação. */

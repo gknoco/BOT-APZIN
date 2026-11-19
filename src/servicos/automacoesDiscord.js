@@ -77,7 +77,7 @@ async function buscarCanal(client, id) {
 async function enviarVersiculo(client, db, guildId, config) {
   const canal = await buscarCanal(client, config.canal_id);
   const sorteio = await versiculos.sortear({ guildId, cliente: configCliente(db) });
-  const embed = new EmbedBuilder().setColor(0xf1c40f).setTitle('📿 Versículo do Dia')
+  const embed = new EmbedBuilder().setColor(0xfacc15).setTitle('📿 Versículo do Dia')
     .setDescription(`*"${sorteio.versiculo.texto}"*\n\n**— ${sorteio.versiculo.referencia}**`)
     .setFooter({ text: 'ORG Royal AP · publicação automática' });
   await canal.send({ embeds: [embed], allowedMentions: { parse: [] } });

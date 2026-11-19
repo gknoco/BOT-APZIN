@@ -249,7 +249,7 @@ function montar(client, db) {
             `<@${membro.id}> entrou usando o convite de <@${convite.inviter.id}>.\n` +
               `**Convite:** \`${codigo}\`\n` +
               (contagem === null ? '' : `**Invites reais atuais:** ${contagem}`),
-            0x2ecc71,
+            0xfacc15,
           ).catch((erro) => console.error('[convites] log de entrada:', erro.message));
           await royalSupabase.auditar({
             guildId: guild.id,
@@ -279,7 +279,7 @@ function montar(client, db) {
         '📤 Membro convidado saiu',
         `<@${membro.id}> saiu do servidor. O invite de <@${registro.inviter_user_id}> foi atualizado.\n` +
           `**Invites reais:** ${Number(registro.invites_reais || 0)} · **Saídas:** ${Number(registro.invites_saidas || 0)}`,
-        0xe67e22,
+        0xfacc15,
       );
       await royalSupabase.auditar({
         guildId: membro.guild.id,

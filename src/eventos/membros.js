@@ -7,7 +7,7 @@ const persistenciaSupabase = require('../servicos/supabase');
 
 const CARGO_AUTO_ROLE_ID = '1543684013968064614';
 
-const COR_ESCURO = 0x2b2d31;
+const COR_ESCURO = 0xfacc15;
 const avisosCanalDesconhecido = new Set();
 
 function avisarFalhaCanal(chave, erro, operacao) {
