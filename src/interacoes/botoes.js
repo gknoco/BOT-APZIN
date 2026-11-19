@@ -468,8 +468,8 @@ async function handleBotao(interaction, ctx) {
         return true;
 
       case 'assumirnotificacao': {
-        if (!ehAdmin(interaction.member)) {
-          await responderErro(interaction, 'Somente administradores podem aceitar uma partida formada.');
+        if (!plantao.autorizado(interaction.member)) {
+          await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para aceitar uma partida formada.`);
           return true;
         }
         if (!(await plantao.ativo(db, { guildId: interaction.guildId, userId: interaction.user.id }))) {

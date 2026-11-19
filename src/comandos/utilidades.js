@@ -23,7 +23,7 @@ const { embed, embedSucesso } = require('../util/embeds');
 const CATEGORIAS_AJUDA = [
   { id: 'inicio', titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
   { id: 'filas', titulo: '🎮 Filas e partidas', nomes: [...config.MODOS.map((modo) => modo.comando), 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
-  { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'resgitropixmediador', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixsss', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
+  { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'painelpixmediadores', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixsss', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
   { id: 'perfil', titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
   { id: 'feedback', titulo: '💬 Comunidade e suporte', nomes: ['reportarbug', 'sugestao', 'versiculododia'] },
   { id: 'compras', titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar', 'recarga'] },
@@ -37,7 +37,7 @@ const GUIA_AJUDA = {
   reportarbug: ['Envia um reporte estruturado para a equipe técnica, com passos de reprodução e print opcional.', '`/reportarbug bug:<descrição> passos:<passo a passo> print:<imagem opcional>`', 'Use o canal configurado de reportes; não exige cargo.'],
   sugestao: ['Publica uma sugestão para votação da comunidade com reações 👍 e 👎.', '`/sugestao ideia:<sua sugestão>`', 'Use o canal configurado de sugestões; não exige cargo.'],
   convites: ['Mostra seus convites totais, saídas e convites reais atribuídos pelo InviteTracker.', '`/convites` ou `/convites usuario:<membro>`', 'Consulta pública; o rastreamento depende dos convites e do canal de logs configurados.'],
-  resgitropixmediador: ['Publica o painel para cadastrar ou consultar a chave PIX usada pelo mediador.', '`/resgitropixmediador`', 'Exige o cargo de acesso dos mediadores e publicação em canal de texto.'],
+  painelpixmediadores: ['Publica o painel para cadastrar ou consultar a chave PIX usada pelo mediador.', '`/painelpixmediadores`', 'Exige o cargo de acesso dos mediadores e publicação em canal de texto.'],
   painelbatepontomediadores: ['Publica o bate-ponto geral, com Entrar, Sair e Atualizar para mediadores.', '`/painelbatepontomediadores`', 'Exige o cargo de acesso dos mediadores; o PIX cadastrado é obrigatório para entrar.'],
   painelbatepontossmobile: ['Publica o plantão exclusivo da equipe SS Mobile.', '`/painelbatepontossmobile`', 'A publicação é administrativa; interação exige o cargo SS Mobile.'],
   painelbatepontossemu: ['Publica o plantão exclusivo da equipe SS EMU.', '`/painelbatepontossemu`', 'A publicação é administrativa; interação exige o cargo SS EMU.'],

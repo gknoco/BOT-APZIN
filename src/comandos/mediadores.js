@@ -41,7 +41,7 @@ const comandos = [
   },
   {
     data: new SlashCommandBuilder()
-      .setName('resgitropixmediador')
+      .setName('painelpixmediadores')
       .setDescription('Publica o painel de registro de PIX dos mediadores'),
     async executar(interaction, { db }) {
       if (!podeUsarPainel(interaction.member)) {
