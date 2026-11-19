@@ -49,7 +49,7 @@ async function inicializar(db, guildId, userId) {
   }
 }
 
-async function reservar(db, guildId, userId) {
+async function reservar(db, guildId, userId, opcoes = {}) {
   try {
     const { data, error } = await db.client.rpc('royal_mediator_reserve_room_quota', {
       p_guild_id: String(guildId),
@@ -62,12 +62,44 @@ async function reservar(db, guildId, userId) {
     const saldo = sincronizarMemoria(guildId, userId, saldoDaResposta(data));
     return { saldo, persistente: true };
   } catch (erro) {
-    if (erro?.codigo === 'MEDIATOR_ROOM_QUOTA_EXHAUSTED') throw erro;
+    if (erro?.codigo === 'MEDIATOR_ROOM_QUOTA_EXHAUSTED') {
+      const id = chave(guildId, userId);
+      const saldoMemoria = memoria.get(id);
+      if (Number(saldoMemoria) > 0) {
+        if (!opcoes.tentouReparar) {
+          const reparo = await reparar(db, guildId, userId);
+          if (reparo?.saldo > 0) return reservar(db, guildId, userId, { tentouReparar: true });
+        }
+        const saldo = sincronizarMemoria(guildId, userId, Number(saldoMemoria) - 1);
+        console.warn('[cotas] Supabase informou saldo zero, mas o saldo resgatado em memória foi usado.');
+        return { saldo, persistente: false };
+      }
+      if (!opcoes.tentouReparar) {
+        const reparo = await reparar(db, guildId, userId);
+        if (reparo?.saldo > 0) return reservar(db, guildId, userId, { tentouReparar: true });
+      }
+      throw erro;
+    }
     console.warn('[cotas] reserva Supabase indisponível; usando fallback:', erro.message);
     const atual = inicializarMemoria(guildId, userId);
     if (atual < 1) throw erroDeCota();
     const saldo = sincronizarMemoria(guildId, userId, atual - 1);
     return { saldo, persistente: false };
+  }
+}
+
+async function reparar(db, guildId, userId) {
+  try {
+    const { data, error } = await db.client.rpc('royal_mediator_repair_initial_quota', {
+      p_guild_id: String(guildId),
+      p_user_id: String(userId),
+      p_quantidade: COTA_INICIAL,
+    });
+    if (error) throw error;
+    return { saldo: sincronizarMemoria(guildId, userId, saldoDaResposta(data)), persistente: true };
+  } catch (erro) {
+    console.warn('[cotas] não foi possível reparar o saldo persistente:', erro.message);
+    return null;
   }
 }
 
