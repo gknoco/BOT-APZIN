@@ -26,6 +26,7 @@ const auditoria = require('./auditoria');
 const royalSupabase = require('./royalSupabase');
 
 const { STATUS } = partidas;
+const CARGO_MEDIADOR_ACESSO = '1543684028719173732';
 const notificacoesEmAndamento = new Set();
 
 const NOME_TIME = { 1: 'Equipe 1', 2: 'Equipe 2' };
@@ -265,8 +266,13 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
   // categoria de filas pelo nome antes de criar na raiz do servidor.
   const categoria = await resolverCategoria(guild, db, 'categoria_filas', config.CATEGORIA_FILAS_ID);
   const A = PermissionFlagsBits;
+  const cargosMediadores = new Set([
+    CARGO_MEDIADOR_ACESSO,
+    ...(await mediadores.cargos(db, guild.id)),
+  ].filter(Boolean).map(String));
   const permissoes = [
     { id: guild.roles.everyone.id, deny: [A.ViewChannel] },
+    ...[...cargosMediadores].map((id) => ({ id, deny: [A.ViewChannel] })),
     {
       id: client.user.id,
       allow: [A.ViewChannel, A.SendMessages, A.EmbedLinks, A.ReadMessageHistory, A.ManageChannels, A.ManageMessages],
@@ -276,14 +282,6 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
       allow: [A.ViewChannel, A.SendMessages, A.ReadMessageHistory, A.EmbedLinks],
     })),
   ];
-  // Só mediadores e ADM veem a sala de aposta.
-  for (const cargo of await mediadores.mencoes(db, guild.id)) {
-    permissoes.push({
-      id: cargo,
-      allow: [A.ViewChannel, A.SendMessages, A.ReadMessageHistory, A.EmbedLinks],
-    });
-  }
-
   // #fila-gelo-normal-001 — numeração contínua por tipo de entrada.
   const nome = paineis.nomeSalaFila(guild, modo, gelo);
 
@@ -551,13 +549,35 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
       return null;
     });
   if (!matchChannel?.permissionOverwrites?.edit || !matchChannel?.send) return false;
+  const A = PermissionFlagsBits;
+  const cargosMediadores = new Set([
+    CARGO_MEDIADOR_ACESSO,
+    ...(await mediadores.cargos(db, partida.guild_id)),
+  ].filter(Boolean).map(String));
+  const jogadores = await partidas.jogadores(db, partidaId);
+  // Reaplica a trava no aceite para corrigir também salas criadas antes desta
+  // regra: o cargo geral nunca herda acesso à sala de outro mediador.
+  for (const cargoId of cargosMediadores) {
+    await matchChannel.permissionOverwrites.edit(cargoId, {
+      ViewChannel: false,
+      SendMessages: false,
+      ReadMessageHistory: false,
+    });
+  }
+  for (const jogador of jogadores) {
+    await matchChannel.permissionOverwrites.edit(String(jogador.user_id), {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      EmbedLinks: true,
+    });
+  }
   await matchChannel.permissionOverwrites.edit(String(userId), {
     ViewChannel: true,
     SendMessages: true,
     ReadMessageHistory: true,
     EmbedLinks: true,
   });
-  const jogadores = await partidas.jogadores(db, partidaId);
   const idsMencionados = [String(userId), ...jogadores.map((linha) => String(linha.user_id))];
   try {
     // Esta é uma mensagem pública dentro da sala privada, não uma resposta
