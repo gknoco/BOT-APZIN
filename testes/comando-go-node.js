@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { Routes, ApplicationCommandType, MessageFlags } = require('discord.js');
 
 process.env.DISCORD_TOKEN ||= 'test.token.value';
@@ -157,6 +158,73 @@ test('manifesto, lockfile e deploy exigem Node mínimo alinhado às dependência
   assert.equal(lock.packages['node_modules/@discordjs/voice'].engines.node, '>=22.12.0');
   assert.match(fs.readFileSync(path.join(__dirname, '../nixpacks.toml'), 'utf8'), /npm ci[^\n]*--engine-strict/);
   assert.match(pacote.scripts['migrate:supabase'], /--experimental-sqlite/);
+});
+
+test('instalação Nixpacks remove variáveis npm legadas e omite apenas dependências de desenvolvimento', () => {
+  const nixpacks = fs.readFileSync(path.join(__dirname, '../nixpacks.toml'), 'utf8');
+  const secoes = nixpacks.split(/^\[/m);
+  const instalacao = secoes.find((secao) => secao.startsWith('phases.install]'));
+  const inicio = secoes.find((secao) => secao.startsWith('start]'));
+  const comando = instalacao?.match(/^cmds\s*=\s*\[\s*"([^"\n]+)"\s*\]\s*$/m)?.[1];
+  assert.ok(comando, 'comando de instalação Nixpacks ausente');
+  assert.doesNotMatch(instalacao, /^cmd\s*=/m);
+  assert.match(comando, /\bnpm\s+ci\b/);
+  assert.match(comando, /(?:^|\s)--omit=dev(?:\s|$)/);
+  assert.match(comando, /(?:^|\s)--engine-strict(?:\s|$)/);
+  assert.doesNotMatch(comando, /(?:^|\s)--production(?:[=\s]|$)/);
+  assert.match(inicio || '', /^cmd\s*=\s*"node index\.js"\s*$/m);
+  assert.equal(require('../package.json').scripts.start, 'node index.js');
+
+  // Projeto local sem rede: comprova o comando real sem apagar node_modules do projeto.
+  const diretorio = fs.mkdtempSync(path.join(os.tmpdir(), 'royal-nixpacks-'));
+  const escreverJson = (arquivo, dados) => fs.writeFileSync(path.join(diretorio, arquivo), JSON.stringify(dados));
+  try {
+    for (const [pasta, nome] of [['prod', 'production-example'], ['dev', 'development-example']]) {
+      fs.mkdirSync(path.join(diretorio, 'packages', pasta), { recursive: true });
+      escreverJson(`packages/${pasta}/package.json`, { name: nome, version: '1.0.0' });
+      fs.writeFileSync(path.join(diretorio, 'packages', pasta, 'index.js'), 'module.exports = true;\n');
+    }
+    const dependencies = { 'production-example': 'file:packages/prod' };
+    const devDependencies = { 'development-example': 'file:packages/dev' };
+    escreverJson('package.json', { name: 'fixture', version: '1.0.0', dependencies, devDependencies });
+    escreverJson('package-lock.json', {
+      name: 'fixture', version: '1.0.0', lockfileVersion: 3, requires: true,
+      packages: {
+        '': { name: 'fixture', version: '1.0.0', dependencies, devDependencies },
+        'node_modules/development-example': { resolved: 'packages/dev', link: true },
+        'node_modules/production-example': { resolved: 'packages/prod', link: true },
+        'packages/dev': { name: 'development-example', version: '1.0.0', dev: true },
+        'packages/prod': { name: 'production-example', version: '1.0.0' },
+      },
+    });
+
+    const ambiente = { ...process.env, HOME: diretorio };
+    for (const chave of Object.keys(ambiente)) if (/^npm_config_/i.test(chave)) delete ambiente[chave];
+    delete ambiente.NODE_ENV;
+    Object.assign(ambiente, {
+      npm_config_userconfig: path.join(diretorio, 'user.npmrc'),
+      npm_config_globalconfig: path.join(diretorio, 'global.npmrc'),
+      npm_config_cache: path.join(diretorio, 'cache'),
+      npm_config_offline: 'true', npm_config_audit: 'false', npm_config_fund: 'false',
+      NPM_CONFIG_PRODUCTION: 'true', npm_config_production: 'true',
+    });
+    const producao = spawnSync('sh', ['-c', comando], { cwd: diretorio, env: ambiente, encoding: 'utf8', timeout: 30000 });
+    assert.equal(producao.status, 0, producao.stderr || producao.error?.message);
+    assert.doesNotMatch(producao.stdout + producao.stderr, /npm warn config production/i);
+    assert.equal(fs.existsSync(path.join(diretorio, 'node_modules/production-example')), true);
+    assert.equal(fs.existsSync(path.join(diretorio, 'node_modules/development-example')), false);
+
+    // Testes locais continuam podendo instalar devDependencies, inclusive sob NODE_ENV=production.
+    delete ambiente.NPM_CONFIG_PRODUCTION;
+    delete ambiente.npm_config_production;
+    ambiente.NODE_ENV = 'production';
+    const desenvolvimento = spawnSync('npm', ['ci', '--include=dev'], { cwd: diretorio, env: ambiente, encoding: 'utf8', timeout: 30000 });
+    assert.equal(desenvolvimento.status, 0, desenvolvimento.stderr || desenvolvimento.error?.message);
+    assert.equal(fs.existsSync(path.join(diretorio, 'node_modules/production-example')), true);
+    assert.equal(fs.existsSync(path.join(diretorio, 'node_modules/development-example')), true);
+  } finally {
+    fs.rmSync(diretorio, { recursive: true, force: true });
+  }
 });
 
 test('SQLite funciona com a flag compatível com Node 22.12 e Voice carrega sem flag', () => {

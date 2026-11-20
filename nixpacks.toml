@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmd = "env -u NPM_CONFIG_PRODUCTION -u npm_config_production npm ci --omit=dev --engine-strict"
+cmds = ["env -u NPM_CONFIG_PRODUCTION -u npm_config_production npm ci --omit=dev --engine-strict"]
 
 [start]
 cmd = "node index.js"

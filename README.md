@@ -123,6 +123,14 @@ Os produtos podem conceder coins, giros, cargos, resgates físicos ou PIX. Cada 
 - `npm run commands:sync` publica a lista atual e remove comandos remotos obsoletos conforme a resposta da API do Discord.
 - `npm start` abre também o health check HTTP para Railway/Render.
 
+### Build Nixpacks e aviso de configuração do npm
+
+O `nixpacks.toml` configura a fase de instalação com `cmds` (lista de comandos, conforme a [referência do Nixpacks](https://nixpacks.com/docs/configuration/file)), executando `env -u NPM_CONFIG_PRODUCTION -u npm_config_production npm ci --omit=dev --engine-strict`, e inicia com `node index.js`. Não há script `build` no `package.json`. Para desenvolvimento e testes, use `npm ci` com as configurações normais; se `NODE_ENV=production` estiver definido, `npm ci --include=dev` inclui as dependências de teste. O `--omit=dev` é apenas para a instalação de produção, não para `npm test`.
+
+O aviso `npm warn config production Use --omit=dev instead` pode vir da flag antiga `--production`, das variáveis `NPM_CONFIG_PRODUCTION`/`npm_config_production` ou de `production=true` em algum `.npmrc`. Nas instalações de produção, substitua a flag por `--omit=dev`. Acrescentar `--omit=dev` não elimina o aviso se uma variável legada continuar herdada: o `env -u` acima remove ambas **somente para esse comando de instalação**. `NODE_ENV=production` é uma configuração distinta e não precisa ser removida por causa desse aviso.
+
+Se o aviso persistir no Railway, confira em qual etapa do log ele aparece e verifique as variáveis do serviço e eventuais comandos de build/start personalizados ou arquivos de configuração npm externos. Variáveis como `NIXPACKS_INSTALL_CMD` e `NIXPACKS_START_CMD` também podem sobrescrever comandos do arquivo. Remova a opção ou variável legada na origem apropriada após verificar seu uso por outros processos; não exponha valores de segredos. Outros comandos npm, incluindo `npm start`, também podem emitir o aviso ao herdar essa variável. Configurações do painel, etapas anteriores ou comandos externos não são controlados pelo `nixpacks.toml`; um redeploy e a inspeção dos logs do serviço são necessários para confirmar o resultado.
+
 O bot exige o **Server Members Intent** para rastrear convites. A detecção por diferença de usos é tratada como observação; convites simultâneos ou indisponíveis são registrados sem inventar um convidador.
 
 ## Central de vendas ROYAL SALA
@@ -171,7 +179,7 @@ Antes do modo produção, confirme no Railway todas as variáveis acima, valide 
 
 ### Checklist final do Railway
 
-1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22.12.0 ou superior. O deploy padrão executa `npm start`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
+1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22.12.0 ou superior. Quando a configuração Nixpacks do repositório é utilizada sem sobrescritas, o início executa `node index.js`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
 2. O runtime não necessita de volume SQLite nem de `DATABASE_PATH`. Se há um banco antigo no Railway, preserve o volume/backup até concluir o backfill manual e conferir os dados remotos; não apague o histórico antigo apenas por atualizar o código.
 3. Cadastre `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` (opcional para sincronização imediata), `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` do projeto Apzin. Não configure a chave `anon`/public.
 4. Para vendas, acrescente `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_WEBHOOK_URL`, `DEV_OWNER_ID` e `CARGOS_SUPER_ADMIN_IDS`. `NIX_API_KEY`/`NIX_API_URL` são necessários para criação automática das salas; `CATEGORIA_FILAS_ID`, `CARGO_ADMIN_ID`, `CARGO_STAFF_ID` e `CARGO_MEDIADOR_ID` definem a operação normal.
