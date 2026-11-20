@@ -204,7 +204,11 @@ test('/ajuda responde uma página e mantém seletor e botões privados operantes
     },
   };
   const i = interaction({ editReply: async (payload) => { i.respostas.push(payload); return mensagem; } });
-  await comando(utilidades, 'ajuda').executar(i);
+  const fake = clienteFake();
+  await comando(utilidades, 'ajuda').executar(i, { db: banco(fake.client) });
+  assert.equal(fake.chamadas[0].tabela, 'discord_configuracoes');
+  assert.ok(fake.chamadas[0].operacoes.some(([metodo, campo, valor]) => metodo === 'eq' && campo === 'guild_id' && valor === i.guildId));
+  assert.ok(fake.chamadas[0].operacoes.some(([metodo, campo, valor]) => metodo === 'like' && campo === 'chave' && valor === 'ajuda:cargos:%'));
   assert.equal(i.respostas[0].embeds.length, 1);
   assert.ok(filtro({ user: i.user, customId: 'ajuda:proxima' }));
   assert.equal(filtro({ user: { id: 'outra-pessoa' }, customId: 'ajuda:proxima' }), false);
@@ -277,11 +281,19 @@ test('falha na persistência de canal não confirma sucesso nem usa fallback loc
 
 test('/painel aguarda serviços de partidas e painéis e conta filas remotas', async () => {
   const fake = clienteFake(() => ({ count: 7, error: null }));
-  const i = interaction();
+  const db = banco(fake.client);
+  const client = {};
+  const i = interaction({ client });
   await substituindo([
-    [partidas, 'ativas', async () => { await proximoTurno(); return [{ id: 'p1' }, { id: 'p2' }]; }],
+    [partidas, 'ativasReais', async (bancoAtual, guildId, clienteAtual) => {
+      assert.equal(bancoAtual, db);
+      assert.equal(guildId, i.guildId);
+      assert.equal(clienteAtual, client);
+      await proximoTurno();
+      return [{ id: 'p1' }, { id: 'p2' }];
+    }],
     [paineis, 'todos', async () => { await proximoTurno(); return [{ modo: 'x1' }]; }],
-  ], async () => comando(utilidades, 'painel').executar(i, { db: banco(fake.client) }));
+  ], async () => comando(utilidades, 'painel').executar(i, { db }));
   const campos = i.respostas[0].embeds[0].toJSON().fields;
   assert.equal(campos[0].value, '2');
   assert.equal(campos[1].value, '7');
@@ -400,17 +412,25 @@ test('/pix busca salas no Supabase e aguarda anúncio sem alterar geração fina
 });
 
 test('/receita_mediadores e /painel_mediador aguardam dados dos serviços', async () => {
+  const db = banco({});
+  const client = {};
   await substituindo([
     [staffServico, 'receita', async () => { await proximoTurno(); return [{ mediador_id: 'med', partidas: 2, movimentado: 2000, comissao: 100 }]; }],
-    [partidas, 'ativas', async () => { await proximoTurno(); return [{ status: 'pago' }, { status: 'confirmando' }]; }],
+    [partidas, 'ativasReais', async (bancoAtual, guildId, clienteAtual) => {
+      assert.equal(bancoAtual, db);
+      assert.equal(guildId, 'guild-teste');
+      assert.equal(clienteAtual, client);
+      await proximoTurno();
+      return [{ status: 'pago' }, { status: 'confirmando' }];
+    }],
     [staffSupabase, 'obter', async () => ({ comissao: 0.05 })],
   ], async () => {
     const receita = interaction();
-    await comando(staffComandos, 'receita_mediadores').executar(receita, { db: banco({}) });
+    await comando(staffComandos, 'receita_mediadores').executar(receita, { db });
     assert.match(receita.respostas[0].embeds[0].toJSON().description, /2 partida/);
     const enviados = [];
     const painel = interaction({ channel: { send: async (p) => { enviados.push(p); } } });
-    await comando(staffComandos, 'painel_mediador').executar(painel, { db: banco({}) });
+    await comando(staffComandos, 'painel_mediador').executar(painel, { db, client });
     const fields = enviados[0].embeds[0].toJSON().fields;
     assert.equal(fields[0].value, '2');
     assert.equal(fields[1].value, '1');

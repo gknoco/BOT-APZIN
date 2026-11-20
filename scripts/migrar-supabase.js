@@ -4,7 +4,7 @@
  * Ferramenta MANUAL, nunca importada pelo runtime.
  * Uso: node scripts/migrar-supabase.js --sqlite /caminho/backup.db [--origem servidor-backup]
  * O arquivo é aberto readOnly; nenhuma higienização/alteração é feita no original.
- * Execute as migrações SQL ANTES. Todas as importações usam ignoreDuplicates.
+ * Execute as migrações SQL ANTES. Duplicatas são ignoradas sem sobrescrever.
  * Sem --origem, usa SHA-256 do arquivo. Use a mesma origem ao importar snapshots
  * sucessivos do mesmo banco para não duplicar seu histórico de DMs/transações.
  * Perfis: verifica todos os conflitos antes da primeira alteração, e revalida
@@ -67,6 +67,20 @@ async function upsert(supabase, tabela, linhas, conflito) {
     inseridos += count || 0;
   }
   return { considerados: linhas.length, inseridos };
+}
+
+async function importarFilas(supabase, linhas) {
+  const resultado = { considerados: linhas.length, inseridos: 0, bloqueados: 0 };
+  for (let i = 0; i < linhas.length; i += TAMANHO_LOTE) {
+    const lote = linhas.slice(i, i + TAMANHO_LOTE);
+    const resposta = await executar(supabase.rpc('royal_operacional_importar_filas', { p_filas: lote }), 'importar filas legadas');
+    if (!resposta || resposta.considerados !== lote.length || !Number.isInteger(resposta.inseridos) || !Number.isInteger(resposta.bloqueados)) {
+      throw new Error('Resposta inválida ao importar filas legadas; confira a migração SQL instalada.');
+    }
+    resultado.inseridos += resposta.inseridos;
+    resultado.bloqueados += resposta.bloqueados;
+  }
+  return resultado;
 }
 
 async function reconciliarPerfis(perfis, clienteOverride) {
@@ -175,9 +189,12 @@ async function main(opcoes = argumentos(), clienteOverride) {
     await importar('royal_match_players', legado.partida_jogadores.map((row) => ({
       match_id: row.partida_id, user_id: row.user_id, team: row.time, confirmed: Boolean(row.confirmou),
     })), 'match_id,user_id');
+    // Prioridade à blacklist já existente ou importada; nunca reintroduzir um
+    // bloqueado na fila. A RPC também cobre bloqueios concorrentes à importação.
+    await importar('royal_blacklist', legado.blacklist.map((row) => campos(row, 'guild_id,user_id,motivo,autor_id,criado_em')), 'guild_id,user_id');
+    resultado.royal_filas = await importarFilas(supabase, legado.filas.map((row) => campos(row, 'guild_id,modo,preco,gelo,user_id,entrou_em')));
+    console.log(`[migração] royal_filas: ${resultado.royal_filas.considerados} considerados; ${resultado.royal_filas.inseridos} novos; ${resultado.royal_filas.bloqueados} bloqueados ignorados.`);
     const mapeamentos = [
-      ['filas', 'royal_filas', 'guild_id,modo,preco,gelo,user_id,entrou_em', 'guild_id,modo,preco,gelo,user_id'],
-      ['blacklist', 'royal_blacklist', 'guild_id,user_id,motivo,autor_id,criado_em', 'guild_id,user_id'],
       ['paineis', 'royal_paineis', 'guild_id,modo,canal_id,mensagem_id,criado_em', 'guild_id,modo'],
       ['mensagens_painel', 'royal_mensagens_painel', 'guild_id,modo,preco,canal_id,mensagem_id,atualizado_em', 'guild_id,modo,preco'],
       ['plantao', 'royal_plantao', 'guild_id,user_id,entrou_em', 'guild_id,user_id'],
@@ -214,4 +231,4 @@ if (require.main === module) main().catch((erro) => {
   process.exitCode = 1;
 });
 
-module.exports = { main, argumentos, abrirLegado, lerTabela, reconciliarPerfis, upsert };
+module.exports = { main, argumentos, abrirLegado, lerTabela, reconciliarPerfis, upsert, importarFilas };

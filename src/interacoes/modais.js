@@ -26,7 +26,7 @@ const paineis = require('../servicos/paineis');
 const automacoes = require('../servicos/automacoesDiscord');
 const configCanalFila = require('../comandos/configCanalFila');
 const plantaoModalidade = require('../servicos/plantaoModalidade');
-const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
+const { EFEMERO, responderPrivado, responderErro, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
 async function buscarPartidaDaGuild(db, interaction, partidaId) {
@@ -73,16 +73,40 @@ async function abrirModalRegras(interaction, db, partidaId) {
   return interaction.showModal(modal);
 }
 
-async function abrirModalSala(interaction, db, partidaId) {
-  if (!ehMediador(interaction.member)) {
-    return responderErro(interaction, 'Só o mediador pode liberar a criação da sala.');
+async function validarSalaManual(interaction, db, partidaId) {
+  // Mesma política usada para assumir a sala: cargos por guild e administrador.
+  if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
+    throw new Error('Só o mediador responsável pode informar a sala.');
   }
   const partida = await buscarPartidaDaGuild(db, interaction, partidaId);
-  if (!partida) return responderErro(interaction, 'Sala não encontrada.');
+  if (!partida || String(partida.guild_id) !== String(interaction.guildId) || String(partida.id) !== String(partidaId)) {
+    throw new Error('Sala não encontrada neste servidor.');
+  }
+  if (!interaction.channelId || String(partida.canal_id) !== String(interaction.channelId)) {
+    throw new Error('Use este formulário no canal original da partida.');
+  }
+  if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user?.id || '')) {
+    throw new Error('Somente o mediador responsável pode informar a sala.');
+  }
+  if (![partidas.STATUS.PAGO, partidas.STATUS.SALA_LIBERADA, partidas.STATUS.EM_ANDAMENTO].includes(partida.status)) {
+    throw new Error('A sala só pode ser informada após o pagamento e antes do encerramento.');
+  }
+  return partida;
+}
 
+async function abrirModalSala(interaction, db, partidaId, salaVersao) {
+  if (!Number.isSafeInteger(salaVersao) || salaVersao < 0) {
+    return responderErro(interaction, 'Botão de sala antigo ou inválido. Use o cartão atual.');
+  }
+  const partida = await validarSalaManual(interaction, db, partidaId);
+  if (!partida.mensagem_id || String(partida.mensagem_id) !== String(interaction.message?.id || '')) {
+    return responderErro(interaction, 'Use o cartão atual da partida.');
+  }
   const modal = new ModalBuilder()
-    .setCustomId(`ap:modalsala:${partidaId}`)
-    .setTitle('Liberar sala')
+    // A versão é a do botão clicado, não a de uma consulta posterior. A RPC
+    // verifica sob lock se uma alteração é permitida; replay idêntico é seguro.
+    .setCustomId(`ap:modalsala:${partidaId}:${interaction.message.id}:${salaVersao}`)
+    .setTitle('Informar sala externa')
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
@@ -861,16 +885,66 @@ async function handleModal(interaction, { db, client }) {
     }
 
     if (tipo === 'modalsala') {
-      if (!ehMediador(interaction.member)) {
-        await responderErro(interaction, 'Só o mediador pode liberar a sala.');
-        return true;
+      const mensagemId = partes[3];
+      const versao = partes[4];
+      if (partes.length !== 5 || !mensagemId || !/^\d+$/.test(versao || '') || !Number.isSafeInteger(Number(versao))) {
+        throw new Error('Formulário antigo. Abra novamente o cartão atual da partida.');
       }
+      await validarSalaManual(interaction, db, partidaId);
       const salaId = interaction.fields.getTextInputValue('sala_id');
       const senha = interaction.fields.getTextInputValue('sala_senha');
-      await partidas.liberarSala(db, partidaId, { salaId, senha });
-      await fluxo.atualizarPartida(client, db, partidaId);
+      const salaLimpa = String(salaId || '').trim().slice(0, 40);
+      const senhaLimpa = String(senha || '').trim().slice(0, 40);
+      if (!salaLimpa) throw new Error('Informe o ID da sala.');
+      let salva;
+      try {
+        salva = await partidas.publicarSalaManual(db, {
+          partidaId, guildId: interaction.guildId, canalId: interaction.channelId, mensagemId,
+          mediadorId: interaction.user.id, salaVersao: Number(versao), salaId, senha,
+        });
+        if (!salva || String(salva.id) !== String(partidaId) || String(salva.guild_id) !== String(interaction.guildId) ||
+            String(salva.canal_id) !== String(interaction.channelId) || String(salva.mensagem_id) !== String(mensagemId) ||
+            String(salva.mediador_id) !== String(interaction.user.id) || String(salva.sala_id || '') !== salaLimpa ||
+            String(salva.sala_senha || '') !== senhaLimpa || !/^\d+$/.test(String(salva.sala_versao ?? '')) ||
+            !Number.isSafeInteger(Number(salva.sala_versao)) ||
+            ![partidas.STATUS.SALA_LIBERADA, partidas.STATUS.EM_ANDAMENTO].includes(salva.status)) {
+          throw new Error('A resposta da persistência está incompleta ou inconsistente.');
+        }
+      } catch (erro) {
+        // P0001 é rejeição transacional explícita; outros erros podem ser
+        // perda da resposta depois do commit, portanto não alegam fracasso.
+        if (erro.code === 'P0001') throw erro;
+        await responderErro(interaction, 'Não foi possível confirmar se os dados foram salvos; eles podem já ter sido registrados. Não crie outra sala. Confira o cartão e os dados atuais com a administração antes de reenviar; uma correção concorrente pode ter alterado os dados.');
+        return true;
+      }
+      let atualizado = false;
+      try { atualizado = await fluxo.atualizarPartida(client, db, partidaId, { somenteEditar: true }); }
+      catch (erro) { console.error('[modais] falha ao atualizar cartão de sala:', erro.message); }
+
+      // O retorno da RPC é um snapshot. Uma correção pode ter ocorrido durante
+      // a edição (inclusive após um replay); releia mesmo se a edição falhou.
+      let atual;
+      try { atual = await buscarPartidaDaGuild(db, interaction, partidaId); }
+      catch (erro) { console.error('[modais] falha ao revalidar dados da sala:', erro.message); }
+      if (!atual || !/^\d+$/.test(String(atual.sala_versao ?? '')) || !Number.isSafeInteger(Number(atual.sala_versao))) {
+        await responderPrivado(interaction, { content: 'Não foi possível confirmar os dados atuais após a tentativa de edição; a entrega do cartão é incerta. Confira o cartão e consulte a administração antes de qualquer reenvio. Não crie outra sala.' });
+        return true;
+      }
+      if (String(atual.id) !== String(partidaId) || String(atual.guild_id) !== String(interaction.guildId) ||
+          String(atual.canal_id) !== String(interaction.channelId) || String(atual.mensagem_id) !== String(mensagemId) ||
+          String(atual.mediador_id) !== String(interaction.user.id) ||
+          Number(atual.sala_versao) !== Number(salva.sala_versao) || String(atual.sala_id || '') !== salaLimpa ||
+          String(atual.sala_senha || '') !== senhaLimpa ||
+          ![partidas.STATUS.SALA_LIBERADA, partidas.STATUS.EM_ANDAMENTO].includes(atual.status)) {
+        await responderPrivado(interaction, { content: 'A versão ou os dados da partida mudaram após o envio. Não considere estes dados confirmados: confira o cartão atual e consulte a administração antes de reenviar. Não crie outra sala.' });
+        return true;
+      }
+      if (!atualizado) {
+        await responderPrivado(interaction, { content: 'Na última consulta, os dados informados constavam no banco, mas não foi possível confirmar a edição do cartão no Discord. Confira o cartão atual; para reconciliar, reenvie os mesmos dados somente após confirmar que ainda são os atuais. Se não conseguir conferir, procure a administração. Não crie outra sala.' });
+        return true;
+      }
       await responderPrivado(interaction, {
-        embeds: [embedSucesso(`Sala liberada para os jogadores: ID \`${salaId}\`${senha ? ` · Senha \`${senha}\`` : ''}.`)],
+        embeds: [embedSucesso('Na última consulta, ID e senha informados constavam no banco, e o Discord aceitou a edição. Confira o cartão atual antes de prosseguir: atualizações concorrentes podem alterá-lo. O início da sala é externo.')],
       });
       return true;
     }

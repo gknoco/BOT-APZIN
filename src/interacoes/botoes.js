@@ -234,6 +234,73 @@ async function confirmarRegras(interaction, { db, client }, partidaId) {
   }
 }
 
+async function sinalizarProntidao(interaction, { db, client }, partidaId, salaVersao) {
+  if (!interaction.guildId || !interaction.channelId || !interaction.user?.id || !partidaId) {
+    return responderErro(interaction, 'Use o botão no cartão da partida dentro do servidor e canal originais.');
+  }
+  const partida = await buscarPartidaDaGuild(interaction, db, partidaId);
+  if (!partida || String(partida.id) !== String(partidaId) ||
+      String(partida.guild_id) !== String(interaction.guildId)) {
+    return responderErro(interaction, 'Partida não encontrada neste servidor.');
+  }
+  if (String(partida.canal_id || '') !== String(interaction.channelId) ||
+      !partida.mensagem_id || String(partida.mensagem_id) !== String(interaction.message?.id || '')) {
+    return responderErro(interaction, 'Use o botão no cartão atual, no canal original desta partida.');
+  }
+  if (![partidas.STATUS.SALA_LIBERADA, partidas.STATUS.EM_ANDAMENTO].includes(partida.status)) {
+    return responderErro(interaction, 'A prontidão só pode ser sinalizada após a liberação da sala e antes do encerramento.');
+  }
+
+  let resultado;
+  try {
+    // A RPC trava a linha da partida, verifica status e jogador, insere uma
+    // única confirmação por usuário e retorna quem realizou a transição.
+    resultado = await partidas.darGo(db, {
+      partidaId, userId: interaction.user.id, guildId: interaction.guildId,
+      canalId: interaction.channelId, mensagemId: interaction.message.id, salaVersao,
+    });
+  } catch (erro) {
+    // Bancos que ainda têm a mensagem da RPC antiga não devem sugerir o comando removido,
+    // inclusive numa corrida entre esta validação e o lock da RPC.
+    const mensagem = /\/go\b/i.test(String(erro.message || ''))
+      ? 'A prontidão só pode ser sinalizada após a liberação da sala e antes do encerramento.'
+      : erro.message;
+    return responderErro(interaction, mensagem);
+  }
+
+  // A operação já foi persistida: falhas do Discord não devem fingir que o
+  // clique falhou ou gerar outro anúncio/auditoria em um clique repetido.
+  try { await fluxo.atualizarPartida(client, db, partidaId); }
+  catch (erro) { console.error('[prontidao] falha ao atualizar cartão:', erro.message); }
+  if (!resultado.jaDeu) {
+    try {
+      await interaction.channel?.send?.({
+        content: `✅ ${mencao(interaction.user.id)} sinalizou prontidão (${resultado.deram}/${resultado.total}).` +
+          (resultado.iniciou ? ' Todos sinalizaram prontidão. O início da sala é feito externamente pelo comando oficial.' : ''),
+        allowedMentions: { users: [String(interaction.user.id)], parse: [] },
+      });
+    } catch (erro) { console.error('[prontidao] falha ao anunciar:', erro.message); }
+  }
+  if (resultado.iniciou) {
+    try {
+      await auditoria.registrar(db, client, {
+        guildId: interaction.guildId,
+        autorId: interaction.user.id,
+        acao: 'Prontidão completa',
+        detalhe: `Sala ${partidaId} · ${resultado.total} jogadores/capitães · estado interno em andamento; início externo`,
+      });
+    } catch (erro) { console.error('[prontidao] falha ao registrar auditoria:', erro.message); }
+  }
+  const faltam = Math.max(0, Number(resultado.total) - Number(resultado.deram));
+  return responderPrivado(interaction, {
+    embeds: [embedSucesso(
+      `${resultado.jaDeu ? 'Sua prontidão já estava registrada' : 'Prontidão registrada'}: **${resultado.deram}/${resultado.total}**.\n` +
+      (faltam ? `Faltam **${faltam}** jogador(es)/capitão(ães).` : 'Todos sinalizaram prontidão.') +
+      '\nO início da sala é externo, pelo comando oficial; este botão não inicia a Nix.',
+    )],
+  });
+}
+
 async function assumirSala(interaction, { db, client }, partidaId) {
   if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
     return responderErro(interaction, 'Só mediadores/ADM podem assumir salas.');
@@ -296,7 +363,7 @@ async function enviarPix(interaction, { db, client }, partidaId) {
 }
 
 async function pagamentoRecebido(interaction, { db, client }, partidaId) {
-  if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só o mediador pode confirmar o pagamento.');
+  if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) return responderErro(interaction, 'Só o mediador pode confirmar o pagamento.');
   const partida = await buscarPartidaDaGuild(interaction, db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
   if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user.id)) {
@@ -314,7 +381,7 @@ async function pagamentoRecebido(interaction, { db, client }, partidaId) {
     return responderPrivado(interaction, {
       embeds: [
         embedSucesso(
-          'Pagamento confirmado ✅\nAgora clique em **Criar sala (Nix)** — o ID e a senha vão direto para o canal da fila.',
+          'Pagamento confirmado ✅\nCrie a sala pelo comando oficial externo e depois clique em **Informar ID e senha** no cartão da partida.',
         ),
       ],
     });
@@ -452,6 +519,11 @@ async function handleBotao(interaction, ctx) {
 
       case 'confirmar':
         await confirmarRegras(interaction, ctx, args[0]);
+        return true;
+
+      case 'pronto':
+        if (args.length !== 2 || !/^\d+$/.test(args[1]) || !Number.isSafeInteger(Number(args[1]))) await responderErro(interaction, 'Botão de prontidão antigo ou inválido. Use o cartão atual.');
+        else await sinalizarProntidao(interaction, ctx, args[0], Number(args[1]));
         return true;
 
       case 'assumir':
@@ -630,7 +702,9 @@ async function handleBotao(interaction, ctx) {
         // abre modal (tratado em interacoes/modais.js)
         const { abrirModalRegras, abrirModalSala } = require('./modais');
         if (acao === 'regras') await abrirModalRegras(interaction, db, args[0]);
-        else await abrirModalSala(interaction, db, args[0]);
+        else if (args.length !== 2 || !args[0] || !/^\d+$/.test(args[1]) || !Number.isSafeInteger(Number(args[1]))) {
+          await responderErro(interaction, 'Botão de sala antigo ou inválido. Use o cartão atual.');
+        } else await abrirModalSala(interaction, db, args[0], Number(args[1]));
         return true;
       }
 

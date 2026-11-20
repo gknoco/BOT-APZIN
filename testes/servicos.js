@@ -346,13 +346,31 @@ test('fluxo aguarda blacklist, entrada e contagem na fila', async () => {
   });
 });
 
+test('resposta perdida na seleção da fila não provoca compensação ou sucesso', async () => {
+  const modo = config.MODOS[0]; const entradas = []; let criacoes = 0;
+  await substituir([
+    [blacklist, 'obter', async () => null],
+    [filas, 'entrar', async (_db, dados) => { entradas.push(dados.userId); return { entrou: true, posicao: 2 }; }],
+    [filas, 'contar', async () => 2],
+    [filas, 'reservar', async () => { throw new Error('resposta perdida após possível remoção'); }],
+    [partidas, 'criar', async () => { criacoes++; }],
+    [paineis, 'atualizar', async () => true],
+  ], async () => semConsole(async (mensagens) => {
+    await assert.rejects(fluxo.entrarNaFila({}, bancoFalso(), {
+      guild: { id: 'g' }, userId: 'u', modo: modo.id, preco: config.PRECOS[0], gelo: config.variantesDoModo(modo)[0].id,
+    }), /confirmar a reserva.*ADM reconciliá-la/);
+    assert.deepEqual(entradas, ['u']); assert.equal(criacoes, 0);
+    assert.ok(mensagens.error.some((x) => /reserva incerta .*guild g/.test(x)));
+  }));
+});
+
 async function comCriacaoDePartida(opcoes, executar) {
   const modo = config.MODOS[0];
-  const estado = { entradas: [], criacoes: 0, consultas: 0, canais: 0, apagados: 0, mensagens: 0, auditorias: 0 };
+  const estado = { entradas: [], criacoes: 0, consultas: 0, canais: 0, apagados: 0, mensagens: 0, payloads: [], auditorias: 0 };
   const partida = { id: 'p', guild_id: 'g', canal_id: 'c', modo: modo.id, gelo: config.variantesDoModo(modo)[0].id,
     preco: config.PRECOS[0], status: partidas.STATUS.CONFIRMANDO };
   const canal = { id: 'c', name: 'fila-teste',
-    send: async () => { estado.mensagens++; return { id: 'mensagem' }; },
+    send: async (payload) => { estado.mensagens++; estado.payloads.push(payload); if (opcoes.erroAviso) throw new Error('Discord indisponível'); return { id: 'mensagem' }; },
     delete: async () => { estado.apagados++; },
   };
   const client = { user: { id: 'bot' }, channels: { cache: new Map([['c', canal]]) } };
@@ -367,15 +385,18 @@ async function comCriacaoDePartida(opcoes, executar) {
     [blacklist, 'obter', async () => null],
     [filas, 'entrar', async (_db, dados) => { estado.entradas.push(dados); return { entrou: true, posicao: 2 }; }],
     [filas, 'contar', async () => config.CAPITAES_POR_PARTIDA],
-    [filas, 'reservar', async () => ['u1', 'u2']],
+    [filas, 'reservar', async (_db, d) => { partida.id = d.partidaId; return { id: d.reservaId, partida_id: d.partidaId, guild_id: d.guildId, modo: d.modo, preco: d.preco, gelo: d.gelo, estado: 'reservada', jogadores: ['u1', 'u2'], filas_originais: [{ guild_id: d.guildId, modo: d.modo, preco: d.preco, gelo: d.gelo, user_id: 'u1' }] }; }],
+    [filas, 'vincularCanal', async (_db, d) => ({ id: d.reservaId, guild_id: d.guildId, canal_id: d.canalId, estado: 'reservada' })],
     [paineis, 'atualizar', async () => true],
     [paineis, 'nomeSalaFila', () => canal.name],
     [mediadores, 'mencoes', async () => []],
+    [mediadores, 'cargos', async () => []],
     [partidas, 'criar', async (_db, dados) => {
       estado.criacoes++;
       assert.equal(dados.guildId, 'g'); assert.equal(dados.canalId, 'c');
       assert.deepEqual(dados.jogadores, [{ userId: 'u1', time: 1 }, { userId: 'u2', time: 2 }]);
       if (opcoes.erroCriar) throw new Error('resposta RPC perdida');
+      if (Object.hasOwn(opcoes, 'resposta')) return opcoes.resposta;
       return partida;
     }],
     [partidas, 'porCanal', async (_db, guildId, canalId) => {
@@ -399,59 +420,55 @@ async function comCriacaoDePartida(opcoes, executar) {
 test('fluxo cria canal e partida uma vez e publica somente após persistência', async () => {
   await comCriacaoDePartida({}, async ({ estado, entrar }) => {
     const resultado = await entrar();
-    assert.equal(resultado.fechou, true); assert.equal(resultado.partida.id, 'p'); assert.equal(resultado.canalId, 'c');
+    assert.equal(resultado.fechou, true); assert.ok(resultado.partida.id); assert.equal(resultado.canalId, 'c');
     assert.equal(estado.criacoes, 1); assert.equal(estado.consultas, 0);
     assert.equal(estado.mensagens, 1); assert.equal(estado.auditorias, 1);
     assert.equal(estado.apagados, 0); assert.equal(estado.entradas.length, 1);
   });
 });
 
-test('fluxo mantém erro amigável e devolve capitães se criação do canal falhar', async () => {
+test('falha antes da RPC não compensa capitães que podem ter reentrado', async () => {
   await comCriacaoDePartida({ erroCanal: true }, async ({ estado, entrar }) => {
-    await assert.rejects(entrar, /Gerenciar Canais/);
-    assert.deepEqual(estado.entradas.slice(1).map((x) => x.userId), ['u1', 'u2']);
+    await assert.rejects(entrar, /operação pode ainda estar em processamento.*ADM reconciliá-la/);
+    assert.equal(estado.entradas.length, 1);
     assert.equal(estado.criacoes, 0); assert.equal(estado.consultas, 0);
     assert.equal(estado.apagados, 0); assert.equal(estado.mensagens, 0);
   });
 });
 
-test('fluxo compensa erro RPC apenas após ausência confirmada e remove canal órfão', async () => {
-  await comCriacaoDePartida({ erroCriar: true }, async ({ estado, entrar }) => {
-    await assert.rejects(entrar, /salvar a partida no Supabase/);
-    assert.deepEqual(estado.entradas.slice(1).map((x) => x.userId), ['u1', 'u2']);
-    assert.ok(estado.entradas.every((x) => x.guildId === 'g'));
-    assert.equal(estado.criacoes, 1); assert.equal(estado.consultas, 1); assert.equal(estado.apagados, 1);
-    assert.equal(estado.mensagens, 0); assert.equal(estado.auditorias, 0);
-  });
-});
-
-test('fluxo recupera commit com erro de transporte sem duplicar partida ou capitães', async () => {
-  await comCriacaoDePartida({ erroCriar: true, recuperar: {} }, async ({ estado, entrar }) => {
-    const resultado = await entrar();
-    assert.equal(resultado.fechou, true); assert.equal(resultado.partida.id, 'p');
-    assert.equal(estado.criacoes, 1); assert.equal(estado.consultas, 1); assert.equal(estado.canais, 1);
-    assert.equal(estado.entradas.length, 1); assert.equal(estado.apagados, 0);
-    assert.equal(estado.mensagens, 1); assert.equal(estado.auditorias, 1);
-  });
-});
-
-test('fluxo exige ADM sem compensar nem duplicar quando consulta do commit falha', async () => {
-  await comCriacaoDePartida({ erroCriar: true, erroConsulta: true }, async ({ estado, entrar, mensagens }) => {
-    await assert.rejects(entrar, /ADM verificar o canal c/);
-    assert.equal(estado.criacoes, 1); assert.equal(estado.consultas, 1); assert.equal(estado.entradas.length, 1);
-    assert.equal(estado.apagados, 0); assert.equal(estado.mensagens, 0);
-    assert.ok(mensagens.error.some((x) => /criação incerta; guild g, canal c, capitães u1, u2/.test(x)));
-  });
-});
-
-test('fluxo só recupera partida com correspondência exata de guild e canal', async () => {
-  for (const recuperar of [{ guild_id: 'outra' }, { canal_id: 'outro' }]) {
-    await comCriacaoDePartida({ erroCriar: true, recuperar }, async ({ estado, entrar }) => {
-      await assert.rejects(entrar, /ADM verificar o canal c/);
+test('erro RPC sempre falha fechado mesmo se uma consulta hipotética retornasse partida', async () => {
+  for (const recuperar of [null, {}, { guild_id: 'outra' }, { canal_id: 'outro' }]) {
+    await comCriacaoDePartida({ erroCriar: true, recuperar }, async ({ estado, entrar, mensagens }) => {
+      await assert.rejects(entrar, /operação pode ainda estar em processamento.*ADM reconciliá-la/);
       assert.equal(estado.entradas.length, 1); assert.equal(estado.apagados, 0);
-      assert.equal(estado.criacoes, 1); assert.equal(estado.mensagens, 0);
+      assert.equal(estado.criacoes, 2); assert.equal(estado.consultas, 0); assert.equal(estado.mensagens, 1);
+      assert.equal(estado.auditorias, 0);
+      assert.doesNotMatch(estado.payloads[0].content, /sala de AP criada|recolocados/i);
+      assert.ok(mensagens.error.some((x) => /guild g, canal c, capitães u1, u2/.test(x)));
     });
   }
+});
+
+test('resposta de criação ausente ou incompatível nunca é anunciada como sucesso', async () => {
+  const modo = config.MODOS[0];
+  const outraResposta = { id: 'p', guild_id: 'g', canal_id: 'c', modo: modo.id, preco: config.PRECOS[0],
+    gelo: config.variantesDoModo(modo)[0].id, status: partidas.STATUS.FINALIZADA };
+  for (const resposta of [null, {}, { id: 'p', guild_id: 'outra', canal_id: 'c' }, outraResposta]) {
+    await comCriacaoDePartida({ resposta }, async ({ estado, entrar }) => {
+      await assert.rejects(entrar, /operação pode ainda estar em processamento/i);
+      assert.equal(estado.criacoes, 2); assert.equal(estado.consultas, 0); assert.equal(estado.entradas.length, 1);
+      assert.equal(estado.apagados, 0); assert.equal(estado.auditorias, 0);
+      assert.equal(estado.mensagens, 1); assert.doesNotMatch(estado.payloads[0].content, /sala de AP criada/i);
+    });
+  }
+});
+
+test('falha ao avisar no canal preserva erro e log para verificação manual', async () => {
+  await comCriacaoDePartida({ erroCriar: true, erroAviso: true }, async ({ estado, entrar, mensagens }) => {
+    await assert.rejects(entrar, /ADM reconciliá-la/);
+    assert.equal(estado.entradas.length, 1); assert.equal(estado.apagados, 0); assert.equal(estado.auditorias, 0);
+    assert.ok(mensagens.error.some((x) => /não consegui avisar no canal c/.test(x)));
+  });
 });
 
 test('fluxo aguarda jogadores e persistência da mensagem', async () => {

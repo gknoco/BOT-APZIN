@@ -22,7 +22,7 @@ const { embed, embedSucesso } = require('../util/embeds');
 // comandos: qualquer nome ainda não categorizado aparece em "Outros comandos".
 const CATEGORIAS_AJUDA = [
   { id: 'inicio', titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
-  { id: 'filas', titulo: '🎮 Filas e partidas', nomes: ['painelfilas', 'vencedor', 'wo', 'go', 'apostas', 'criar_telagem', 'telagem_links'] },
+  { id: 'filas', titulo: '🎮 Filas e partidas', nomes: ['painelfilas', 'vencedor', 'wo', 'apostas', 'criar_telagem', 'telagem_links'] },
   { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'painelpixmediadores', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixsss', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
   { id: 'perfil', titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'rankingall', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
   { id: 'feedback', titulo: '💬 Comunidade e suporte', nomes: ['reportarbug', 'sugestao', 'versiculododia'] },

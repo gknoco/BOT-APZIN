@@ -16,10 +16,11 @@ const configEconomia = require('../comandos/configEconomia');
 const convites = require('../servicos/convites');
 const auditoria = require('../servicos/auditoria');
 const royalSupabase = require('../servicos/royalSupabase');
-const { registrarComandos } = require('../servicos/registroComandos');
+const { registrarComandos, limparComandoGo } = require('../servicos/registroComandos');
 const membros = require('./membros');
 const mediadores = require('../servicos/mediadores');
 const cotasMediadores = require('../servicos/cotasMediadores');
+const fluxo = require('../servicos/fluxo');
 const { embedErro } = require('../util/embeds');
 const { responderPrivado } = require('../util/seguranca');
 const automacoes = require('../servicos/automacoesDiscord');
@@ -129,6 +130,17 @@ function montar(client, db) {
         console.log(`✅ ${lista.length} comandos registrados globalmente (pode levar até 1 hora).`);
         console.log('   Dica: defina GUILD_ID nas variáveis de ambiente para aparecer na hora.');
       }
+      // A sincronização substitui apenas o escopo escolhido. Limpe /go nos
+      // demais escopos conhecidos sem sobrescrever os outros comandos neles.
+      void limparComandoGo({
+        token: config.TOKEN,
+        clientId: conectado.application.id,
+        incluirGlobal: Boolean(registro.guildId),
+        guildIds: [...conectado.guilds.cache.keys()].filter((id) => String(id) !== registro.guildId),
+      }).then((limpeza) => {
+        if (limpeza.removidos) console.log(`[comandos] ${limpeza.removidos} /go antigo(s) removido(s) de outros escopos.`);
+        for (const erro of limpeza.erros) console.warn(`[comandos] não foi possível verificar /go em ${erro.escopo}: ${erro.mensagem}`);
+      }).catch((erro) => console.warn('[comandos] não foi possível verificar /go em outros escopos:', erro.message));
       console.log(`   Painéis de AP já publicados: ${filasPublicadas}/15\n`);
     } catch (erro) {
       const detalhes = [erro.code && `código ${erro.code}`, erro.status && `HTTP ${erro.status}`, erro.message]
@@ -146,6 +158,9 @@ function montar(client, db) {
     }
     automacoes.iniciar(conectado, db);
     for (const guild of conectado.guilds.cache.values()) {
+      fluxo.restaurarCartoesPartida(conectado, db, guild.id).catch((erro) => {
+        console.error(`[fluxo] não foi possível restaurar cartões da guild ${guild.id}:`, erro.message);
+      });
       roletaPro.restaurarPainelSalvo(guild, ctx).catch((erro) => {
         console.error('[roletapro] não foi possível restaurar o painel salvo:', erro.message);
       });

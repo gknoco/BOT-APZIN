@@ -1,16 +1,17 @@
 'use strict';
 
 const { TABELAS } = require('../db/esquema');
-const { cliente, executar, excluir, listarPaginado, limitePositivo } = require('../db/consultas');
+const { cliente, executar, listarPaginado, limitePositivo, rpc } = require('../db/consultas');
 const CAMPOS = 'guild_id,user_id,motivo,autor_id,criado_em';
 
 async function adicionar(db, { guildId, userId, motivo, autorId }) {
   const texto = String(motivo || '').trim();
   if (texto.length < 3) throw new Error('Escreva o motivo (pelo menos 3 letras).');
-  return executar(cliente(db).from(TABELAS.blacklist).upsert({
-    guild_id: String(guildId), user_id: String(userId), motivo: texto.slice(0, 300),
-    autor_id: String(autorId), criado_em: Date.now(),
-  }, { onConflict: 'guild_id,user_id' }).select(CAMPOS).single(), 'adicionar à blacklist');
+  const resultado = await rpc(db, 'royal_operacional_adicionar_blacklist', {
+    p_guild_id: String(guildId), p_user_id: String(userId), p_motivo: texto.slice(0, 300),
+    p_autor_id: String(autorId), p_criado_em: Date.now(),
+  });
+  return { ...resultado.registro, filas_afetadas: resultado.filas_afetadas };
 }
 
 async function obter(db, guildId, userId) {
@@ -21,8 +22,7 @@ async function obter(db, guildId, userId) {
 async function estaBloqueado(db, guildId, userId) { return Boolean(await obter(db, guildId, userId)); }
 
 async function remover(db, { guildId, userId }) {
-  return excluir(cliente(db).from(TABELAS.blacklist).delete({ count: 'exact' })
-    .eq('guild_id', String(guildId)).eq('user_id', String(userId)), 'remover da blacklist');
+  return rpc(db, 'royal_operacional_remover_blacklist', { p_guild_id: String(guildId), p_user_id: String(userId) });
 }
 
 async function listar(db, guildId, limite = 50) {

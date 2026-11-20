@@ -1,7 +1,6 @@
 'use strict';
 
 /** Estado operacional persistente. Transições críticas serializadas no PostgreSQL. */
-const crypto = require('node:crypto');
 const { TABELAS } = require('../db/esquema');
 const { cliente, executar, contar, listarPaginado, rpc } = require('../db/consultas');
 
@@ -13,13 +12,14 @@ const STATUS = Object.freeze({
 });
 const ATIVOS = new Set([STATUS.CONFIRMANDO, STATUS.AGUARDANDO_MEDIADOR,
   STATUS.AGUARDANDO_PAGAMENTO, STATUS.PAGO, STATUS.SALA_LIBERADA, STATUS.EM_ANDAMENTO]);
-const CAMPOS = 'id,guild_id,modo,preco,gelo,canal_id,mensagem_id,status,regras,regras_por,mediador_id,pix_chave,pix_titular,sala_id,sala_senha,vencedor_time,motivo_fim,comissao,criado_em,pago_em,liberada_em,finalizada_em,nix_sessao';
+const CAMPOS = 'id,guild_id,modo,preco,gelo,canal_id,mensagem_id,status,regras,regras_por,mediador_id,pix_chave,pix_titular,sala_id,sala_senha,sala_versao,vencedor_time,motivo_fim,comissao,criado_em,pago_em,liberada_em,finalizada_em,nix_sessao';
 const CAMPOS_JOGADOR = 'partida_id,user_id,time,confirmou';
 
-async function criar(db, { guildId, modo, preco, gelo, canalId, jogadores: lista }) {
+async function criar(db, { reservaId, partidaId, guildId, modo, preco, gelo, canalId, jogadores: lista }) {
+  if (!reservaId || !partidaId) throw new Error('Reserva e partida exigem IDs estáveis.');
   if (!Array.isArray(lista) || !lista.length) throw new Error('Não dá para criar partida sem jogadores.');
   return rpc(db, 'royal_operacional_criar_partida', {
-    p_id: crypto.randomBytes(6).toString('hex'), p_guild_id: String(guildId), p_modo: String(modo),
+    p_reserva_id: String(reservaId), p_id: String(partidaId), p_guild_id: String(guildId), p_modo: String(modo),
     p_preco: Math.trunc(preco), p_gelo: String(gelo), p_canal_id: String(canalId),
     p_jogadores: lista.map((jogador) => ({ user_id: String(jogador.userId), time: Number(jogador.time) })),
   });
@@ -134,8 +134,23 @@ async function liberarSala(db, id, { salaId, senha, sessao = null }) {
   });
 }
 
-async function darGo(db, { partidaId, userId }) {
-  return rpc(db, 'royal_operacional_dar_go', { p_id: String(partidaId), p_user_id: String(userId) });
+async function publicarSalaManual(db, { partidaId, guildId, canalId, mensagemId, mediadorId, salaVersao, salaId, senha }) {
+  const identificador = String(salaId || '').trim().slice(0, 40);
+  if (!identificador) throw new Error('Informe o ID da sala.');
+  return rpc(db, 'royal_operacional_publicar_sala_manual', {
+    p_id: String(partidaId), p_guild_id: String(guildId), p_canal_id: String(canalId),
+    p_mensagem_id: mensagemId == null ? null : String(mensagemId),
+    p_mediador_id: String(mediadorId), p_sala_versao: salaVersao == null ? null : Number(salaVersao), p_sala_id: identificador,
+    p_senha: senha ? String(senha).trim().slice(0, 40) : null,
+  });
+}
+
+async function darGo(db, { partidaId, userId, guildId, canalId, mensagemId, salaVersao }) {
+  return rpc(db, 'royal_operacional_dar_go', {
+    p_id: String(partidaId), p_user_id: String(userId), p_guild_id: guildId == null ? null : String(guildId),
+    p_canal_id: canalId == null ? null : String(canalId), p_mensagem_id: mensagemId == null ? null : String(mensagemId),
+    p_sala_versao: salaVersao == null ? null : Number(salaVersao),
+  });
 }
 
 /** Resultado + jogadores + auditoria são confirmados em uma única transação. */
@@ -164,4 +179,4 @@ async function cancelar(db, { partidaId, autorId = null, motivo = 'cancelada pel
 
 module.exports = { STATUS, ATIVOS, criar, buscar, jogadores, confirmados, definirMensagem, porCanal,
   ativas, ativasReais, pendentes, ativasDoJogador, definirRegras, confirmar, assumir, marcarPago, liberarSala,
-  darGo, finalizar, aplicarWO, cancelar };
+  publicarSalaManual, darGo, finalizar, aplicarWO, cancelar };

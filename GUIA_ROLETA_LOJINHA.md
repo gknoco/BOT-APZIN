@@ -35,7 +35,7 @@ Não são criados produtos nem prêmios fictícios: cadastre os itens e seus val
 
 ## Verificações locais
 
-- `npm ci` instala as dependências; o projeto usa Node.js 22 ou superior.
+- `npm ci` instala as dependências; o projeto requer Node.js 22.13.0 ou superior.
 - `npm test` executa os testes automatizados do bot e dos novos painéis.
 - `npm run test:economia:sql` executa testes de transações e concorrência em um PostgreSQL local temporário. Requer Python 3 e os binários `initdb`, `pg_ctl`, `psql` e `pg_config`; não usa o Supabase de produção.
 

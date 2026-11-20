@@ -6,6 +6,7 @@ const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('disco
 const config = require('../config');
 const persistenciaSupabase = require('../servicos/supabase');
 const blacklist = require('../servicos/blacklist');
+const paineis = require('../servicos/paineis');
 const auditoria = require('../servicos/auditoria');
 const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso, embedErro, mencao, dataBR } = require('../util/embeds');
@@ -56,12 +57,20 @@ const comandos = [
 
       if (sub === 'adicionar') {
         const motivo = interaction.options.getString('motivo');
-        await blacklist.adicionar(db, {
+        const bloqueio = await blacklist.adicionar(db, {
           guildId: interaction.guildId,
           userId: alvo.id,
           motivo,
           autorId: interaction.user.id,
         });
+        for (const { modo, preco } of bloqueio?.filas_afetadas || []) {
+          try {
+            const atualizado = await paineis.atualizar(client, db, { guildId: interaction.guildId, modo, preco });
+            if (!atualizado) console.error(`[blacklist] não consegui atualizar painel ${modo}/${preco} após bloqueio.`);
+          } catch (erro) {
+            console.error(`[blacklist] falha ao atualizar painel ${modo}/${preco} após bloqueio:`, erro.message);
+          }
+        }
         await auditoria.registrar(db, client, {
           guildId: interaction.guildId,
           autorId: interaction.user.id,

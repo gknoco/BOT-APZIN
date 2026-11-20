@@ -80,20 +80,20 @@ teste('paginação preserva todas as linhas acima do teto de 500', async () => {
 });
 
 teste('fila usa RPC para entrada/posição e seleção/remoção indivisíveis', async () => {
-  const { db, chamadas } = transporte([{ data: { entrou: false, posicao: 2 } }, { data: ['a', 'b'] }, { data: null }]);
-  const filtros = { guildId: 'g', modo: 'solo', preco: 100, gelo: 'normal', userId: 'a' };
+  const { db, chamadas } = transporte([{ data: { entrou: false, posicao: 2 } }, { data: { estado: 'reservada', jogadores: ['a', 'b'] } }, { data: { estado: 'insuficiente' } }]);
+  const filtros = { reservaId: 'r', partidaId: 'p', guildId: 'g', modo: 'solo', preco: 100, gelo: 'normal', userId: 'a' };
   assert.deepEqual(await filas.entrar(db, filtros), { entrou: false, posicao: 2 });
-  assert.deepEqual(await filas.reservar(db, { ...filtros, quantidade: 2 }), ['a', 'b']);
-  assert.equal(await filas.reservar(db, { ...filtros, quantidade: 2 }), null);
+  assert.deepEqual(await filas.reservar(db, { ...filtros, quantidade: 2 }), { estado: 'reservada', jogadores: ['a', 'b'] });
+  assert.equal((await filas.reservar(db, { ...filtros, quantidade: 2 })).estado, 'insuficiente');
   assert.equal(chamadas[0][1], 'royal_operacional_entrar_fila');
   assert.equal(chamadas[1][1], 'royal_operacional_reservar_fila');
   await assert.rejects(filas.reservar(db, { ...filtros, quantidade: 0 }), /inteiro positivo/);
 });
 
 teste('remoções usam contagem exata, blacklist aguarda consulta', async () => {
-  const { db, chamadas } = transporte([{ count: 1234 }, { data: null }, { data: { guild_id: 'g', user_id: 'a' } }]);
+  const { db, chamadas } = transporte([{ data: 1234 }, { data: null }, { data: { guild_id: 'g', user_id: 'a' } }]);
   assert.equal(await filas.limpar(db, { guildId: 'g' }), 1234);
-  assert.equal(chamadas[0].find((p) => p[0] === 'delete')[1].count, 'exact');
+  assert.equal(chamadas[0][1], 'royal_operacional_remover_filas');
   assert.equal(await blacklist.estaBloqueado(db, 'g', 'a'), false);
   assert.equal(await blacklist.estaBloqueado(db, 'g', 'a'), true);
 });
@@ -101,7 +101,7 @@ teste('remoções usam contagem exata, blacklist aguarda consulta', async () => 
 teste('partida cria jogadores, confirma, dá GO e finaliza via RPC', async () => {
   const result = { partida: { id: 'm' }, jogadores: [] };
   const { db, chamadas } = transporte([{ data: { id: 'm' } }, { data: { completo: true } }, { data: { iniciou: true } }, { data: result }]);
-  await partidas.criar(db, { guildId: 'g', modo: 'solo', preco: 100, gelo: 'normal', canalId: 'c', jogadores: [{ userId: 'a', time: 1 }] });
+  await partidas.criar(db, { reservaId: 'r', partidaId: 'm', guildId: 'g', modo: 'solo', preco: 100, gelo: 'normal', canalId: 'c', jogadores: [{ userId: 'a', time: 1 }] });
   assert.deepEqual(chamadas[0][2].p_jogadores, [{ user_id: 'a', time: 1 }]);
   assert.equal((await partidas.confirmar(db, 'm', 'a')).completo, true);
   assert.equal((await partidas.darGo(db, { partidaId: 'm', userId: 'a' })).iniciou, true);

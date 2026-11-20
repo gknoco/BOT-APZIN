@@ -729,23 +729,29 @@ test('saída de fila aguarda retorno false e não atualiza painéis indevidament
 
 test('modais de regras e sala aguardam consulta/mutação antes de construir e atualizar', async () => {
   const ordem = [];
+  let partida = { id: 'partida-a', guild_id: 'guild-a', canal_id: 'canal-a', mensagem_id: 'msg-a', mediador_id: 'user-a', status: 'pago', sala_versao: 0 };
   await comMocks([
-    [partidas, { buscar: async () => ({ id: 'partida-a' }), jogadores: async () => [{ user_id: 'user-a' }], definirRegras: async () => { ordem.push('regras'); }, liberarSala: async () => { ordem.push('sala'); } }],
-    [fluxo, { atualizarPartida: async () => { ordem.push('atualizar'); } }],
+    [partidas, { STATUS: { PAGO: 'pago', SALA_LIBERADA: 'sala_liberada', EM_ANDAMENTO: 'em_andamento' }, buscar: async () => ({ ...partida }), jogadores: async () => [{ user_id: 'user-a' }], definirRegras: async () => { ordem.push('regras'); }, publicarSalaManual: async () => { ordem.push('sala'); partida = { ...partida, status: 'sala_liberada', sala_versao: 1, sala_id: '12345', sala_senha: 'senha' }; return { ...partida }; } }],
+    [staff, { temCargoMediador: async () => true }],
+    [fluxo, { atualizarPartida: async () => { ordem.push('atualizar'); return true; } }],
   ], async () => {
     const abrir = interacao('ap:regras:partida-a');
     await modais.abrirModalRegras(abrir, {}, 'partida-a');
     assert.equal(abrir.chamadas.at(-1)[0], 'showModal');
-    const abrirSala = interacao('ap:liberar:partida-a');
+    const abrirSala = interacao('ap:liberar:partida-a:0');
+    abrirSala.channelId = 'canal-a';
+    abrirSala.message = { id: 'msg-a' };
     abrirSala.member.permissions.has = () => true;
-    await modais.abrirModalSala(abrirSala, {}, 'partida-a');
+    await modais.abrirModalSala(abrirSala, {}, 'partida-a', 0);
     assert.equal(abrirSala.chamadas.at(-1)[0], 'showModal');
     const regra = interacao('ap:modalregras:partida-a', { regra: 'Regra combinada' });
     await modais.handleModal(regra, ctx);
-    const sala = interacao('ap:modalsala:partida-a', { sala_id: '12345', sala_senha: 'senha' });
+    const sala = interacao('ap:modalsala:partida-a:msg-a:0', { sala_id: '12345', sala_senha: 'senha' });
+    sala.channelId = 'canal-a';
     sala.member.permissions.has = () => true;
     await modais.handleModal(sala, ctx);
     assert.deepEqual(ordem, ['regras', 'atualizar', 'sala', 'atualizar']);
+    assert.match(texto(ultimoPayload(sala)), /Discord aceitou a edição/);
   });
 });
 

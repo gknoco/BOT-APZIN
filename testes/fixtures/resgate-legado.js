@@ -1,0 +1,203 @@
+'use strict';
+// FIXTURE DE REGRESSÃO: trecho histórico de roomSalesSupabase.js em 28006c4.
+// Nunca importar no runtime: contém fallback inseguro apenas para provar o risco.
+const supabaseBase = require('../../src/servicos/supabase');
+const cliente = () => supabaseBase.obterCliente();
+const saldoMemoria = new Map();
+const resgatesMemoria = new Set();
+const chaveSaldo = (guildId, userId) => `${String(guildId)}:${String(userId)}`;
+const requestResgateInicial = (guildId, userId) => `initial-redeem:${String(guildId)}:${String(userId)}`;
+
+function saldoResposta(dados) {
+  const valor = dados?.available_rooms ?? dados?.balance_rooms ?? dados?.saldo ?? dados;
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? Math.max(0, Math.trunc(numero)) : 0;
+}
+
+function salvarSaldoMemoria(guildId, userId, saldo) {
+  const valor = Math.max(0, Math.trunc(Number(saldo) || 0));
+  saldoMemoria.set(chaveSaldo(guildId, userId), valor);
+  return valor;
+}
+
+function fallbackEstatisticas(guildId, userId) {
+  return {
+    available_rooms: saldoMemoria.get(chaveSaldo(guildId, userId)) || 0,
+    reserved_rooms: 0,
+    purchased_rooms_total: saldoMemoria.get(chaveSaldo(guildId, userId)) || 0,
+    created_today: 0,
+    created_total: 0,
+    approved_purchase_count: 0,
+    pending_usages: [],
+  };
+}
+
+async function rpc(nome, args) {
+  const { data, error } = await cliente().rpc(nome, args);
+  if (error) throw new Error(`${nome}: ${error.message}`);
+  return Array.isArray(data) ? data[0] : data;
+}
+
+
+async function estatisticasSalas(guildId, userId) {
+  try {
+    const dados = await rpc('royal_room_stats', { p_guild_id: String(guildId), p_user_id: String(userId) });
+    salvarSaldoMemoria(guildId, userId, saldoResposta(dados));
+    return dados;
+  } catch (erro) {
+    console.warn('[salas-credito] estatísticas oficiais indisponíveis; usando saldo em memória:', erro.message);
+    return fallbackEstatisticas(guildId, userId);
+  }
+}
+
+async function creditarResgateDireto({ guildId, userId, requestId, quantidade }) {
+  const { data: resgateExistente, error: erroResgate } = await cliente()
+    .from('royal_room_initial_redemptions')
+    .select('guild_id,user_id,request_id,rooms_quantity')
+    .eq('guild_id', String(guildId))
+    .eq('user_id', String(userId))
+    .maybeSingle();
+  if (!erroResgate && resgateExistente) {
+    const saldoAtual = await estatisticasSalas(guildId, userId);
+    return { redeemed: false, available_rooms: saldoResposta(saldoAtual), idempotent: true };
+  }
+
+  const { data: existente, error: erroLedger } = await cliente()
+    .from('royal_room_ledger')
+    .select('request_id')
+    .eq('request_id', requestId)
+    .maybeSingle();
+  if (!erroLedger && existente) {
+    const saldoAtual = await estatisticasSalas(guildId, userId);
+    return { redeemed: false, available_rooms: saldoResposta(saldoAtual), idempotent: true };
+  }
+
+  const { data: carteira, error: erroCarteira } = await cliente()
+    .from('royal_room_wallets')
+    .select('purchased_rooms,reserved_rooms,consumed_rooms,reversed_rooms')
+    .eq('guild_id', String(guildId))
+    .eq('user_id', String(userId))
+    .maybeSingle();
+  if (erroCarteira) throw erroCarteira;
+
+  const comprado = Number(carteira?.purchased_rooms || 0) + quantidade;
+  const { error: erroUpsert } = await cliente()
+    .from('royal_room_wallets')
+    .upsert({
+      guild_id: String(guildId),
+      user_id: String(userId),
+      purchased_rooms: comprado,
+      reserved_rooms: Number(carteira?.reserved_rooms || 0),
+      consumed_rooms: Number(carteira?.consumed_rooms || 0),
+      reversed_rooms: Number(carteira?.reversed_rooms || 0),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'guild_id,user_id' });
+  if (erroUpsert) throw erroUpsert;
+
+  const { error: erroInsercao } = await cliente()
+    .from('royal_room_ledger')
+    .insert({
+      guild_id: String(guildId),
+      user_id: String(userId),
+      request_id: requestId,
+      event_type: 'admin_grant',
+      delta_rooms: quantidade,
+      detail: { source: 'initial_redemption_direct_fallback', rooms_quantity: quantidade },
+    });
+  if (erroInsercao && !/duplicate|unique/i.test(erroInsercao.message || '')) throw erroInsercao;
+
+  const { error: erroResgateInsercao } = await cliente()
+    .from('royal_room_initial_redemptions')
+    .insert({
+      guild_id: String(guildId),
+      user_id: String(userId),
+      request_id: String(requestId),
+      rooms_quantity: quantidade,
+    });
+  if (erroResgateInsercao && !/duplicate|unique/i.test(erroResgateInsercao.message || '')) throw erroResgateInsercao;
+
+  const saldo = Math.max(0, comprado - Number(carteira?.reserved_rooms || 0)
+    - Number(carteira?.consumed_rooms || 0) + Number(carteira?.reversed_rooms || 0));
+  return { redeemed: !erroInsercao, available_rooms: saldo, direct_fallback: true };
+}
+
+async function resgatarSalasIniciais({ guildId, userId, quantidade = 10 }) {
+  const id = chaveSaldo(guildId, userId);
+  if (resgatesMemoria.has(id)) return { redeemed: false, available_rooms: saldoMemoria.get(id) || 0, memory_fallback: true };
+  const valor = Math.max(1, Math.trunc(Number(quantidade) || 10));
+  const requestId = requestResgateInicial(guildId, userId);
+  try {
+    const { data: resgatePersistido, error: erroResgatePersistido } = await cliente()
+      .from('royal_room_initial_redemptions')
+      .select('guild_id,user_id,request_id,rooms_quantity')
+      .eq('guild_id', String(guildId))
+      .eq('user_id', String(userId))
+      .maybeSingle();
+    if (!erroResgatePersistido && resgatePersistido) {
+      const saldoAtual = await estatisticasSalas(guildId, userId);
+      resgatesMemoria.add(id);
+      return { redeemed: false, available_rooms: saldoResposta(saldoAtual), idempotent: true };
+    }
+
+    const { data: marcadorLegado, error: erroMarcadorLegado } = await cliente()
+      .from('royal_mediator_room_quotas')
+      .select('resgate_inicial_realizado')
+      .eq('guild_id', String(guildId))
+      .eq('user_id', String(userId))
+      .maybeSingle();
+    const resgateLegadoMarcado = !erroMarcadorLegado && marcadorLegado?.resgate_inicial_realizado === true;
+    let dados;
+    try {
+      dados = await rpc('royal_room_credit_initial_redemption', {
+        p_guild_id: String(guildId),
+        p_user_id: String(userId),
+        p_request_id: requestId,
+        p_rooms_quantity: valor,
+      });
+    } catch (erroRpc) {
+      console.warn('[salas-credito] RPC de resgate inicial indisponível; gravando diretamente na carteira:', erroRpc.message);
+      dados = await creditarResgateDireto({ guildId, userId, requestId, quantidade: valor });
+    }
+    let saldo = salvarSaldoMemoria(guildId, userId, saldoResposta(dados));
+    if (resgateLegadoMarcado && dados?.redeemed === true) {
+      console.info('[salas-credito] resgate legado marcado; crédito inicial sincronizado na carteira oficial.');
+    }
+    if (dados?.redeemed === false && saldo <= 0) {
+      const { data: carteira } = await cliente()
+        .from('royal_room_wallets')
+        .select('consumed_rooms,reserved_rooms')
+        .eq('guild_id', String(guildId))
+        .eq('user_id', String(userId))
+        .maybeSingle();
+      if (carteira && Number(carteira.consumed_rooms || 0) === 0 && Number(carteira.reserved_rooms || 0) === 0) {
+        const recuperacao = await rpc('royal_room_credit_initial_redemption', {
+          p_guild_id: String(guildId),
+          p_user_id: String(userId),
+          p_request_id: `initial-recovery:${String(guildId)}:${String(userId)}`,
+          p_rooms_quantity: valor,
+        });
+        saldo = salvarSaldoMemoria(guildId, userId, saldoResposta(recuperacao));
+        resgatesMemoria.add(id);
+        return { redeemed: false, recovered: true, available_rooms: saldo };
+      }
+    }
+    resgatesMemoria.add(id);
+    return { ...dados, available_rooms: saldo, redeemed: dados?.redeemed !== false };
+  } catch (erro) {
+    try {
+      const dadosDiretos = await creditarResgateDireto({ guildId, userId, requestId, quantidade: valor });
+      const saldo = salvarSaldoMemoria(guildId, userId, saldoResposta(dadosDiretos));
+      resgatesMemoria.add(id);
+      return { ...dadosDiretos, available_rooms: saldo };
+    } catch (erroDireto) {
+      const atual = saldoMemoria.get(id) || 0;
+      const saldo = salvarSaldoMemoria(guildId, userId, atual + valor);
+      resgatesMemoria.add(id);
+      console.warn('[salas-credito] escrita oficial indisponível; usando carteira em memória:', erroDireto.message || erro.message);
+      return { redeemed: true, available_rooms: saldo, memory_fallback: true };
+    }
+  }
+}
+
+
+module.exports = { resgatarSalasIniciais };

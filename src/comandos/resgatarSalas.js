@@ -2,7 +2,7 @@
 
 const { SlashCommandBuilder } = require('discord.js');
 const vendasDb = require('../servicos/roomSalesSupabase');
-const { responderPrivado, responderErro } = require('../util/seguranca');
+const { EFEMERO, responderPrivado, responderErro } = require('../util/seguranca');
 const { embedSucesso } = require('../util/embeds');
 
 const CARGO_MEDIADOR = '1543684028719173732';
@@ -16,19 +16,27 @@ const comando = {
     if (!interaction.member?.roles?.cache?.has(CARGO_MEDIADOR)) {
       return responderErro(interaction, `Apenas mediadores com o cargo ${CARGO_MEDIADOR} podem usar este comando.`);
     }
-
-    const resultado = await vendasDb.resgatarSalasIniciais({
-      guildId: interaction.guildId,
-      userId: interaction.user.id,
-      quantidade: COTA_INICIAL,
-    });
-    if (resultado.redeemed === false && !resultado.recovered) {
+    if (!interaction.guildId) return responderErro(interaction, 'Use este comando dentro do servidor.');
+    await interaction.deferReply({ flags: EFEMERO });
+    let resultado;
+    try {
+      resultado = await vendasDb.resgatarSalasIniciais({
+        guildId: interaction.guildId,
+        userId: interaction.user.id,
+        quantidade: COTA_INICIAL,
+      });
+    } catch (erro) {
+      console.error('[salas-credito] não foi possível confirmar o resgate:', erro.message);
+      if (/INITIAL_ROOM_REDEMPTION_REVIEW_REQUIRED/.test(erro.message || '')) {
+        return responderErro(interaction, 'Seu histórico de salas precisa de revisão. Procure a administração antes de tentar novamente.');
+      }
+      return responderErro(interaction, 'Não foi possível confirmar o resgate. Tente novamente em instantes ou procure a administração.');
+    }
+    if (resultado.redeemed === false) {
       return responderErro(interaction, 'Você já resgatou suas salas iniciais.');
     }
     return responderPrivado(interaction, {
-      embeds: [embedSucesso(resultado.recovered
-        ? `✅ Seu saldo inicial foi sincronizado novamente.\n**Saldo disponível:** ${resultado.available_rooms} sala(s).`
-        : `✅ Você resgatou **${COTA_INICIAL} salas personalizadas**.\n**Saldo disponível:** ${resultado.available_rooms} sala(s).`)],
+      embeds: [embedSucesso(`✅ Você resgatou **${COTA_INICIAL} salas personalizadas**.\n**Saldo disponível:** ${resultado.available_rooms} sala(s).`)],
     });
   },
 };

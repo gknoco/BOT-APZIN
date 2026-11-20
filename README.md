@@ -18,9 +18,9 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 
 ## Instalação e atualização
 
-1. Use Node.js 22+ e execute `npm install`.
+1. Use Node.js **22.13.0 ou superior** e execute `npm ci`. A versão mínima também permite usar `node:sqlite` na importação manual sem a flag experimental.
 2. Copie `.env.example` para `.env` e configure `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` e `SUPABASE_SERVICE_ROLE_KEY`. O `SUPABASE_URL` do template aponta para o projeto Apzin; mantenha a chave privada apenas no ambiente do servidor/Railway.
-3. No SQL Editor do Supabase, aplique as migrações nesta ordem:
+3. Em um banco novo, aplique no SQL Editor do Supabase **todas** as migrações de `supabase/migrations`, em ordem pelo nome. No repositório atual, a sequência é:
    - `supabase/migrations/202611140001_discord_features.sql`
    - `supabase/migrations/202611140002_royal_ap_core.sql`
    - `supabase/migrations/202611150001_supabase_source_of_truth.sql`
@@ -32,7 +32,31 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
    - `supabase/migrations/20261117001100_royal_wallet_topups.sql`
    - `supabase/migrations/20261117010700_royal_infinite_rooms.sql`
    - `supabase/migrations/20261117014100_royal_wallet_statement.sql`
-4. Se você tem dados de uma versão SQLite, pare o bot antigo, faça um backup consistente (incluindo transações do WAL) e execute `npm run migrate:supabase -- --sqlite /caminho/backup.db --origem servidor-royal` antes de iniciar esta versão. Use Node.js 22.13+ para essa ferramenta manual. O backfill importa filas, partidas, jogadores/GO, painéis, plantão, blacklist, configurações, telagem e históricos; o arquivo original fica **somente leitura**. Dados remotos existentes nunca são sobrescritos; perfis usam uma RPC idempotente que preenche valores zerados e **aborta em conflitos**. Mantenha a mesma `--origem` para snapshots do mesmo banco. Não execute as versões antiga e nova simultaneamente. Sem backup legado, pule esta etapa; o runtime nunca cria ou abre `.db`.
+   - `supabase/migrations/20261117120228_royal_wallet_room_purchases.sql`
+   - `supabase/migrations/20261118000100_roulette_shop_pro.sql`
+   - `supabase/migrations/20261118000200_confirmar_preco_loja.sql`
+   - `supabase/migrations/20261118010000_royal_room_admin_grants.sql`
+   - `supabase/migrations/20261118014500_official_queue_banner.sql`
+   - `supabase/migrations/20261118015000_official_queue_avatar.sql`
+   - `supabase/migrations/20261118070000_fixed_mediator_fee.sql`
+   - `supabase/migrations/20261118080000_invite_tracker_counters.sql`
+   - `supabase/migrations/20261118090000_ss_duty_panels.sql`
+   - `supabase/migrations/20261119000100_mediator_room_quotas.sql`
+   - `supabase/migrations/20261119000200_mediator_initial_quota_once.sql`
+   - `supabase/migrations/20261119000300_sync_mediator_room_quota.sql`
+   - `supabase/migrations/20261119000500_royal_room_initial_redemption.sql`
+   - `supabase/migrations/20261120000100_wallet_topup_refund_protection.sql`
+   - `supabase/migrations/20261120000200_atomic_initial_room_redemption.sql`
+   - `supabase/migrations/20261120000300_blacklist_queues_atomic.sql`
+   - `supabase/migrations/20261120000400_match_readiness_manual_room.sql`
+   - `supabase/migrations/20261120001000_filas_exclusao_ids_seguras.sql`
+
+   Em banco já existente, faça backup e confira o histórico **e o schema real** antes de aplicar somente as migrações ainda necessárias, em ordem, sem reaplicar indiscriminadamente migrações antigas. Arquivos executados manualmente no SQL Editor podem não constar no histórico gerenciado; os dois scripts de imagem de fila alteram a configuração de um servidor específico. Confira também se foram adicionados arquivos posteriores à lista acima e aplique-os antes do deploy. A execução manual no SQL Editor não registra automaticamente a migração no histórico da CLI.
+   Para o corte das migrações de resgate e blacklist, **pare todas as instâncias antigas do bot antes de aplicá-las** e só inicie instâncias com o novo código depois: o resgate legado podia escrever diretamente na carteira e não deve disputar com a fotografia de revisão. Confira o schema e o backup antes do corte. A migração de blacklist também remove jogadores bloqueados já presentes em filas; republique ou atualize os painéis afetados no Discord após o corte.
+   A migração `20261120000400` também altera o contrato das RPCs de prontidão e sala manual: aplique-a com instâncias antigas paradas e reinicie somente com este código. Não misture versões durante o corte.
+   Carteiras anteriores sem resgate comprovado são encaminhadas para revisão em `royal_room_initial_redemption_reviews`: o resgate inicial fica bloqueado até a administração investigar pedidos, ledger e histórico e resolver o caso de forma auditável. Isso não altera nem reduz o saldo existente. Se não for possível comprovar a origem, mantenha a revisão e não crie evidências ou créditos artificiais.
+   Siga o [roteiro de corte e reconciliação](docs/runbooks/initial-room-redemption-cutover.md) para verificar privilégios, integrações e histórico antes de instalar as migrações.
+4. Se você tem dados de uma versão SQLite, pare o bot antigo, faça um backup consistente (incluindo transações do WAL) e execute `npm run migrate:supabase -- --sqlite /caminho/backup.db --origem servidor-royal` antes de iniciar esta versão. O backfill importa filas, partidas, jogadores e confirmações antigas, painéis, plantão, blacklist, configurações, telagem e históricos; o arquivo original fica **somente leitura**. Dados remotos existentes nunca são sobrescritos; perfis usam uma RPC idempotente que preenche valores zerados e **aborta em conflitos**. Mantenha a mesma `--origem` para snapshots do mesmo banco. Não execute as versões antiga e nova simultaneamente. Sem backup legado, pule esta etapa; o runtime nunca cria ou abre `.db`.
 5. Execute `npm run commands:sync` ou deixe o bot sincronizar os comandos no evento `ready`.
 6. Inicie com `npm start`.
 
@@ -42,7 +66,15 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 
 Não existe fallback nem espelho SQLite no runtime. `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` são obrigatórios; `DATABASE_PATH` e volumes de banco local não são utilizados. A leitura de `versiculos.json` fornece apenas o catálogo estático para seed, não armazena estado operacional.
 
-As tabelas `royal_filas`, `royal_partidas`, `royal_partida_jogadores`, `royal_partida_go`, `royal_paineis`, `royal_mensagens_painel`, `royal_plantao`, `royal_blacklist`, `royal_telagem_links`, `royal_telagens` e `royal_logs_dm` preservam o estado operacional na nuvem. Operações críticas de fila, criação/confirmacão/finalização de partidas, GO e reserva de telagem usam RPCs transacionais. Economia e vendas mantêm suas tabelas e RPCs anteriores, sem redefinir preços, pacotes ou regras financeiras.
+As tabelas `royal_filas`, `royal_fila_reservas`, `royal_partidas`, `royal_partida_jogadores`, `royal_partida_go`, `royal_paineis`, `royal_mensagens_painel`, `royal_plantao`, `royal_blacklist`, `royal_telagem_links`, `royal_telagens` e `royal_logs_dm` preservam o estado operacional na nuvem. Operações críticas de fila, criação/confirmacão/finalização de partidas, GO e reserva de telagem usam RPCs transacionais. Economia e vendas mantêm suas tabelas e RPCs anteriores, sem redefinir preços, pacotes ou regras financeiras.
+
+A formação usa reserva durável: enquanto pendente, os capitães não reentram em outra fila da mesma guild. A partida e a conclusão da reserva são atômicas e uma RPC de cancelamento sela o fencing antes de restaurar posições elegíveis. Falhas incertas não causam recolocação automática; a administração pode reconciliar após reinício. Outras inscrições dos capitães são suspensas durante a reserva e removidas ao concluir a partida. As assinaturas antigas de reserva/criação deixam de funcionar no corte. O Discord não é transacional e pode deixar canal órfão. Consulte [reservas e reconciliação](docs/runbooks/contencao-pareamento-blacklist.md).
+
+Após o pagamento, o mediador responsável usa o comando oficial externo para criar a sala e registra manualmente seu ID e senha em **Informar ID e senha** no cartão da partida. Somente jogadores/capitães cadastrados podem usar **Estou pronto**, no cartão atual e no canal e servidor da partida. A RPC existente registra uma confirmação por jogador e, quando todos confirmam, passa o estado interno para `em_andamento`. Isso **não inicia nem confirma o início real da sala Nix**: a operação de início é feita externamente pelo comando oficial. Resultado e W.O. continuam disponíveis. A migração `20261120000400_match_readiness_manual_room.sql` é necessária antes de publicar esta versão; cartões ativos são atualizados na inicialização, quando acessíveis ao bot.
+
+O mediador responsável, autorizado pelos cargos da guild, pode corrigir ID/senha **antes da primeira prontidão**. Após qualquer prontidão registrada, uma correção com dados diferentes é bloqueada sem apagar confirmações; se necessário, cancele e refaça a partida. Um reenvio com ID/senha idênticos continua permitido após a prontidão e também após o início, para reconciliação. A versão carregada pelo botão e pelo formulário impede que um cartão antigo sobrescreva uma correção; o reenvio idêntico é a exceção segura.
+
+Se o retorno do banco ou a atualização do Discord falhar, não crie outra sala. Confira o cartão e confirme com a administração quais credenciais são atuais antes de qualquer reenvio; só reenvie os mesmos dados se ainda forem os que devem valer. Se o cartão não estiver acessível ou houver divergência, peça à administração para verificar e reconciliar. A verificação posterior da versão e do conteúdo descreve o estado no momento da consulta, não garante que ele não mudará depois. Uma edição pode ter sido aceita mesmo quando a resposta falha; edições de múltiplas instâncias não têm ordenação garantida no Discord. A fila local de edição apenas serializa dentro de uma instância, não garante entrega exatamente uma vez nem que o cartão permanecerá atualizado. Confira sempre o cartão antes de prosseguir e mantenha instâncias antigas paradas durante o corte.
 
 Configurações de boas-vindas/saída, auditoria, categorias, mediadores e integrações usam `discord_configuracoes` como única fonte de verdade. A persistência remota precisa concluir com sucesso antes de confirmar uma configuração. Credenciais de `/conectar` continuam privadas; a listagem mostra apenas se estão configuradas.
 
@@ -75,6 +107,8 @@ Os produtos podem conceder coins, giros, cargos, resgates físicos ou PIX. Compr
 ## Testes e operação
 
 - `npm test` executa as suítes offline de regressão, compras, comandos, serviços e persistência Supabase, sem gerar cobranças reais nem iniciar o bot.
+- `npm run test:economia:sql` e `npm run test:auditoria:sql` executam testes em PostgreSQL temporário local; exigem PostgreSQL com `initdb`, `pg_ctl` e `psql`, além de Python 3. Não acessam o Supabase de produção.
+- `npm run test:prontidao:sql` testa cliques e publicação manual concorrentes em PostgreSQL temporário usando `pg_virtualenv`; não acessa o banco remoto.
 - `npm run migrate:supabase -- --sqlite /caminho/backup.db --origem servidor-royal` importa o estado legado em modo somente leitura, preservando dados remotos e abortando conflitos de perfis.
 - `npm run commands:sync` publica a lista atual e remove comandos remotos obsoletos conforme a resposta da API do Discord.
 - `npm start` abre também o health check HTTP para Railway/Render.
@@ -127,7 +161,7 @@ Antes do modo produção, confirme no Railway todas as variáveis acima, valide 
 
 ### Checklist final do Railway
 
-1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22+. O deploy padrão executa `npm start`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
+1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22.13.0 ou superior. O deploy padrão executa `npm start`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
 2. O runtime não necessita de volume SQLite nem de `DATABASE_PATH`. Se há um banco antigo no Railway, preserve o volume/backup até concluir o backfill manual e conferir os dados remotos; não apague o histórico antigo apenas por atualizar o código.
 3. Cadastre `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` (opcional para sincronização imediata), `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` do projeto Apzin. Não configure a chave `anon`/public.
 4. Para vendas, acrescente `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_WEBHOOK_URL`, `DEV_OWNER_ID` e `CARGOS_SUPER_ADMIN_IDS`. `NIX_API_KEY`/`NIX_API_URL` são necessários para criação automática das salas; `CATEGORIA_FILAS_ID`, `CARGO_ADMIN_ID`, `CARGO_STAFF_ID` e `CARGO_MEDIADOR_ID` definem a operação normal.

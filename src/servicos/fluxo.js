@@ -13,6 +13,7 @@ const {
   PermissionFlagsBits,
 } = require('discord.js');
 
+const crypto = require('node:crypto');
 const config = require('../config');
 const { obterConfig, definirConfig } = require('../db');
 const { embed, reais, mencao, mencaoCargo, tituloCurto } = require('../util/embeds');
@@ -28,6 +29,7 @@ const royalSupabase = require('./royalSupabase');
 const { STATUS } = partidas;
 const CARGO_MEDIADOR_ACESSO = '1543684028719173732';
 const notificacoesEmAndamento = new Set();
+const atualizacoesPartida = new Map();
 
 const NOME_TIME = { 1: 'Equipe 1', 2: 'Equipe 2' };
 const TAXA_MEDIADOR_CENTAVOS = 10;
@@ -102,14 +104,14 @@ function embedPartida(partida, lista) {
       cor = config.CORES.aviso;
       break;
     case STATUS.PAGO:
-      descricao = '**Pagamento confirmado ✅**\nO mediador responsável pode renomear este canal se necessário.';
+      descricao = '**Pagamento confirmado ✅**\nApós criar a sala pelo comando oficial externo, o mediador responsável informa o ID e a senha neste cartão. Este botão não cria nem inicia a sala.';
       cor = config.CORES.gelo;
       break;
     case STATUS.SALA_LIBERADA:
       descricao =
         '**Passo 5 · Sala liberada**\nEntrem no Free Fire com o ID e a senha abaixo.\n' +
-        'Quando os **dois** estiverem dentro da sala, cada um digita `/go` aqui no canal.\n' +
-        'O bot avisa e a partida inicia em 3 segundos.';
+        'Cada jogador/capitão cadastrado deve clicar em **Estou pronto** para sinalizar prontidão. ' +
+        'Isso não inicia a sala: o início é feito externamente pelo comando oficial. O mediador pode corrigir os dados somente antes da primeira prontidão; depois, cancele e refaça a partida se necessário.';
       cor = config.CORES.sucesso;
       campos.push(
         { name: 'ID da sala', value: partida.sala_id ? `\`${partida.sala_id}\`` : '—', inline: true },
@@ -118,7 +120,8 @@ function embedPartida(partida, lista) {
       break;
     case STATUS.EM_ANDAMENTO:
       descricao =
-        '**Partida em andamento ⚔️**\nOs dois jogadores deram GO.\n' +
+        '**Prontidão registrada ⚔️**\nTodos os jogadores/capitães cadastrados sinalizaram prontidão; o estado interno está em andamento.\n' +
+        'O início da sala é externo e não é confirmado por este botão.\n' +
         'Ao terminar, o mediador clica no vencedor (ou aplica W.O.).';
       cor = config.CORES.sucesso;
       campos.push(
@@ -191,6 +194,7 @@ function componentesPartida(partida) {
     case STATUS.PAGO:
       linhas.push(
         linha(
+          botao(`ap:liberar:${id}:${partida.sala_versao ?? 0}`, 'Informar ID e senha', '🎮', ButtonStyle.Success),
           botao(`ap:renomear:${id}`, 'Renomear', '✏️', ButtonStyle.Primary),
           botao(`ap:cancelar:${id}`, 'Cancelar', '🚫', ButtonStyle.Danger),
         ),
@@ -198,6 +202,12 @@ function componentesPartida(partida) {
       break;
     case STATUS.SALA_LIBERADA:
     case STATUS.EM_ANDAMENTO:
+      if (partida.status === STATUS.SALA_LIBERADA) {
+        linhas.push(linha(
+          botao(`ap:pronto:${id}:${partida.sala_versao ?? 0}`, 'Estou pronto', '✅', ButtonStyle.Primary),
+          botao(`ap:liberar:${id}:${partida.sala_versao ?? 0}`, 'Corrigir ID e senha', '✏️', ButtonStyle.Secondary),
+        ));
+      }
       linhas.push(
         linha(
           botao(`ap:vencer:${id}:1`, 'Equipe 1 venceu', '🏆', ButtonStyle.Success),
@@ -236,7 +246,7 @@ async function resolverCategoria(guild, db, chave, envId) {
   );
 }
 
-async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogadores }) {
+async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogadores, reservaId }) {
   // A sala privada nasce DENTRO da categoria configurada (CATEGORIA_FILAS_ID ou
   // `/boombot setcategoria`). Sem categoria configurada o bot tenta achar uma
   // categoria de filas pelo nome antes de criar na raiz do servidor.
@@ -265,7 +275,7 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
     name: nome,
     type: ChannelType.GuildText,
     ...(categoria ? { parent: categoria.id } : {}),
-    topic: `AP ${modo.titulo} · ${reais(preco)} · ${gelo} · sala privada`,
+    topic: `AP ${modo.titulo} · ${reais(preco)} · ${gelo} · reserva ${reservaId} · sala privada`,
     permissionOverwrites: permissoes,
   });
 
@@ -274,6 +284,8 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
 
 async function publicarSala(client, db, partida) {
   try {
+    // Uma partida retomada pode já ter um cartão; só edite a referência salva.
+    if (partida.mensagem_id) return await atualizarPartida(client, db, partida.id, { somenteEditar: true });
     const canal = client.channels.cache.get(partida.canal_id) || (await client.channels.fetch(partida.canal_id));
     if (!canal) return false;
     const lista = await partidas.jogadores(db, partida.id);
@@ -283,6 +295,9 @@ async function publicarSala(client, db, partida) {
       components: componentesPartida(partida),
       allowedMentions: { parse: ['users'] },
     });
+    if (typeof mensagem?.id !== 'string' || !mensagem.id.trim()) {
+      throw new Error('Discord não confirmou o ID da mensagem enviada.');
+    }
     await partidas.definirMensagem(db, partida.id, mensagem.id);
     // Nada de "mandem o ID e a senha": o mediador cria a sala pelo bot.
     return true;
@@ -292,7 +307,7 @@ async function publicarSala(client, db, partida) {
   }
 }
 
-async function atualizarPartida(client, db, partidaId) {
+async function atualizarPartidaSemFila(client, db, partidaId) {
   const partida = await partidas.buscar(db, partidaId);
   if (!partida) return false;
   try {
@@ -302,19 +317,50 @@ async function atualizarPartida(client, db, partidaId) {
     const payload = { embeds: [embedPartida(partida, lista)], components: componentesPartida(partida) };
 
     if (partida.mensagem_id) {
-      const mensagem = await canal.messages.fetch(partida.mensagem_id).catch(() => null);
+      // Um erro de rede não prova que a mensagem foi apagada. Nunca envie uma
+      // segunda mensagem na reconciliação de uma publicação ambígua.
+      const mensagem = await canal.messages.fetch(partida.mensagem_id);
       if (mensagem) {
         await mensagem.edit(payload);
         return true;
       }
     }
-    const nova = await canal.send({ ...payload, allowedMentions: { parse: ['users'] } });
-    await partidas.definirMensagem(db, partidaId, nova.id);
-    return true;
+    // A ausência do ID também pode ser uma gravação perdida depois do envio.
+    // Não é uma prova de que se pode publicar outro cartão, mesmo em cancelamento.
+    return false;
   } catch (erro) {
     console.error('[fluxo] não consegui atualizar a sala:', erro.message);
     return false;
   }
+}
+
+// A leitura acontece dentro da fila: dois cliques não podem editar o cartão
+// com um snapshot mais antigo depois de outro mais recente, nesta instância.
+async function atualizarPartida(client, db, partidaId, opcoes = {}) {
+  const chave = String(partidaId);
+  const anterior = atualizacoesPartida.get(chave) || Promise.resolve();
+  const atual = anterior.catch(() => {}).then(() => atualizarPartidaSemFila(client, db, partidaId, opcoes));
+  atualizacoesPartida.set(chave, atual);
+  try {
+    return await atual;
+  } finally {
+    if (atualizacoesPartida.get(chave) === atual) atualizacoesPartida.delete(chave);
+  }
+}
+
+/** Atualiza cartões existentes para expor os controles após uma reinicialização. */
+async function restaurarCartoesPartida(client, db, guildId) {
+  const ativas = await partidas.ativas(db, guildId);
+  let atualizadas = 0;
+  for (const partida of ativas) {
+    if (![STATUS.PAGO, STATUS.SALA_LIBERADA, STATUS.EM_ANDAMENTO].includes(partida.status)) continue;
+    try {
+      if (await atualizarPartida(client, db, partida.id)) atualizadas += 1;
+    } catch (erro) {
+      console.error(`[fluxo] não consegui restaurar cartão ${partida.id}:`, erro.message);
+    }
+  }
+  return atualizadas;
 }
 
 /** Notifica a staff quando os capitães confirmam a partida; a assunção usa o lock do Supabase. */
@@ -608,131 +654,219 @@ async function anunciarPix(client, db, { partidaId, mediadorId, chave, titular }
 
 /**
  * Coloca o jogador na fila e, se o grupo fechar, cria a sala privada.
- * Lança Error com mensagem amigável quando algo impede a entrada.
+ * Uma confirmação do banco nunca é desfeita nem descrita como falha de criação
+ * por causa de um erro posterior do Discord, painel ou auditoria.
  */
 async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
   const modoInfo = config.modoPorId(modo);
   if (!modoInfo) throw new Error('Modo de AP inválido.');
   const valor = Number(preco);
   if (!config.PRECOS.includes(valor)) throw new Error('Faixa de aposta inválida.');
-  if (!config.varianteDoModo(modoInfo, gelo)) {
-    throw new Error('Escolha uma opção de entrada válida para esse modo.');
-  }
+  if (!config.varianteDoModo(modoInfo, gelo)) throw new Error('Escolha uma opção de entrada válida para esse modo.');
 
   const bloqueio = await blacklist.obter(db, guild.id, userId);
   if (bloqueio) throw new Error(`Você está na lista negra da ORG: **${bloqueio.motivo}**.`);
 
-  const resultado = await filas.entrar(db, {
-    guildId: guild.id,
-    modo: modoInfo.id,
-    preco: valor,
-    gelo,
-    userId,
-  });
-
-  if (!resultado.entrou) {
-    throw new Error(`Você já está nessa fila (posição ${resultado.posicao}).`);
-  }
-
-  const painelOk = await paineis.atualizar(client, db, {
-    guildId: guild.id,
-    modo: modoInfo.id,
-    preco: valor,
-  });
-  if (!painelOk) {
-    console.error(
-      `[fluxo] o jogador entrou na fila, mas o painel ${modoInfo.id} (${reais(valor)}) não atualizou. ` +
-        'Confira se o bot pode Ver o canal, Enviar e Editar mensagens.',
-    );
-  }
-
-  const naFila = await filas.contar(db, { guildId: guild.id, modo: modoInfo.id, preco: valor, gelo });
-  // TODA fila abre com 2 capitães (1 por time). Em 3x3/4x4 o capitão leva o
-  // time dele para a sala personalizada com o ID/senha — não espera 6 ou 8.
-  if (naFila < config.CAPITAES_POR_PARTIDA) {
-    return {
-      posicao: resultado.posicao,
-      naFila,
-      faltam: config.CAPITAES_POR_PARTIDA - naFila,
-      fechou: false,
-      partida: null,
-    };
-  }
-
-  const ids = await filas.reservar(db, {
-    guildId: guild.id,
-    modo: modoInfo.id,
-    preco: valor,
-    gelo,
-    quantidade: config.CAPITAES_POR_PARTIDA,
-  });
-  if (!ids) {
-    return { posicao: resultado.posicao, naFila, faltam: 1, fechou: false, partida: null };
-  }
-
-  const jogadores = ids.map((id, indice) => ({
-    userId: id,
-    time: indice + 1,
-  }));
-
-  let canal = null;
-  let partida;
+  let resultado;
   try {
-    canal = await criarCanalPartida(client, db, guild, { modo: modoInfo, preco: valor, gelo, jogadores: ids });
-    partida = await partidas.criar(db, {
-      guildId: guild.id,
-      modo: modoInfo.id,
-      preco: valor,
-      gelo,
-      canalId: canal.id,
-      jogadores,
+    resultado = await filas.entrar(db, { guildId: guild.id, modo: modoInfo.id, preco: valor, gelo, userId });
+    if (!resultado || typeof resultado.entrou !== 'boolean') throw new Error('Resposta de entrada inválida.');
+  } catch (erro) {
+    throw new Error('Não foi possível confirmar sua entrada na fila. Ela pode ter ocorrido; peça a um ADM para verificar antes de entrar novamente.', { cause: erro });
+  }
+  if (!resultado.entrou) throw new Error(`Você já está nessa fila (posição ${resultado.posicao}).`);
+
+  // Todos são best effort; nenhum erro externo interrompe a reserva após a
+  // inscrição, e uma publicação potencialmente parcial não é repetida.
+  const problemasPaineis = new Map();
+  async function atualizarPainel(modoPainel, precoPainel) {
+    const chave = JSON.stringify([modoPainel, precoPainel]);
+    // Atualizar pode republicar mensagens. Depois de falha, uma republicação
+    // parcial pode ter acontecido: não tente automaticamente a mesma faixa.
+    if (problemasPaineis.has(chave)) return;
+    try {
+      if (await paineis.atualizar(client, db, { guildId: guild.id, modo: modoPainel, preco: precoPainel }) !== true) {
+        throw new Error('atualização não confirmada');
+      }
+      problemasPaineis.delete(chave);
+    } catch (erro) {
+      problemasPaineis.set(chave, `${modoPainel}/${precoPainel}`);
+      console.error(`[fluxo] painel ${modoPainel}/${precoPainel} não confirmado:`, erro.message);
+    }
+  }
+  const textoPaineis = () => problemasPaineis.size
+    ? ` Painéis a verificar: ${[...problemasPaineis.values()].join(', ')}.` : '';
+  await atualizarPainel(modoInfo.id, valor);
+
+  let naFila;
+  try {
+    naFila = await filas.contar(db, { guildId: guild.id, modo: modoInfo.id, preco: valor, gelo });
+  } catch (erro) {
+    throw new Error(`Sua entrada foi registrada, mas não foi possível confirmar a contagem. Não entre novamente; peça a um ADM verificar.${textoPaineis()}`, { cause: erro });
+  }
+  if (naFila < config.CAPITAES_POR_PARTIDA) {
+    if (problemasPaineis.size) {
+      throw new Error(`Sua entrada foi registrada, mas a atualização do painel não foi confirmada. Não entre novamente; peça a um ADM verificar.${textoPaineis()}`);
+    }
+    return { posicao: resultado.posicao, naFila, faltam: config.CAPITAES_POR_PARTIDA - naFila, fechou: false, partida: null };
+  }
+
+  // Os IDs e argumentos permanecem idênticos em todas as tentativas.
+  const reservaId = crypto.randomUUID();
+  const partidaId = crypto.randomBytes(16).toString('hex');
+  const contexto = { reservaId, partidaId, guildId: guild.id, modo: modoInfo.id,
+    preco: valor, gelo, quantidade: config.CAPITAES_POR_PARTIDA };
+  console.info(`[fluxo] reserva iniciada ${reservaId}; partida ${partidaId}; guild ${guild.id}; modo ${modoInfo.id}; preço ${valor}; gelo ${gelo}`);
+
+  function erroComContexto(mensagem, causa, canalId = null, extra = {}) {
+    return Object.assign(new Error(mensagem, causa ? { cause: causa } : undefined), {
+      reservaId, partidaId, canalId, ...extra,
+    });
+  }
+  async function repetirMesmoPedido(operacao, validar) {
+    let ultima, houveIncerteza = false;
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      try {
+        const resposta = await operacao();
+        if (!validar(resposta)) throw new Error('Resposta ausente ou incompatível.');
+        return { resposta, houveIncerteza };
+      } catch (causa) {
+        const erro = causa instanceof Error ? causa : new Error(String(causa));
+        ultima = erro;
+        if (erro.code === 'PBL01' || erro.code === 'PRV02') {
+          erro.tentativaAnteriorIncerta = houveIncerteza;
+          break;
+        }
+        houveIncerteza = true;
+      }
+    }
+    if (ultima.tentativaAnteriorIncerta === undefined) ultima.tentativaAnteriorIncerta = houveIncerteza;
+    throw ultima;
+  }
+
+  let reserva;
+  try {
+    ({ resposta: reserva } = await repetirMesmoPedido(() => filas.reservar(db, contexto), (r) =>
+      r && r.id === reservaId && r.guild_id === String(guild.id)
+      && ['reservada', 'insuficiente', 'cancelada', 'concluida'].includes(r.estado)
+      && (r.estado === 'cancelada' || (r.partida_id === partidaId && r.modo === modoInfo.id
+        && Number(r.preco) === valor && r.gelo === gelo))));
+  } catch (erro) {
+    console.error(`[fluxo] reserva incerta ${reservaId}; partida ${partidaId}; guild ${guild.id}:`, erro.message);
+    throw erroComContexto(`Não foi possível confirmar a reserva ${reservaId} da partida ${partidaId}. Peça a um ADM reconciliá-la; não entre novamente enquanto estiver pendente.${textoPaineis()}`, erro);
+  }
+  if (reserva.estado === 'insuficiente') {
+    await atualizarPainel(modoInfo.id, valor);
+    let restantes;
+    try { restantes = await filas.contar(db, { guildId: guild.id, modo: modoInfo.id, preco: valor, gelo }); }
+    catch (erro) {
+      throw erroComContexto(`A reserva ${reservaId} não selecionou jogadores, mas a fila não pôde ser conferida. Peça a um ADM verificar antes de entrar novamente.${textoPaineis()}`, erro);
+    }
+    if (problemasPaineis.size) throw erroComContexto(`A reserva ${reservaId} não selecionou jogadores; a entrada pode continuar na fila. Não entre novamente; peça a um ADM verificar.${textoPaineis()}`);
+    return { posicao: resultado.posicao, naFila: restantes,
+      faltam: Math.max(1, config.CAPITAES_POR_PARTIDA - restantes), fechou: false, partida: null, reservaId, partidaId };
+  }
+  // A RPC remove todas as inscrições dos selecionados, inclusive noutros modos
+  // e preços. Atualize cada cartão distinto mesmo que outro falhe.
+  const alvos = new Map([[JSON.stringify([modoInfo.id, valor]), { modo: modoInfo.id, preco: valor }]]);
+  let originaisIncompletas = !Array.isArray(reserva.filas_originais) || reserva.filas_originais.length === 0;
+  if (Array.isArray(reserva.filas_originais)) {
+    for (const fila of reserva.filas_originais) {
+      const precoFila = Number(fila?.preco);
+      if (!fila || String(fila.guild_id) !== String(guild.id) || typeof fila.modo !== 'string' || !fila.modo
+        || fila.preco == null || !Number.isInteger(precoFila) || precoFila < 0) {
+        originaisIncompletas = true;
+        continue;
+      }
+      alvos.set(JSON.stringify([fila.modo, precoFila]), { modo: fila.modo, preco: precoFila });
+    }
+  }
+  if (originaisIncompletas) {
+    problemasPaineis.set('originais-incompletas', 'lista de filas removidas incompleta');
+    console.error(`[fluxo] reserva ${reservaId}: lista de filas originais ausente ou inválida; verificação manual necessária.`);
+  }
+  for (const alvo of alvos.values()) await atualizarPainel(alvo.modo, alvo.preco);
+  if (reserva.estado !== 'reservada' || !Array.isArray(reserva.jogadores)
+    || reserva.jogadores.length !== config.CAPITAES_POR_PARTIDA
+    || new Set(reserva.jogadores).size !== reserva.jogadores.length
+    || reserva.jogadores.some((id) => typeof id !== 'string' || !id)) {
+    throw erroComContexto(`Reserva ${reservaId}, partida ${partidaId}: estado ou participantes exigem verificação. Peça a um ADM reconciliá-la; não entre novamente.${textoPaineis()}`);
+  }
+
+  const ids = reserva.jogadores;
+  const jogadores = ids.map((id, indice) => ({ userId: id, time: indice + 1 }));
+  let canal = null, etapa = 'canal', partida, criacaoIncerta = false;
+  try {
+    canal = await criarCanalPartida(client, db, guild, { modo: modoInfo, preco: valor, gelo, jogadores: ids, reservaId });
+    if (!canal?.id) throw new Error('Discord não retornou o ID do canal.');
+    etapa = 'vinculo';
+    await repetirMesmoPedido(() => filas.vincularCanal(db, { reservaId, guildId: guild.id, canalId: canal.id }), (r) =>
+      r && r.id === reservaId && r.guild_id === String(guild.id) && r.canal_id === String(canal.id)
+      && ['reservada', 'concluida'].includes(r.estado));
+    etapa = 'partida';
+    const dadosPartida = { reservaId, partidaId, guildId: guild.id, modo: modoInfo.id, preco: valor, gelo, canalId: canal.id, jogadores };
+    const criacao = await repetirMesmoPedido(() => partidas.criar(db, dadosPartida), (p) =>
+      p && String(p.id) === partidaId && String(p.guild_id) === String(guild.id)
+      && String(p.canal_id) === String(canal.id) && String(p.modo) === String(modoInfo.id)
+      && Number(p.preco) === valor && String(p.gelo) === String(gelo)
+      && Object.values(STATUS).includes(p.status));
+    partida = criacao.resposta;
+    criacaoIncerta = criacao.houveIncerteza;
+  } catch (erro) {
+    // Só uma rejeição na primeira tentativa prova que essa tentativa de criação
+    // foi recusada; uma tentativa anterior pode ainda chegar ao servidor.
+    const canalId = canal?.id || null;
+    console.error(`[fluxo] pareamento interrompido; reserva ${reservaId}, partida ${partidaId}, guild ${guild.id}, canal ${canalId || '(não confirmado)'}, capitães ${ids.join(', ')}, etapa ${etapa}, código ${erro.code || 'desconhecido'}:`, erro.message);
+    const diagnostico = etapa === 'partida' && erro.code === 'PBL01' && !erro.tentativaAnteriorIncerta
+      ? 'Criação recusada: há jogador na lista negra.'
+      : 'Resultado do pareamento não confirmado; uma operação pode ainda estar em processamento.';
+    const aviso = `${diagnostico} Reserva ${reservaId}; partida ${partidaId}; canal ${canalId || 'não confirmado'}. Peça a um ADM reconciliá-la; não reentre manualmente.${textoPaineis()}`;
+    if (canal?.send) {
+      try { await canal.send({ content: `${ids.map(mencao).join(' ')} ${aviso}`, allowedMentions: { parse: ['users'] } }); }
+      catch (avisoErro) { console.error(`[fluxo] não consegui avisar no canal ${canalId}:`, avisoErro.message); }
+    }
+    throw erroComContexto(aviso, erro, canalId);
+  }
+
+  // Se uma criação foi repetida, ou o estado já avançou, outro ator pode ter
+  // publicado. Sem ID salvo, não se pode concluir que o canal está vazio.
+  let publicacaoConfirmada = false;
+  try {
+    if (partida.mensagem_id || criacaoIncerta || partida.status !== STATUS.CONFIRMANDO) {
+      publicacaoConfirmada = await atualizarPartida(client, db, partidaId, { somenteEditar: true });
+    } else {
+      publicacaoConfirmada = await publicarSala(client, db, partida);
+      if (!publicacaoConfirmada) {
+        // Ler o ID persistido e editar é seguro; nunca reenviar aqui.
+        publicacaoConfirmada = await atualizarPartida(client, db, partidaId, { somenteEditar: true });
+      }
+    }
+  } catch (erro) {
+    console.error(`[fluxo] publicação não confirmada da partida ${partidaId}:`, erro.message);
+  }
+  // Confirme novamente os painéis após a criação, ainda em best effort: a
+  // partida já existe mesmo se qualquer uma dessas atualizações falhar.
+  for (const alvo of alvos.values()) await atualizarPainel(alvo.modo, alvo.preco);
+  let auditoriaConfirmada = true;
+  try {
+    await auditoria.registrar(db, client, {
+      guildId: guild.id, acao: 'AP criado',
+      detalhe: `${modoInfo.titulo} · ${reais(valor)} · ${gelo} · sala ${canal.name} · ${ids.length} capitães (1 por time)`,
     });
   } catch (erro) {
-    console.error('[fluxo] falha ao criar sala/partida:', erro.message);
-    if (canal) {
-      try {
-        // A RPC pode ter feito commit antes de perder a resposta HTTP.
-        partida = await partidas.porCanal(db, guild.id, canal.id);
-        if (partida && (String(partida.guild_id) !== String(guild.id) || String(partida.canal_id) !== String(canal.id))) {
-          throw new Error('A consulta retornou uma partida de outro servidor/canal.');
-        }
-      } catch (consultaErro) {
-        console.error(`[fluxo] criação incerta; guild ${guild.id}, canal ${canal.id}, capitães ${ids.join(', ')}:`, consultaErro.message);
-        throw new Error(
-          `Não foi possível confirmar a criação da partida no Supabase. Peça a um ADM verificar o canal ${canal.id} antes de tentar novamente. Os capitães não foram recolocados na fila para evitar uma partida duplicada.`,
-          { cause: consultaErro },
-        );
-      }
-    }
-    if (!partida) {
-      // Só compensa após ausência confirmada (ou antes de existir um canal).
-      const compensacoes = await Promise.allSettled(jogadores.map((jogador) => filas.entrar(db, {
-        guildId: guild.id, modo: modoInfo.id, preco: valor, gelo, userId: jogador.userId,
-      })));
-      if (canal) compensacoes.push(...await Promise.allSettled([
-        Promise.resolve().then(() => canal.delete('Criação da partida não persistida no Supabase')),
-      ]));
-      compensacoes.push(...await Promise.allSettled([
-        paineis.atualizar(client, db, { guildId: guild.id, modo: modoInfo.id, preco: valor }),
-      ]));
-      for (const resultado of compensacoes) {
-        if (resultado.status === 'rejected') console.error('[fluxo] falha ao compensar criação da partida:', resultado.reason);
-      }
-      throw new Error(canal
-        ? 'Não consegui salvar a partida no Supabase. Peça a um ADM verificar a fila e os canais antes de tentar novamente.'
-        : 'Os dois capitães entraram, mas não consegui criar a sala privada. Peça para um ADM verificar se o bot tem **Gerenciar Canais** e se a categoria de filas existe.');
-    }
+    auditoriaConfirmada = false;
+    console.error(`[fluxo] auditoria não confirmada para partida ${partidaId}:`, erro.message);
   }
-
-  await publicarSala(client, db, partida);
-  await paineis.atualizar(client, db, { guildId: guild.id, modo: modoInfo.id, preco: valor });
-  await auditoria.registrar(db, client, {
-    guildId: guild.id,
-    acao: 'AP criado',
-    detalhe: `${modoInfo.titulo} · ${reais(valor)} · ${gelo} · sala ${canal.name} · ${ids.length} capitães (1 por time)`,
-  });
-
-  return { posicao: resultado.posicao, naFila: 0, faltam: 0, fechou: true, partida, canalId: canal.id };
+  const pendencias = [];
+  if (!publicacaoConfirmada) pendencias.push('a publicação do cartão não foi confirmada e pode já ter ocorrido');
+  if (partida.status !== STATUS.CONFIRMANDO) pendencias.push(`o estado retornado é ${partida.status}`);
+  if (problemasPaineis.size) pendencias.push(`atualização dos painéis não confirmada (${[...problemasPaineis.values()].join(', ')})`);
+  if (!auditoriaConfirmada) pendencias.push('auditoria não confirmada');
+  if (pendencias.length) {
+    throw erroComContexto(`A partida ${partidaId} foi confirmada no banco, na reserva ${reservaId} e canal ${canal.id}, mas ${pendencias.join('; ')}. Não entre novamente nem recrie a partida ou a mensagem. Peça a um ADM verificar o canal, a reserva e os painéis antes de qualquer ação.`, null, canal.id,
+      { partidaConfirmada: true, publicacaoConfirmada, partida, paineisPendentes: [...problemasPaineis.values()] });
+  }
+  return { posicao: resultado.posicao, naFila: 0, faltam: 0, fechou: true, partida, reservaId, partidaId, canalId: canal.id };
 }
 
 /** Finaliza e avisa na sala. */
@@ -815,6 +949,7 @@ module.exports = {
   criarCanalPartida,
   publicarSala,
   atualizarPartida,
+  restaurarCartoesPartida,
   notificarPartidaFormada,
   notificarPartidasPendentes,
   ocultarPartidasPendentes,
