@@ -269,7 +269,7 @@ run(bloqueio('import-race2', 'ban')); joined(child)
 check("SELECT string_agg(user_id,',') FROM royal_filas WHERE guild_id='import-race2'", 'livre')
 print('OK importação vs blacklist nas duas ordens preserva somente elegíveis')
 
-p = subprocess.run(['node', str(ROOT / 'testes/blacklist-import-postgres.js')], text=True, capture_output=True, timeout=30)
+p = subprocess.run(['node', '--experimental-sqlite', str(ROOT / 'testes/blacklist-import-postgres.js')], text=True, capture_output=True, timeout=30)
 assert p.returncode == 0, p.stdout + p.stderr
 print(p.stdout.strip())
 

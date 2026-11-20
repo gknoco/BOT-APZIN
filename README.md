@@ -18,7 +18,7 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 
 ## Instalação e atualização
 
-1. Use Node.js **22.13.0 ou superior** e execute `npm ci`. A versão mínima também permite usar `node:sqlite` na importação manual sem a flag experimental.
+1. Use Node.js **22.12.0 ou superior** e execute `npm ci`. O importador legado usa `node:sqlite`; `npm run migrate:supabase` aplica automaticamente `--experimental-sqlite`, necessária no Node 22.12.
 2. Copie `.env.example` para `.env` e configure `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` e `SUPABASE_SERVICE_ROLE_KEY`. O `SUPABASE_URL` do template aponta para o projeto Apzin; mantenha a chave privada apenas no ambiente do servidor/Railway.
 3. Em um banco novo, aplique no SQL Editor do Supabase **todas** as migrações de `supabase/migrations`, em ordem pelo nome. No repositório atual, a sequência é:
    - `supabase/migrations/202611140001_discord_features.sql`
@@ -161,7 +161,7 @@ Antes do modo produção, confirme no Railway todas as variáveis acima, valide 
 
 ### Checklist final do Railway
 
-1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22.13.0 ou superior. O deploy padrão executa `npm start`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
+1. Conecte o serviço à branch `main` do repositório `gknoco/BOT-APZIN` e use Node.js 22.12.0 ou superior. O deploy padrão executa `npm start`; os comandos são sincronizados no evento `ready` (ou rode `npm run commands:sync` após configurar `CLIENT_ID`).
 2. O runtime não necessita de volume SQLite nem de `DATABASE_PATH`. Se há um banco antigo no Railway, preserve o volume/backup até concluir o backfill manual e conferir os dados remotos; não apague o histórico antigo apenas por atualizar o código.
 3. Cadastre `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` (opcional para sincronização imediata), `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` do projeto Apzin. Não configure a chave `anon`/public.
 4. Para vendas, acrescente `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `MP_WEBHOOK_URL`, `DEV_OWNER_ID` e `CARGOS_SUPER_ADMIN_IDS`. `NIX_API_KEY`/`NIX_API_URL` são necessários para criação automática das salas; `CATEGORIA_FILAS_ID`, `CARGO_ADMIN_ID`, `CARGO_STAFF_ID` e `CARGO_MEDIADOR_ID` definem a operação normal.

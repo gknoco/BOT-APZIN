@@ -2,6 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { Routes, ApplicationCommandType, MessageFlags } = require('discord.js');
@@ -151,20 +152,18 @@ test('falhas de listagem ou exclusão são registradas e não impedem limpeza do
 test('manifesto, lockfile e deploy exigem Node mínimo alinhado às dependências', () => {
   const pacote = require('../package.json');
   const lock = require('../package-lock.json');
-  assert.equal(pacote.engines.node, '>=22.13.0');
+  assert.equal(pacote.engines.node, '>=22.12.0');
   assert.equal(lock.packages[''].engines.node, pacote.engines.node);
   assert.equal(lock.packages['node_modules/@discordjs/voice'].engines.node, '>=22.12.0');
   assert.match(fs.readFileSync(path.join(__dirname, '../nixpacks.toml'), 'utf8'), /npm ci[^\n]*--engine-strict/);
+  assert.match(pacote.scripts['migrate:supabase'], /--experimental-sqlite/);
 });
 
-test('node:sqlite e @discordjs/voice carregam sem flags adicionais', () => {
-  const { DatabaseSync } = require('node:sqlite');
-  const db = new DatabaseSync(':memory:');
-  try {
-    assert.equal(db.prepare('SELECT 42 AS resposta').get().resposta, 42);
-  } finally {
-    db.close();
-  }
+test('SQLite funciona com a flag compatível com Node 22.12 e Voice carrega sem flag', () => {
+  const sqlite = spawnSync(process.execPath, ['--experimental-sqlite', '-e',
+    "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(':memory:');if(db.prepare('SELECT 42 AS resposta').get().resposta!==42)process.exit(1);db.close();"],
+  { encoding: 'utf8' });
+  assert.equal(sqlite.status, 0, sqlite.stderr || sqlite.error?.message);
   assert.equal(typeof require('@discordjs/voice').joinVoiceChannel, 'function');
 });
 
