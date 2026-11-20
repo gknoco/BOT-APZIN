@@ -31,14 +31,13 @@ const comandos = [
         actorId: interaction.user.id,
         request: interaction.id,
       });
-      await royal.auditar({
+      await royal.auditarAjusteGiros({
         guildId: interaction.guildId,
         actorId: interaction.user.id,
-        action: 'wallet.spins.adjust',
-        entityType: 'profile',
-        entityId: alvo.id,
+        userId: alvo.id,
+        quantidade,
+        motivo: 'ajuste da staff',
         requestId: interaction.id,
-        detail: `${quantidade > 0 ? '+' : ''}${quantidade} giros`,
       });
       return responderPrivado(interaction, {
         embeds: [embedSucesso(`${mencao(alvo.id)} agora tem **${numeroBR(perfil.spins)}** giros.`)],

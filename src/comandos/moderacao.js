@@ -2,7 +2,7 @@
 
 /** Moderação: blacklist, limpeza, anúncios, DMs e logs. */
 
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, ChannelType } = require('discord.js');
 const config = require('../config');
 const persistenciaSupabase = require('../servicos/supabase');
 const blacklist = require('../servicos/blacklist');
@@ -12,6 +12,29 @@ const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('.
 const { embed, embedSucesso, embedErro, mencao, dataBR } = require('../util/embeds');
 
 const espera = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const CANAIS_ANUNCIO = [
+  ChannelType.GuildText,
+  ChannelType.GuildAnnouncement,
+  ChannelType.AnnouncementThread,
+  ChannelType.PublicThread,
+  ChannelType.PrivateThread,
+];
+function validarCanalAnuncio(interaction, canal) {
+  if (!canal?.id || typeof canal.send !== 'function' || !CANAIS_ANUNCIO.includes(canal.type)) {
+    throw new Error('O destino precisa ser um canal de texto ou thread deste servidor.');
+  }
+  const guildId = canal.guildId || canal.guild?.id;
+  if (String(guildId || '') !== String(interaction.guildId || '')) {
+    throw new Error('O canal de anúncio precisa pertencer a este servidor.');
+  }
+  const bot = interaction.guild?.members?.me || interaction.client?.user;
+  const permissoes = canal.permissionsFor?.(bot);
+  const thread = [ChannelType.AnnouncementThread, ChannelType.PublicThread, ChannelType.PrivateThread].includes(canal.type);
+  if (permissoes && (!permissoes.has?.('ViewChannel') || !permissoes.has?.(thread ? 'SendMessagesInThreads' : 'SendMessages'))) {
+    throw new Error('O bot não tem permissão para visualizar e enviar mensagens nesse canal.');
+  }
+  return canal;
+}
 
 const comandos = [
   {
@@ -97,48 +120,20 @@ const comandos = [
     },
   },
 
-  {
-    data: new SlashCommandBuilder()
-      .setName('limpar')
-      .setDescription('Apaga mensagens do canal')
-      .addIntegerOption((opcao) =>
-        opcao
-          .setName('quantidade')
-          .setDescription('Quantas mensagens apagar (1 a 100)')
-          .setRequired(true)
-          .setMinValue(1)
-          .setMaxValue(100),
-      ),
-
-    async executar(interaction) {
-      if (!interaction.memberPermissions?.has?.(PermissionFlagsBits.ManageMessages)) {
-        return responderErro(interaction, 'Você precisa da permissão **Gerenciar Mensagens**.');
-      }
-      const quantidade = Math.min(interaction.options.getInteger('quantidade'), config.LIMITES.MENSAGENS_LIMPAR);
-      try {
-        const apagadas = await interaction.channel.bulkDelete(quantidade, true);
-        return interaction.editReply({
-          content: `🧹 Apaguei **${apagadas.size}** mensagem(ns). (Mensagens com mais de 14 dias não podem ser apagadas em massa.)`,
-        });
-      } catch (erro) {
-        return interaction.editReply({ content: `❌ Não consegui apagar: ${erro.message}` });
-      }
-    },
-  },
 
   {
     data: new SlashCommandBuilder()
       .setName('anunciar')
       .setDescription('Envia um anúncio oficial formatado')
-      .addStringOption((opcao) => opcao.setName('titulo').setDescription('Título do anúncio').setRequired(true))
-      .addStringOption((opcao) => opcao.setName('mensagem').setDescription('Texto do anúncio').setRequired(true))
-      .addChannelOption((opcao) => opcao.setName('canal').setDescription('Canal (vazio = aqui)')),
+      .addStringOption((opcao) => opcao.setName('titulo').setDescription('Título do anúncio').setRequired(true).setMaxLength(256))
+      .addStringOption((opcao) => opcao.setName('mensagem').setDescription('Texto do anúncio').setRequired(true).setMaxLength(4000))
+      .addChannelOption((opcao) => opcao.setName('canal').setDescription('Canal (vazio = aqui)').addChannelTypes(...CANAIS_ANUNCIO)),
 
     async executar(interaction, { db, client }) {
       if (!(await exigirAdmin(interaction))) return;
       const titulo = interaction.options.getString('titulo');
       const mensagem = interaction.options.getString('mensagem');
-      const canal = interaction.options.getChannel('canal') ?? interaction.channel;
+      const canal = validarCanalAnuncio(interaction, interaction.options.getChannel('canal') ?? interaction.channel);
 
       const enviado = await canal.send({
         content: '@everyone',
@@ -181,7 +176,8 @@ const comandos = [
       if (!texto) return responderErro(interaction, 'Escreva o texto do anúncio.');
 
       const canal = interaction.channel;
-      if (!canal?.send) return responderErro(interaction, 'Use esse comando em um canal de texto.');
+      try { validarCanalAnuncio(interaction, canal); }
+      catch (erro) { return responderErro(interaction, erro.message); }
 
       // Mesmo padrão visual do /anunciar, só que sem título e sem formulário.
       const enviado = await canal.send({
@@ -368,4 +364,4 @@ const comandos = [
   },
 ];
 
-module.exports = { comandos };
+module.exports = { comandos, validarCanalAnuncio };

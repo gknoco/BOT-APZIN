@@ -400,6 +400,14 @@ async function ajustarGiros(i, obter) {
     }
     return payload('Não foi possível confirmar o ajuste. Consulte o saldo e o histórico antes de tentar novamente.');
   }
+  await royal.auditarAjusteGiros({
+    guildId: i.guildId,
+    actorId: String(i.user.id),
+    userId,
+    quantidade: operacao === 'adicionar' ? quantidade : -quantidade,
+    motivo: reason,
+    requestId: i.id,
+  });
   return payload(`Ajuste de giros registrado neste servidor para o usuário \`${userId}\`. Saldo após o ajuste: ${String(perfil.spins)}.`);
 }
 

@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { EmbedBuilder, MessageFlags } = require('discord.js');
+const { EmbedBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const utilidades = require('../src/comandos/utilidades');
 const comunidade = require('../src/comandos/comunidade');
 const limpeza = require('../src/comandos/limpeza');
@@ -21,6 +21,8 @@ const auditoria = require('../src/servicos/auditoria');
 const staffServico = require('../src/servicos/staff');
 const staffSupabase = require('../src/servicos/staffSupabase');
 const fluxo = require('../src/servicos/fluxo');
+const botPerfil = require('../src/comandos/botperfil');
+const mestres = require('../src/comandos/comandosMestres');
 
 const proximoTurno = () => new Promise((resolve) => setImmediate(resolve));
 const erroDiscord = (code) => Object.assign(new Error(`Discord ${code}`), { code });
@@ -89,6 +91,53 @@ function tamanhoPayload(payload) {
       (e.author?.name || '').length + (e.fields || []).reduce((soma, f) => soma + f.name.length + f.value.length, 0);
   }, 0);
 }
+
+test('aliases intencionais usam roteamento único e não duplicam definições', () => {
+  assert.equal(botPerfil.comandos.find((c) => c.data.name === 'botperfil').executar,
+    botPerfil.comandos.find((c) => c.data.name === 'setbot').executar);
+  assert.deepEqual(mestres.comandos.map((c) => c.data.name), ['roletapainel', 'lojinhapainel', 'configroleta', 'configlojinhas']);
+  assert.equal(new Set(registro.nomes).size, registro.nomes.length);
+});
+
+test('/limpar, /clear e /clearall compartilham permissões e tratam mensagens antigas', () => {
+  assert.deepEqual(limpeza.comandos.map((c) => c.data.name), ['limpar', 'clearall', 'clear']);
+  const limpar = comando(limpeza, 'limpar').data.toJSON();
+  const clear = comando(limpeza, 'clear').data.toJSON();
+  assert.equal(limpar.default_member_permissions, clear.default_member_permissions);
+  assert.equal(limpar.options[0].max_value, 100);
+  assert.equal(clear.options[0].max_value, 100000);
+  assert.equal(limpeza.podeLimpar({ memberPermissions: { has: (p) => p === PermissionFlagsBits.Administrator } }), true);
+});
+
+test('anúncios preservam diferença de menção e rejeitam canal de outra guild', () => {
+  const anuncio = comando(moderacao, 'anunciar').data.toJSON();
+  assert.deepEqual(anuncio.options.find((o) => o.name === 'canal').channel_types, [0, 5, 10, 11, 12]);
+  assert.throws(() => moderacao.validarCanalAnuncio(
+    { guildId: 'guild-a' },
+    { id: 'canal-b', guildId: 'guild-b', type: 0, send: async () => {} },
+  ), /pertencer a este servidor/);
+  assert.equal(comando(moderacao, 'anunciar2').data.toJSON().options[0].max_length, 1800);
+});
+
+test('perfil privado não expõe seus campos sensíveis no placar público', () => {
+  const perfil = fs.readFileSync(path.join(__dirname, '../src/comandos/perfil.js'), 'utf8');
+  const verp = fs.readFileSync(path.join(__dirname, '../src/comandos/verp.js'), 'utf8');
+  assert.match(perfil, /responderPrivado\(interaction/);
+  assert.match(perfil, /resumo\.coins/);
+  assert.match(perfil, /resumo\.giros/);
+  assert.match(verp, /defer: 'publico'/);
+  assert.doesNotMatch(verp, /resumo\.coins|resumo\.giros|pix_chave|historicoApostas/);
+});
+
+test('/addgiros e o botão Ajustar giros usam o mesmo contrato de auditoria', () => {
+  const economia = fs.readFileSync(path.join(__dirname, '../src/comandos/economia.js'), 'utf8');
+  const configuracao = fs.readFileSync(path.join(__dirname, '../src/comandos/configEconomia.js'), 'utf8');
+  assert.equal((economia.match(/royal\.auditarAjusteGiros/g) || []).length, 1);
+  assert.equal((configuracao.match(/royal\.auditarAjusteGiros/g) || []).length, 1);
+  const royal = fs.readFileSync(path.join(__dirname, '../src/servicos/royalSupabase.js'), 'utf8');
+  assert.match(royal, /action: 'wallet\.spins\.adjust'/);
+  assert.match(royal, /entityType: 'profile'/);
+});
 
 test('/ajuda inclui todos os nomes e subcomandos reais, sem aliases inventados', () => {
   const paginas = utilidades.ajudaEmbeds(registro.comandos);

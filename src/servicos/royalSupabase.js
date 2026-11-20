@@ -261,6 +261,18 @@ async function auditar(evento) {
   });
   if (error) console.error('[royal-supabase] auditoria:', error.message);
 }
+async function auditarAjusteGiros({ guildId, actorId, userId, quantidade, motivo, requestId }) {
+  const delta = Number(quantidade);
+  return auditar({
+    guildId,
+    actorId,
+    action: 'wallet.spins.adjust',
+    entityType: 'profile',
+    entityId: userId,
+    requestId,
+    detail: `${delta > 0 ? '+' : ''}${delta} giros${motivo ? ` · motivo: ${String(motivo).slice(0, 120)}` : ''}`,
+  });
+}
 
 module.exports = {
   girar,
@@ -283,4 +295,5 @@ module.exports = {
   registrarInvite,
   removerInvite,
   auditar,
+  auditarAjusteGiros,
 };
