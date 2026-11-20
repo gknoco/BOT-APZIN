@@ -177,26 +177,15 @@ async function finalizarEvento({ eventId, success, errorCode }) {
 }
 
 async function reservarSala({ guildId, userId, requestId, source, sourceRef }) {
-  try {
-    const dados = await rpc('royal_room_reserve_room', {
-      p_guild_id: String(guildId),
-      p_user_id: String(userId),
-      p_request_id: String(requestId),
-      p_source: String(source),
-      p_source_ref: sourceRef ? String(sourceRef) : null,
-    });
-    salvarSaldoMemoria(guildId, userId, saldoResposta(dados));
-    return dados;
-  } catch (erro) {
-    const id = chaveSaldo(guildId, userId);
-    const atual = saldoMemoria.get(id);
-    if (Number(atual) > 0 && !/INSUFFICIENT_ROOM_CREDITS|ROOM_ALREADY_CREATED|ROOM_CREATION_PENDING/i.test(erro.message || '')) {
-      salvarSaldoMemoria(guildId, userId, atual - 1);
-      console.warn('[salas-credito] reserva oficial indisponível; usando saldo sincronizado em memória.');
-      return { available_rooms: atual - 1, memory_fallback: true };
-    }
-    throw erro;
-  }
+  const dados = await rpc('royal_room_reserve_room', {
+    p_guild_id: String(guildId),
+    p_user_id: String(userId),
+    p_request_id: String(requestId),
+    p_source: String(source),
+    p_source_ref: sourceRef ? String(sourceRef) : null,
+  });
+  salvarSaldoMemoria(guildId, userId, saldoResposta(dados));
+  return dados;
 }
 
 async function liquidarUsoSala({ requestId, status, roomId, sessionId, errorCode }) {

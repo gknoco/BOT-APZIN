@@ -81,16 +81,11 @@ const client = new Client({
 });
 
 eventos.montar(client, db);
-eventos.ligarProcesso(db);
 mercadoPagoWorker.iniciar();
-
-process.on('SIGTERM', () => {
-  mercadoPagoWorker.parar();
-  try {
-    servidorHttp.close?.();
-  } catch {
-    /* já fechado */
-  }
+eventos.ligarProcesso(db, {
+  client,
+  servidorHttp,
+  pararWorker: () => mercadoPagoWorker.parar(),
 });
 
 /**

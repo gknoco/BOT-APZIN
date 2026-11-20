@@ -131,8 +131,8 @@ async function verificarPedido({ orderId, guildId, userId }) {
   return processarPagamento(order.mp_payment_id, order.id);
 }
 
-async function processarEventoWebhook(evento) {
-  const payment = await mp.buscarPagamento(evento.payment_id);
+async function processarEventoWebhook(evento, pagamentoExistente = null) {
+  const payment = pagamentoExistente || await mp.buscarPagamento(evento.payment_id);
   const orderId = String(payment.external_reference || '');
   if (!UUID.test(orderId)) return { ignorado: true, motivo: 'external_reference_not_royal' };
   const order = await vendas.obterPedidoInterno(orderId);

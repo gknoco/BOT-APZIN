@@ -5,14 +5,15 @@
 const { SlashCommandBuilder } = require('discord.js');
 const partidas = require('../servicos/partidas');
 const fluxo = require('../servicos/fluxo');
-const { exigirMediador, responderErro, responderPrivado } = require('../util/seguranca');
+const { podeFinalizarPartida, responderErro } = require('../util/seguranca');
 const { reais, mencao } = require('../util/embeds');
 
 /** Acha a partida pelo ID informado ou pela sala onde o comando foi usado. */
 async function localizar(db, interaction) {
+  if (!interaction.guildId) throw new Error('Use este comando dentro do servidor da partida.');
   const idInformado = interaction.options.getString('partida');
   if (idInformado) {
-    const partida = await partidas.buscar(db, idInformado.trim());
+    const partida = await partidas.buscar(db, idInformado.trim(), interaction.guildId);
     if (!partida) throw new Error(`Não achei nenhuma sala com o ID \`${idInformado}\`.`);
     return partida;
   }
@@ -21,6 +22,12 @@ async function localizar(db, interaction) {
     throw new Error('Use o comando dentro da sala da partida ou informe o ID da sala.');
   }
   return porCanal;
+}
+
+async function exigirResponsavelDaPartida(interaction, partida) {
+  if (podeFinalizarPartida(interaction.member, partida.mediador_id)) return true;
+  await responderErro(interaction, 'Somente o mediador responsável por esta partida, a staff ou um administrador pode registrar o resultado.');
+  return false;
 }
 
 const comandos = [
@@ -40,10 +47,9 @@ const comandos = [
       ),
 
     async executar(interaction, { db, client }) {
-      if (!(await exigirMediador(interaction))) return;
-
       const time = interaction.options.getInteger('time');
       const partida = await localizar(db, interaction);
+      if (!(await exigirResponsavelDaPartida(interaction, partida))) return;
       const resultado = await fluxo.encerrarPartida(client, db, {
         partidaId: partida.id,
         vencedorTime: time,
@@ -74,10 +80,9 @@ const comandos = [
       ),
 
     async executar(interaction, { db, client }) {
-      if (!(await exigirMediador(interaction))) return;
-
       const ausente = interaction.options.getInteger('ausente');
       const partida = await localizar(db, interaction);
+      if (!(await exigirResponsavelDaPartida(interaction, partida))) return;
       const resultado = await fluxo.aplicarWO(client, db, {
         partidaId: partida.id,
         timeAusente: ausente,

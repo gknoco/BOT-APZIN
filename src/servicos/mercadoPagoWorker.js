@@ -3,6 +3,8 @@
 const config = require('../config');
 const vendas = require('./roomSalesSupabase');
 const compras = require('./comprasSalas');
+const recargas = require('./recargas');
+const mp = require('./mercadoPago');
 
 let timer = null;
 let ocupado = false;
@@ -14,7 +16,11 @@ async function processarLote() {
     const eventos = await vendas.reivindicarEventos(5);
     for (const evento of eventos) {
       try {
-        const resultado = await compras.processarEventoWebhook(evento);
+        const pagamento = await mp.buscarPagamento(evento.payment_id);
+        const resultadoRecarga = await recargas.processarPagamentoWebhook(pagamento);
+        const resultado = resultadoRecarga.identificado
+          ? resultadoRecarga
+          : await compras.processarEventoWebhook(evento, pagamento);
         await vendas.finalizarEvento({ eventId: evento.id, success: true });
         if (resultado?.resultado?.status === 'manual_review') {
           console.error(`[mp-worker] pedido ${evento.payment_id} requer revisão; nenhum crédito foi liberado.`);

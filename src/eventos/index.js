@@ -23,6 +23,7 @@ const cotasMediadores = require('../servicos/cotasMediadores');
 const { embedErro } = require('../util/embeds');
 const { responderPrivado } = require('../util/seguranca');
 const automacoes = require('../servicos/automacoesDiscord');
+const estadoRuntime = require('../estadoRuntime');
 
 // Compartilhado entre chamadas repetidas de montar(client, db): uma mesma
 // interação nunca pode iniciar dois handlers concorrentes (p.ex. dois modais).
@@ -314,28 +315,55 @@ function montar(client, db) {
   return ctx;
 }
 
-function ligarProcesso(db) {
-  process.on('unhandledRejection', (motivo) => {
-    console.error('[processo] promise rejeitada sem tratamento:', motivo);
-  });
-  process.on('uncaughtException', (erro) => {
-    console.error('[processo] exceção não capturada:', erro);
-  });
-
+function ligarProcesso(db, recursos = {}) {
   let desligando = false;
-  const desligar = async (sinal) => {
+  const desligar = async (sinal, codigo = 0) => {
     if (desligando) return;
     desligando = true;
-    console.log(`\n👋 Recebi ${sinal}, fechando o banco com segurança...`);
+    console.log(`\n👋 Recebi ${sinal}, encerrando recursos com segurança (código ${codigo})...`);
+    const limite = setTimeout(() => process.exit(1), 10_000);
     try {
-      await db.close();
+      recursos.pararWorker?.();
     } catch (erro) {
-      console.error('[processo] falha ao fechar o banco:', erro.message);
+      console.error('[processo] falha ao parar worker:', erro?.stack || erro);
     }
-    process.exit(0);
+    try {
+      recursos.client?.destroy?.();
+    } catch (erro) {
+      console.error('[processo] falha ao encerrar cliente Discord:', erro?.stack || erro);
+    }
+    try {
+      const servidor = recursos.servidorHttp;
+      if (servidor?.listening) {
+        const fechado = new Promise((resolve) => servidor.close(() => resolve()));
+        servidor.closeAllConnections?.();
+        await fechado;
+      }
+    } catch (erro) {
+      console.error('[processo] falha ao fechar servidor HTTP:', erro?.stack || erro);
+    }
+    try {
+      await db?.close?.();
+    } catch (erro) {
+      console.error('[processo] falha ao fechar o banco:', erro?.stack || erro);
+      codigo = 1;
+    }
+    clearTimeout(limite);
+    process.exit(codigo);
   };
-  process.on('SIGINT', () => { void desligar('SIGINT').catch((erro) => console.error('[processo] desligamento:', erro)); });
-  process.on('SIGTERM', () => { void desligar('SIGTERM').catch((erro) => console.error('[processo] desligamento:', erro)); });
+  const encerrarPorFalha = (tipo, motivo) => {
+    const erro = motivo instanceof Error ? motivo : new Error(String(motivo));
+    estadoRuntime.marcarDegradado(tipo);
+    console.error(`[processo] ${tipo} fatal; iniciando encerramento controlado:`, erro.stack || erro);
+    void desligar(tipo, 1).catch((falha) => {
+      console.error('[processo] falha durante encerramento fatal:', falha?.stack || falha);
+      process.exit(1);
+    });
+  };
+  process.once('uncaughtException', (erro) => encerrarPorFalha('uncaught_exception', erro));
+  process.once('unhandledRejection', (motivo) => encerrarPorFalha('unhandled_rejection', motivo));
+  process.on('SIGINT', () => { void desligar('SIGINT', process.exitCode || 0).catch((erro) => { console.error('[processo] desligamento:', erro?.stack || erro); process.exit(1); }); });
+  process.on('SIGTERM', () => { void desligar('SIGTERM', process.exitCode || 0).catch((erro) => { console.error('[processo] desligamento:', erro?.stack || erro); process.exit(1); }); });
 }
 
 module.exports = { montar, ligarProcesso };

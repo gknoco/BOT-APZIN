@@ -20,6 +20,7 @@ const supabase = {
   async criarRecarga(input) { supabase.createArgs = input; return supabase.order; },
   async anexarPagamento(input) { supabase.attachArgs = input; return { ...supabase.order, status: 'pending', mp_payment_id: input.paymentId }; },
   async marcarFalha(input) { supabase.failureArgs = input; },
+  async obterRecargaInterna(id) { supabase.internalArgs = id; return supabase.internalOrder ?? supabase.order; },
   async obterRecargaUsuario(input) { supabase.ownerArgs = input; return supabase.order; },
   async obterCodigoPixUsuario(input) { supabase.codeArgs = input; return '000201pixcode'; },
   async aplicarPagamento(input) { supabase.applyArgs = input; return supabase.applied; },
@@ -49,6 +50,8 @@ function preparar() {
   supabase.attachArgs = null;
   supabase.failureArgs = null;
   supabase.ownerArgs = null;
+  supabase.internalArgs = null;
+  supabase.internalOrder = null;
   supabase.codeArgs = null;
   supabase.applyArgs = null;
   supabase.applied = null;
@@ -166,8 +169,39 @@ test('verificação consulta a recarga sob guild/user do clique e só repassa pa
     currency: 'BRL',
     externalReference: ORDER_ID,
     paymentMethod: 'pix',
+    refundedCents: 0,
   });
   assert.equal(result.status, 'approved');
+});
+
+test('webhook reconhece a recarga pelo registro persistido e aplica o pagamento aprovado', async () => {
+  preparar();
+  supabase.order = { ...supabase.order, status: 'pending', mp_payment_id: '123456789' };
+  supabase.applied = { ...supabase.order, status: 'approved', balance_cents: 1345 };
+  const pagamento = {
+    id: '123456789', status: 'approved', transaction_amount: 12.34,
+    currency_id: 'BRL', external_reference: ORDER_ID, payment_method_id: 'pix',
+  };
+  const resultado = await recargas.processarPagamentoWebhook(pagamento);
+  assert.equal(supabase.internalArgs, ORDER_ID);
+  assert.equal(supabase.applyArgs.status, 'approved');
+  assert.equal(supabase.applyArgs.refundedCents, 0);
+  assert.equal(resultado.identificado, true);
+  assert.equal(resultado.resultado.status, 'approved');
+});
+
+test('webhook de chargeback posterior transmite valor estornado para a RPC', async () => {
+  preparar();
+  supabase.order = { ...supabase.order, status: 'approved', mp_payment_id: '123456789' };
+  const pagamento = {
+    id: '123456789', status: 'charged_back', transaction_amount: 12.34,
+    transaction_amount_refunded: 12.34, currency_id: 'BRL',
+    external_reference: ORDER_ID, payment_method_id: 'pix',
+  };
+  const resultado = await recargas.processarPagamentoWebhook(pagamento);
+  assert.equal(resultado.identificado, true);
+  assert.equal(supabase.applyArgs.status, 'charged_back');
+  assert.equal(supabase.applyArgs.refundedCents, 1234);
 });
 
 test('pagamento com referência, moeda, método ou valor divergente nunca é encaminhado como aprovado', () => {
@@ -191,6 +225,13 @@ test('migração credita bônus anunciado somente a partir de R$ 10 e valida ant
   assert.match(migration, /'topup:' \|\| v_row\.id::text/);
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.royal_wallet_apply_topup_payment/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.royal_wallet_apply_topup_payment.*TO service_role/);
+  const reversao = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261120000100_wallet_topup_refund_protection.sql'), 'utf8');
+  assert.match(reversao, /ADD COLUMN IF NOT EXISTS is_frozen boolean/);
+  assert.match(reversao, /v_status IN \('refunded', 'charged_back'\) OR COALESCE\(p_refunded_cents, 0\) > 0/);
+  assert.match(reversao, /'refund_review'/);
+  assert.match(reversao, /SET is_frozen = true/);
+  assert.match(reversao, /'wallet_frozen'/);
+  assert.match(reversao, /GRANT EXECUTE ON FUNCTION public\.royal_wallet_apply_topup_payment\(uuid,text,text,bigint,text,text,text,bigint\)[\s\S]*TO service_role/);
 });
 
 test('consulta de código Pix mantém o filtro de servidor e usuário dono', async () => {

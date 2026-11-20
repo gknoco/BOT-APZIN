@@ -25,3 +25,7 @@ BEGIN
   v_balance := v_purchased - v_reserved - v_consumed + v_reversed;
   RETURN jsonb_build_object('guild_id', p_guild_id, 'user_id', p_user_id, 'balance_rooms', v_balance);
 END; $$;
+REVOKE ALL ON FUNCTION public.royal_room_admin_grant(text, text, text, bigint, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.royal_room_admin_grant(text, text, text, bigint, text)
+  TO service_role;

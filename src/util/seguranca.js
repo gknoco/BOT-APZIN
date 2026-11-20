@@ -43,6 +43,13 @@ function ehStaff(member) {
   return Boolean(member?.permissions?.has?.(PermissionFlagsBits.ManageGuild));
 }
 
+function podeFinalizarPartida(member, mediadorId) {
+  if (ehAdmin(member) || temCargo(member, config.CARGO_STAFF_ID) ||
+      Boolean(member?.permissions?.has?.(PermissionFlagsBits.ManageGuild))) return true;
+  return Boolean(mediadorId && String(member?.id || '') === String(mediadorId) &&
+    temCargo(member, config.CARGO_MEDIADOR_ID));
+}
+
 /** Só botões/menus usam deferUpdate; modais e comandos usam deferReply. */
 function ehComponente(interaction) {
   if (typeof interaction.isMessageComponent === 'function') return interaction.isMessageComponent();
@@ -114,6 +121,7 @@ module.exports = {
   ehAdmin,
   ehMediador,
   ehStaff,
+  podeFinalizarPartida,
   ehComponente,
   responder,
   responderPrivado,

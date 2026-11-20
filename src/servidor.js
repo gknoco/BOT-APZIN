@@ -11,10 +11,13 @@
 
 const http = require('http');
 const mercadoPagoWebhook = require('./servicos/mercadoPagoWebhook');
+const estadoRuntime = require('./estadoRuntime');
 
 const TEXTO = 'Bot Royal AP Online e Operante!';
 
 function corpoResposta() {
+  const estado = estadoRuntime.estado();
+  if (!estado.saudavel) return `Bot degradado: ${estado.motivo}\nFalha desde ${estado.desde}\n`;
   return `${TEXTO}\nAtivo desde ${new Date().toISOString()}\n`;
 }
 
@@ -29,7 +32,7 @@ function criarServidor() {
         return;
       }
       const corpo = corpoResposta();
-      res.writeHead(200, {
+      res.writeHead(estadoRuntime.estaSaudavel() ? 200 : 503, {
         'Content-Type': 'text/plain; charset=utf-8',
         'Content-Length': Buffer.byteLength(corpo),
         'Cache-Control': 'no-store',
@@ -47,14 +50,16 @@ function criarServidor() {
 
 /**
  * Sobe o servidor em paralelo ao bot.
- * Se a porta estiver ocupada, só avisa: o bot continua funcionando no Discord.
+ * Uma falha no bind degrada a instância para não reportar saúde normal.
  */
 function iniciarServidor(porta = Number(process.env.PORT) || 3000) {
   const servidor = criarServidor();
 
   servidor.on('error', (erro) => {
     console.error(`⚠️  Servidor HTTP não subiu na porta ${porta}: ${erro.message}`);
-    console.error('   O bot continua rodando normalmente no Discord.');
+    estadoRuntime.marcarDegradado(`http_listen_failed:${erro.code || 'unknown'}`);
+    process.exitCode = 1;
+    process.kill(process.pid, 'SIGTERM');
   });
 
   servidor.listen(porta, '0.0.0.0', () => {

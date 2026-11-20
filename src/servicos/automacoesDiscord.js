@@ -69,22 +69,26 @@ async function lerConfig(db, guildId, chave) {
   if (!valor) return null;
   try { return JSON.parse(valor); } catch { return null; }
 }
-async function buscarCanal(client, id) {
+async function buscarCanal(client, id, guildId) {
   const canal = client.channels.cache.get(String(id)) || await client.channels.fetch(String(id)).catch(() => null);
   if (!canal?.isTextBased?.() || typeof canal.send !== 'function') throw new Error(`Canal ${id} indisponível para envio.`);
+  const guildDoCanal = String(canal.guildId || canal.guild?.id || '');
+  if (!guildId || guildDoCanal !== String(guildId)) {
+    throw new Error(`Canal ${id} não pertence ao servidor que salvou esta automação.`);
+  }
   return canal;
 }
 async function enviarVersiculo(client, db, guildId, config) {
-  const canal = await buscarCanal(client, config.canal_id);
+  const canal = await buscarCanal(client, config.canal_id, guildId);
   const sorteio = await versiculos.sortear({ guildId, cliente: configCliente(db) });
   const embed = new EmbedBuilder().setColor(0xfacc15).setTitle('📿 Versículo do Dia')
     .setDescription(`*"${sorteio.versiculo.texto}"*\n\n**— ${sorteio.versiculo.referencia}**`)
     .setFooter({ text: 'ORG Royal AP · publicação automática' });
   await canal.send({ embeds: [embed], allowedMentions: { parse: [] } });
 }
-async function apagarMensagemAnterior(client, canalId, mensagemId) {
+async function apagarMensagemAnterior(client, guildId, canalId, mensagemId) {
   if (!mensagemId) return;
-  const canal = await buscarCanal(client, canalId).catch(() => null);
+  const canal = await buscarCanal(client, canalId, guildId).catch(() => null);
   if (!canal?.messages?.fetch) return;
   const mensagem = await canal.messages.fetch(String(mensagemId)).catch(() => null);
   if (mensagem?.delete) await mensagem.delete().catch(() => {});
@@ -93,8 +97,8 @@ async function enviarAnuncios(client, db, guildId, config) {
   const mensagens = { ...(config.mensagens || {}) };
   const canais = [...new Set([config.canal_principal_id, ...(config.canais_divulgacao || [])].filter(Boolean))];
   for (const canalId of canais) {
-    await apagarMensagemAnterior(client, canalId, mensagens[canalId]);
-    const canal = await buscarCanal(client, canalId);
+    await apagarMensagemAnterior(client, guildId, canalId, mensagens[canalId]);
+    const canal = await buscarCanal(client, canalId, guildId);
     const mensagem = await canal.send({ content: config.link, allowedMentions: { parse: [] } });
     mensagens[canalId] = mensagem.id;
   }
@@ -131,5 +135,5 @@ function ehAdmin(interaction) { return Boolean(interaction.memberPermissions?.ha
 
 module.exports = {
   CHAVE_VERSICULOS, CHAVE_ANUNCIOS, validarHora, validarCanal, validarCanais,
-  salvarVersiculos, salvarAnuncios, lerConfig, executarPendentes, iniciar, parar, ehAdmin,
+  salvarVersiculos, salvarAnuncios, lerConfig, buscarCanal, executarPendentes, iniciar, parar, ehAdmin,
 };

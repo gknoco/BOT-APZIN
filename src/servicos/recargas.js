@@ -102,6 +102,7 @@ function validarPagamento(order, payment) {
 async function aplicarStatusPagamento(order, payment) {
   if (!payment?.id) throw new Error('O Mercado Pago não retornou um ID de pagamento válido.');
   const { amountCents, externalReference, reason } = validarPagamento(order, payment);
+  const refundedCents = mp.centavos(payment.transaction_amount_refunded) ?? 0;
   return db.aplicarPagamento({
     topupId: order.id,
     paymentId: String(payment.id),
@@ -110,6 +111,7 @@ async function aplicarStatusPagamento(order, payment) {
     currency: payment.currency_id || null,
     externalReference,
     paymentMethod: payment.payment_method_id || null,
+    refundedCents,
   });
 }
 
@@ -124,6 +126,15 @@ async function verificarRecarga({ topupId, guildId, userId }) {
   }
   const payment = await mp.buscarPagamento(order.mp_payment_id);
   return aplicarStatusPagamento(order, payment);
+}
+
+async function processarPagamentoWebhook(payment) {
+  const topupId = String(payment?.external_reference || '');
+  if (!UUID.test(topupId)) return { identificado: false, ignorado: true, motivo: 'external_reference_not_topup' };
+  const order = await db.obterRecargaInterna(topupId);
+  if (!order) return { identificado: false, ignorado: true, motivo: 'topup_not_found' };
+  const resultado = await aplicarStatusPagamento(order, payment);
+  return { identificado: true, ignorado: false, resultado };
 }
 
 async function codigoPixUsuario({ topupId, guildId, userId }) {
@@ -143,6 +154,7 @@ module.exports = {
   validarPagamento,
   aplicarStatusPagamento,
   verificarRecarga,
+  processarPagamentoWebhook,
   codigoPixUsuario,
   novoRequestId,
 };

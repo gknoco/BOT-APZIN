@@ -25,9 +25,10 @@ async function criar(db, { guildId, modo, preco, gelo, canalId, jogadores: lista
   });
 }
 
-async function buscar(db, id) {
-  return await executar(cliente(db).from(TABELAS.partidas).select(CAMPOS)
-    .eq('id', String(id)).maybeSingle(), 'buscar partida') || null;
+async function buscar(db, id, guildId = null) {
+  let consulta = cliente(db).from(TABELAS.partidas).select(CAMPOS).eq('id', String(id));
+  if (guildId) consulta = consulta.eq('guild_id', String(guildId));
+  return await executar(consulta.maybeSingle(), 'buscar partida') || null;
 }
 
 async function jogadores(db, id) {

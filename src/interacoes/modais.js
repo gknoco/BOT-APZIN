@@ -29,6 +29,11 @@ const plantaoModalidade = require('../servicos/plantaoModalidade');
 const { EFEMERO, responderPrivado, responderErro, ehMediador, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
 
+async function buscarPartidaDaGuild(db, interaction, partidaId) {
+  if (!interaction?.guildId) return null;
+  return await partidas.buscar(db, partidaId, interaction.guildId);
+}
+
 function abrirModalVisualFilas(interaction, tipo) {
   return interaction.showModal(new ModalBuilder().setCustomId(`ap:modalfilas:${tipo}`).setTitle(`Configurar ${tipo}`)
     .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('url').setLabel('URL da imagem ou EXCLUSIR').setPlaceholder('https://... ou EXCLUSIR').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500))));
@@ -42,7 +47,7 @@ async function responderPainelPrivadoTemporario(interaction, payload) {
 }
 
 async function abrirModalRegras(interaction, db, partidaId) {
-  const partida = await partidas.buscar(db, partidaId);
+  const partida = await buscarPartidaDaGuild(db, interaction, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
   const jogadores = await partidas.jogadores(db, partidaId);
   if (!jogadores.some((linha) => linha.user_id === interaction.user.id)) {
@@ -72,7 +77,7 @@ async function abrirModalSala(interaction, db, partidaId) {
   if (!ehMediador(interaction.member)) {
     return responderErro(interaction, 'Só o mediador pode liberar a criação da sala.');
   }
-  const partida = await partidas.buscar(db, partidaId);
+  const partida = await buscarPartidaDaGuild(db, interaction, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
 
   const modal = new ModalBuilder()
@@ -102,7 +107,7 @@ async function abrirModalSala(interaction, db, partidaId) {
 }
 
 async function abrirModalRenomear(interaction, db, partidaId) {
-  const partida = await partidas.buscar(db, partidaId);
+  const partida = await buscarPartidaDaGuild(db, interaction, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
   if (String(partida.mediador_id || '') !== String(interaction.user.id)) {
     return responderErro(interaction, 'Só o mediador que assumiu esta fila pode renomear o canal.');
@@ -631,6 +636,11 @@ async function aplicarCompraSaldo(interaction) {
       `Saldo insuficiente para esta compra. Seu saldo é **${reais(resultado.balance_cents)}** e o total é **${reais(amountCents)}**. Use **/recarga** para adicionar saldo à carteira.`);
     return true;
   }
+  if (resultado.status === 'wallet_frozen' || resultado.wallet_frozen) {
+    await responderErro(interaction,
+      'Sua carteira está temporariamente bloqueada para revisão de um estorno ou chargeback. Nenhuma compra foi realizada; procure a administração para reconciliar o saldo.');
+    return true;
+  }
   if (resultado.status !== 'approved') {
     throw new Error('O Supabase não confirmou a compra com saldo. Nenhuma sala foi liberada; confira o extrato antes de tentar novamente.');
   }
@@ -812,6 +822,7 @@ async function handleModal(interaction, { db, client }) {
     }
 
     if (tipo === 'modalregras') {
+      if (!(await buscarPartidaDaGuild(db, interaction, partidaId))) throw new Error('Sala não encontrada neste servidor.');
       const texto = interaction.fields.getTextInputValue('regra');
       await partidas.definirRegras(db, partidaId, texto, interaction.user.id);
       await fluxo.atualizarPartida(client, db, partidaId);
@@ -822,7 +833,7 @@ async function handleModal(interaction, { db, client }) {
     }
 
     if (tipo === 'modalrenomear') {
-      const partida = await partidas.buscar(db, partidaId);
+      const partida = await buscarPartidaDaGuild(db, interaction, partidaId);
       if (!partida) throw new Error('Sala não encontrada.');
       if (String(partida.mediador_id || '') !== String(interaction.user.id)) {
         throw new Error('Só o mediador que assumiu esta fila pode renomear o canal.');

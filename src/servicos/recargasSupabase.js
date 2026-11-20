@@ -38,6 +38,16 @@ async function marcarFalha({ topupId, status, errorCode }) {
   });
 }
 
+async function obterRecargaInterna(topupId) {
+  const { data, error } = await cliente()
+    .from('royal_wallet_topups')
+    .select('id,guild_id,user_id,amount_cents,status,mp_payment_id')
+    .eq('id', String(topupId))
+    .maybeSingle();
+  if (error) throw new Error(`consulta interna da recarga no Supabase: ${error.message}`);
+  return data;
+}
+
 async function obterRecargaUsuario({ topupId, guildId, userId }) {
   const { data, error } = await cliente()
     .from('royal_wallet_topups')
@@ -62,7 +72,7 @@ async function obterCodigoPixUsuario({ topupId, guildId, userId }) {
   return data?.pix_copy_paste || null;
 }
 
-async function aplicarPagamento({ topupId, paymentId, status, amountCents, currency, externalReference, paymentMethod }) {
+async function aplicarPagamento({ topupId, paymentId, status, amountCents, currency, externalReference, paymentMethod, refundedCents = 0 }) {
   return rpc('royal_wallet_apply_topup_payment', {
     p_topup_id: String(topupId),
     p_payment_id: String(paymentId),
@@ -71,6 +81,7 @@ async function aplicarPagamento({ topupId, paymentId, status, amountCents, curre
     p_currency: currency ? String(currency) : null,
     p_external_reference: externalReference ? String(externalReference) : null,
     p_payment_method: paymentMethod ? String(paymentMethod) : null,
+    p_refunded_cents: Math.max(0, Math.trunc(Number(refundedCents) || 0)),
   });
 }
 
@@ -87,6 +98,7 @@ module.exports = {
   criarRecarga,
   anexarPagamento,
   marcarFalha,
+  obterRecargaInterna,
   obterRecargaUsuario,
   obterCodigoPixUsuario,
   aplicarPagamento,

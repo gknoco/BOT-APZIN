@@ -28,9 +28,15 @@ const {
   ehMediador,
   ehAdmin,
   ehStaff,
+  podeFinalizarPartida,
 } = require('../util/seguranca');
 
 const varianteNome = (modo, id) => config.varianteDoModo(modo, id)?.nome ?? String(id);
+
+async function buscarPartidaDaGuild(interaction, db, partidaId) {
+  if (!interaction?.guildId) return null;
+  return await partidas.buscar(db, partidaId, interaction.guildId);
+}
 
 const { textoPagamentoAprovado } = comprasSalas;
 
@@ -131,7 +137,7 @@ async function atualizarCardDoClique(interaction, db, modo, preco) {
   try {
     const entradas = await filas.listar(db, { guildId: interaction.guildId, modo: modo.id });
     const visual = await paineis.obterVisual(db, interaction.guildId);
-    const card = paineis.mensagemPreco(modo, valor, entradas, visual);
+    const card = await paineis.mensagemPreco(modo, valor, entradas, visual);
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(card);
     } else if (typeof interaction.update === 'function') {
@@ -191,6 +197,9 @@ async function sairDaFila(interaction, { db, client }, modoId, alvo) {
 
 async function confirmarRegras(interaction, { db, client }, partidaId) {
   try {
+    if (!(await buscarPartidaDaGuild(interaction, db, partidaId))) {
+      return responderErro(interaction, 'Partida não encontrada neste servidor.');
+    }
     const resultado = await partidas.confirmar(db, partidaId, interaction.user.id);
     await fluxo.atualizarPartida(client, db, partidaId);
 
@@ -266,7 +275,7 @@ async function assumirSala(interaction, { db, client }, partidaId) {
 
 async function enviarPix(interaction, { db, client }, partidaId) {
   if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) return responderErro(interaction, 'Só o mediador da sala pode enviar o PIX.');
-  const partida = await partidas.buscar(db, partidaId);
+  const partida = await buscarPartidaDaGuild(interaction, db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
   if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user.id)) {
     return responderErro(interaction, 'Apenas o mediador que assumiu esta sala pode enviar o PIX.');
@@ -288,7 +297,7 @@ async function enviarPix(interaction, { db, client }, partidaId) {
 
 async function pagamentoRecebido(interaction, { db, client }, partidaId) {
   if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só o mediador pode confirmar o pagamento.');
-  const partida = await partidas.buscar(db, partidaId);
+  const partida = await buscarPartidaDaGuild(interaction, db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
   if (!partida.mediador_id || String(partida.mediador_id) !== String(interaction.user.id)) {
     return responderErro(interaction, 'Apenas o mediador que assumiu esta sala pode confirmar o pagamento.');
@@ -316,7 +325,8 @@ async function pagamentoRecebido(interaction, { db, client }, partidaId) {
 
 async function fecharSala(interaction, { db, client }, partidaId) {
   if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só a staff pode fechar a sala.');
-  const partida = await partidas.buscar(db, partidaId);
+  const partida = await buscarPartidaDaGuild(interaction, db, partidaId);
+  if (!partida) return responderErro(interaction, 'Sala não encontrada neste servidor.');
   await responderPrivado(interaction, { content: '🔒 Fechando esta sala em 5 segundos...' });
   setTimeout(async () => {
     try {
@@ -449,7 +459,7 @@ async function handleBotao(interaction, ctx) {
         return true;
 
       case 'assumirnotificacao': {
-        if (!plantao.autorizado(interaction.member)) {
+        if (!(await plantao.autorizado(interaction.member))) {
           await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para aceitar uma partida formada.`);
           return true;
         }
@@ -457,8 +467,12 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Você precisa estar no bate-ponto dos mediadores para aceitar filas!');
           return true;
         }
+        if (!(await buscarPartidaDaGuild(interaction, db, args[0]))) {
+          await responderErro(interaction, 'Partida não encontrada neste servidor.');
+          return true;
+        }
         await assumirSala(interaction, ctx, args[0]);
-        const atual = await partidas.buscar(db, args[0]);
+        const atual = await buscarPartidaDaGuild(interaction, db, args[0]);
         if (atual?.mediador_id === interaction.user.id) {
           // O painel do canal administrativo desaparece assim que o lock do
           // Supabase confirma o mediador, sem esperar o aviso da sala privada.
@@ -490,8 +504,17 @@ async function handleBotao(interaction, ctx) {
         return true;
 
       case 'vencer': {
-        if (!ehMediador(interaction.member)) {
-          await responderErro(interaction, 'Só o mediador pode declarar o vencedor.');
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Use este botão dentro do servidor da partida.');
+          return true;
+        }
+        const partida = await buscarPartidaDaGuild(interaction, db, args[0]);
+        if (!partida) {
+          await responderErro(interaction, 'Partida não encontrada neste servidor.');
+          return true;
+        }
+        if (!podeFinalizarPartida(interaction.member, partida.mediador_id)) {
+          await responderErro(interaction, 'Somente o mediador responsável por esta partida, a staff ou um administrador pode registrar o resultado.');
           return true;
         }
         const time = Number(args[1]);
@@ -507,8 +530,17 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'wo': {
-        if (!ehMediador(interaction.member)) {
-          await responderErro(interaction, 'Só o mediador pode aplicar W.O.');
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Use este botão dentro do servidor da partida.');
+          return true;
+        }
+        const partida = await buscarPartidaDaGuild(interaction, db, args[0]);
+        if (!partida) {
+          await responderErro(interaction, 'Partida não encontrada neste servidor.');
+          return true;
+        }
+        if (!podeFinalizarPartida(interaction.member, partida.mediador_id)) {
+          await responderErro(interaction, 'Somente o mediador responsável por esta partida, a staff ou um administrador pode registrar o resultado.');
           return true;
         }
         const ausente = Number(args[1]);
@@ -526,7 +558,8 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'cancelar': {
-        const partida = await partidas.buscar(db, args[0]);
+        if (!interaction.guildId) { await responderErro(interaction, 'Use este botão dentro do servidor da partida.'); return true; }
+        const partida = await buscarPartidaDaGuild(interaction, db, args[0]);
         if (!partida) {
           await responderErro(interaction, 'Sala não encontrada.');
           return true;
@@ -615,7 +648,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaoentrar': {
-        if (!plantao.autorizado(interaction.member)) {
+        if (!(await plantao.autorizado(interaction.member))) {
           await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para usar este bate-ponto.`);
           return true;
         }
@@ -662,7 +695,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaosair': {
-        if (!plantao.autorizado(interaction.member)) {
+        if (!(await plantao.autorizado(interaction.member))) {
           await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para usar este bate-ponto.`);
           return true;
         }
@@ -685,7 +718,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'plantaostatus': {
-        if (!plantao.autorizado(interaction.member)) {
+        if (!(await plantao.autorizado(interaction.member))) {
           await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para visualizar este bate-ponto.`);
           return true;
         }
@@ -766,7 +799,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'pixregistrar': {
-        if (!plantao.autorizado(interaction.member)) {
+        if (!(await plantao.autorizado(interaction.member))) {
           await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para configurar o PIX.`);
           return true;
         }
@@ -778,7 +811,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'pixverificar': {
-        if (!plantao.autorizado(interaction.member)) {
+        if (!(await plantao.autorizado(interaction.member))) {
           await responderErro(interaction, `Você precisa do cargo <@&${plantao.CARGO_MEDIADOR_ACESSO}> para consultar o PIX.`);
           return true;
         }
@@ -961,7 +994,7 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, 'Não encontrei o código Pix desta recarga na sua carteira.');
           return true;
         }
-        const limpo = typeof codigo === 'string' ? codigo : '';
+        const limpo = typeof codigo === 'string' ? codigo.replace(/[\s`]/g, '') : '';
         if (!limpo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
         if (limpo.length > 2000) {
           await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code exibido ou procure a administração.');

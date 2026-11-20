@@ -25,7 +25,7 @@ const supabase = criarMock('supabase', ['obterCliente', 'definirConfig']);
 const partidas = criarMock('partidas', ['buscar', 'jogadores', 'confirmar', 'assumir', 'marcarPago', 'ativas', 'definirRegras', 'liberarSala']);
 const filas = criarMock('filas', ['listar', 'sair']);
 const paineis = criarMock('paineis', ['mensagemPreco', 'atualizar']);
-const plantao = criarMock('plantao', ['entrar', 'sair', 'painel', 'posicao', 'limpar']);
+const plantao = criarMock('plantao', ['autorizado', 'adicionarCargo', 'removerCargo', 'entrar', 'sair', 'painel', 'posicao', 'limpar']);
 const mediadores = criarMock('mediadores', ['cargos', 'temCargoMediador', 'podeUsarSalas', 'ehMediador', 'mencoes', 'painelConfig', 'modo', 'definirModo']);
 Object.assign(mediadores, { AVISO_CARGO: 'Cargo de mediação exigido.', MODOS: { rodizio: 'Rodízio', fila: 'Fila' } });
 const fluxo = criarMock('fluxo', ['entrarNaFila', 'atualizarPartida', 'anunciarPix']);
@@ -674,7 +674,9 @@ test('plantão e modo de mediação aguardam consultas, mutações e builders as
   let modoDefinido;
   await comMocks([
     [mediadores, { cargos: async () => ['med-a'], temCargoMediador: async () => true, painelConfig: async () => painel, modo: async () => 'rodizio', definirModo: async (_db, _guild, modo) => { modoDefinido = modo; } }],
-    [plantao, { entrar: async () => {}, sair: async () => false, painel: async () => painel, posicao: async () => 3, limpar: async () => 2 }],
+    [plantao, { autorizado: async () => true, adicionarCargo: async () => true, removerCargo: async () => true, entrar: async () => {}, sair: async () => false, painel: async () => painel, posicao: async () => 3, limpar: async () => 2 }],
+    [staff, { obter: async () => ({ pix_chave: 'pix@teste' }) }],
+    [fluxo, { notificarPartidasPendentes: async () => {}, ocultarPartidasPendentes: async () => {} }],
     [supabase, { definirConfig: async () => {} }],
   ], async () => {
     for (const acao of ['plantaoentrar', 'plantaosair', 'plantaostatus', 'medlimpar', 'medmodo', 'medreenviar']) {
@@ -691,16 +693,13 @@ test('plantão e modo de mediação aguardam consultas, mutações e builders as
   });
 });
 
-test('plantão e criação de sala não tratam Promise de autorização false como true', async () => {
+test('plantão não trata Promise de autorização false como true', async () => {
   await comMocks([
-    [mediadores, { cargos: async () => ['med-a'], temCargoMediador: async () => false, ehMediador: async () => false }],
-    [partidas, { buscar: async () => ({ mediador_id: 'user-a' }) }],
+    [plantao, { autorizado: async () => false }],
   ], async () => {
-    for (const acao of ['plantaoentrar', 'criarsala:partida-a']) {
-      const interaction = interacao(`ap:${acao}`);
-      await botoes.handleBotao(interaction, ctx);
-      assert.match(texto(ultimoPayload(interaction)), /cargos configurados|Só o mediador/);
-    }
+    const interaction = interacao('ap:plantaoentrar');
+    await botoes.handleBotao(interaction, ctx);
+    assert.match(texto(ultimoPayload(interaction)), /Você precisa do cargo/);
   });
 });
 
@@ -708,7 +707,7 @@ test('confirmação aguarda lista async de jogadores e menções antes do aviso 
   let aviso;
   const canal = { send: async (payload) => { aviso = payload; } };
   await comMocks([
-    [partidas, { confirmar: async () => ({ partida: { canal_id: 'canal-a', guild_id: 'guild-a' }, completo: false, confirmados: 1, total: 2 }), jogadores: async () => [{ confirmou: 1, user_id: 'user-a' }, { confirmou: 0, user_id: 'user-b' }] }],
+    [partidas, { buscar: async () => ({ guild_id: 'guild-a' }), confirmar: async () => ({ partida: { canal_id: 'canal-a', guild_id: 'guild-a' }, completo: false, confirmados: 1, total: 2 }), jogadores: async () => [{ confirmou: 1, user_id: 'user-a' }, { confirmou: 0, user_id: 'user-b' }] }],
     [fluxo, { atualizarPartida: async () => {} }],
     [mediadores, { mencoes: async () => ['med-a'] }],
   ], async () => {
