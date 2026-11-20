@@ -36,7 +36,7 @@ test('worker só confirma webhook depois do RPC de recarga e reagenda se o créd
   const chamadas = [];
   let persistido = false;
   config.MP_ACCESS_TOKEN = 'test-token';
-  roomSales.reivindicarEventos = async () => [{ id: 'event-1', payment_id: 'payment-1' }];
+  roomSales.reivindicarEventos = async () => [{ id: 'event-1', payment_id: 'payment-1', attempts: 1 }];
   mercadoPago.buscarPagamento = async () => ({ id: 'payment-1' });
   compras.processarEventoWebhook = async () => { chamadas.push('compra'); persistido = true; return {}; };
   try {

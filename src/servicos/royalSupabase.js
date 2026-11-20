@@ -62,27 +62,19 @@ async function registrarResultadoPartida({ guildId, matchId, winnerTime, stake, 
   });
 }
 
-async function comprar({ guildId, userId, itemId, request, expectedPrice }) {
-  const args = {
-    p_guild_id: String(guildId),
-    p_user_id: String(userId),
-    p_item_id: itemId,
-    p_request_id: requestId('buy', request),
-  };
-  if (expectedPrice === undefined) return rpc('royal_buy_item', args);
+async function criarIntencaoLoja({ guildId, userId, itemId, sourceId }) {
+  if (!sourceId) throw new Error('Interação de intenção obrigatória');
+  return rpc('royal_create_shop_intention', {
+    p_guild_id: String(guildId), p_user_id: String(userId),
+    p_item_id: itemId, p_source_id: String(sourceId),
+  });
+}
 
-  // Numbers imprecisos não podem representar o preço confirmado; para valores
-  // bigint acima de MAX_SAFE_INTEGER, use uma string decimal ou um BigInt.
-  const tipo = typeof expectedPrice;
-  if ((tipo === 'number' && (!Number.isSafeInteger(expectedPrice) || expectedPrice < 0)) ||
-      (tipo === 'string' && !/^\d{1,19}$/.test(expectedPrice)) ||
-      !['number', 'string', 'bigint'].includes(tipo)) {
-    throw new Error('Preço esperado inválido');
-  }
-  const valor = BigInt(expectedPrice);
-  if (valor < 0n || valor > 9223372036854775807n) throw new Error('Preço esperado inválido');
-  args.p_expected_price = tipo === 'number' ? expectedPrice : valor.toString();
-  return rpc('royal_buy_item_confirmed', args);
+async function confirmarIntencaoLoja({ guildId, userId, nonce }) {
+  if (!nonce) throw new Error('Nonce de intenção obrigatório');
+  return rpc('royal_confirm_shop_intention', {
+    p_guild_id: String(guildId), p_user_id: String(userId), p_nonce: String(nonce),
+  });
 }
 
 async function marcarRecompensaEntregue({ guildId, userId, request }) {
@@ -279,7 +271,8 @@ module.exports = {
   ajustarPerfil,
   transferirCoins,
   registrarResultadoPartida,
-  comprar,
+  criarIntencaoLoja,
+  confirmarIntencaoLoja,
   marcarRecompensaEntregue,
   marcarCompraEntregue,
   listarItens,

@@ -91,18 +91,21 @@ async function aplicarPagamentoVerificado(order, payment) {
   const externalReference = String(payment.external_reference || '');
   const status = String(payment.status || 'pending').toLowerCase();
   const amountCents = mp.centavos(payment.transaction_amount);
-  const refundedCents = mp.centavos(payment.transaction_amount_refunded) ?? 0;
+  const valorEstorno = payment.transaction_amount_refunded;
+  const convertido = valorEstorno == null ? 0 : mp.centavos(valorEstorno);
+  const refundedCents = Number.isSafeInteger(convertido) && convertido >= 0 ? convertido : null;
   let manualReason = null;
   if (externalReference !== String(order.id)) manualReason = 'external_reference_mismatch';
   else if (String(payment.currency_id || '').toUpperCase() !== 'BRL') manualReason = 'currency_mismatch';
   else if (String(payment.payment_method_id || '').toLowerCase() !== 'pix') manualReason = 'payment_method_mismatch';
   else if (order.mp_payment_id && String(order.mp_payment_id) !== paymentId) manualReason = 'payment_id_mismatch';
   else if (status === 'approved' && amountCents !== Number(order.amount_cents)) manualReason = 'amount_mismatch';
+  else if (refundedCents === null) manualReason = 'invalid_refunded_amount';
 
   return vendas.aplicarPagamento({
     orderId: order.id,
     paymentId,
-    status: manualReason ? 'manual_review' : status,
+    status,
     amountCents,
     currency: payment.currency_id || null,
     externalReference,
@@ -123,7 +126,9 @@ async function processarPagamento(paymentId, expectedOrderId = null) {
 async function verificarPedido({ orderId, guildId, userId }) {
   const order = await vendas.obterPedidoUsuario({ orderId, guildId, userId });
   if (!order) throw new Error('Esse pedido não pertence à sua conta.');
-  if (order.status === 'approved') return order;
+  // Uma compra já aprovada pode ter sido parcialmente estornada depois. A
+  // verificação explícita deve consultar o provedor quando existe pagamento.
+  if (order.status === 'approved' && !order.mp_payment_id) return order;
   if (!order.mp_payment_id) {
     if (order.status === 'manual_review') throw new Error('O resultado da solicitação ainda está incerto. Não crie outra cobrança e procure a administração.');
     throw new Error('O Mercado Pago ainda não vinculou um pagamento a este pedido. Aguarde o Pix ou tente mais tarde.');
@@ -141,11 +146,10 @@ async function processarEventoWebhook(evento, pagamentoExistente = null) {
   return { ignorado: false, resultado };
 }
 
-function chaveEvento(body, paymentId) {
-  if (body?.id != null) return `mp:${String(body.id).slice(0, 140)}`;
-  const action = String(body?.action || body?.type || 'payment').slice(0, 100);
-  const hash = crypto.createHash('sha256').update(`${action}:${paymentId}`).digest('hex');
-  return `sha256:${hash}`;
+// Mesmo payload/ID pode anunciar alterações diferentes do mesmo pagamento. A
+// reentrega também é uma nova obrigação de consulta, não uma chave de dedupe.
+function chaveEvento() {
+  return `receipt:${crypto.randomUUID()}`;
 }
 
 module.exports = {

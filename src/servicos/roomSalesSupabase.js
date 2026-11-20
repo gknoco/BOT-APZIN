@@ -148,7 +148,7 @@ async function aplicarPagamento({ orderId, paymentId, status, amountCents, curre
     p_amount_cents: amountCents == null ? null : Math.trunc(Number(amountCents)),
     p_currency: currency ? String(currency) : null,
     p_external_reference: externalReference ? String(externalReference) : null,
-    p_refunded_cents: refundedCents == null ? 0 : Math.trunc(Number(refundedCents)),
+    p_refunded_cents: refundedCents === undefined ? 0 : refundedCents === null ? null : Math.trunc(Number(refundedCents)),
     p_manual_reason: manualReason ? String(manualReason).slice(0, 80) : null,
   });
 }
@@ -167,11 +167,13 @@ async function reivindicarEventos(limit = 5) {
   return data || [];
 }
 
-async function finalizarEvento({ eventId, success, errorCode }) {
+async function finalizarEvento({ eventId, attempt, success, errorCode }) {
+  if (!Number.isSafeInteger(attempt) || attempt < 1) throw new Error('WEBHOOK_INVALID_LEASE');
   return rpc('royal_room_finish_payment_event', {
     p_event_id: String(eventId),
     p_success: Boolean(success),
     p_error_code: errorCode ? String(errorCode).slice(0, 80) : null,
+    p_attempt: attempt,
   });
 }
 

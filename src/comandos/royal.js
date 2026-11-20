@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../config');
 const royal = require('../servicos/royalSupabase');
+const rescueClaim = require('../servicos/rescueClaim');
 const { responder, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso, numeroBR } = require('../util/embeds');
 
@@ -73,11 +74,9 @@ const comandos = [
       let entrega = 'O giro foi debitado e o prêmio foi registrado com segurança.';
       if (resultado.reward_type === 'role') {
         try {
-          await entregarCargo(interaction, resultado.reward_value);
-          await royal.marcarRecompensaEntregue({
-            guildId: interaction.guildId,
-            userId: interaction.user.id,
-            request: interaction.id,
+          await rescueClaim.entregaAutomatica({ guildId: interaction.guildId, tipo: 'roleta',
+            protocolo: `spin:${interaction.id}`, interactionId: interaction.id, userId: interaction.user.id,
+            roleId: resultado.reward_value, entregar: () => entregarCargo(interaction, resultado.reward_value),
           });
           entrega = 'O cargo foi concedido e a entrega foi marcada no Supabase.';
         } catch (erro) {
@@ -89,7 +88,7 @@ const comandos = [
             valor: resultado.reward_value,
             erro,
           });
-          entrega = 'O prêmio foi registrado, mas a entrega do cargo ficou pendente para a staff.';
+          entrega = 'O prêmio foi registrado, mas a entrega do cargo requer revisão; não repita sem reconciliar.';
         }
       }
 
@@ -125,83 +124,9 @@ const comandos = [
           .addStringOption((opcao) => opcao.setName('item').setDescription('ID do produto').setRequired(true)),
       ),
 
+    // Mantém exportação histórica sem reintroduzir a compra sem intenção.
     async executar(interaction) {
-      precisaSupabase();
-      const sub = interaction.options.getSubcommand();
-      const itens = await royal.listarItens(interaction.guildId);
-      if (sub === 'listar') {
-        const corpo = itens.length
-          ? itens
-              .map(
-                (item) =>
-                  `**${item.name}** — ${numeroBR(item.price)} ${config.MOEDA}\n` +
-                  `\`${item.id}\` · ${item.description || 'Sem descrição'} · ` +
-                  `${item.stock === null ? 'estoque livre' : `${item.stock} disponível(is)`}`,
-              )
-              .join('\n\n')
-          : 'Nenhum produto ativo foi cadastrado.';
-        return responderPrivado(interaction, {
-          embeds: [embed('🛍️ Lojinha Royal AP', corpo, { cor: config.CORES.ouro, rodape: 'Compre usando /lojinha comprar item:<ID>' })],
-        });
-      }
-
-      const id = interaction.options.getString('item');
-      const item = itens.find((linha) => linha.id === id || linha.slug === id);
-      if (!item) return responderErro(interaction, 'Produto não encontrado ou indisponível. Use `/lojinha listar`.');
-
-      const compra = await royal.comprar({
-        guildId: interaction.guildId,
-        userId: interaction.user.id,
-        itemId: item.id,
-        request: interaction.id,
-      });
-      let entrega = 'O item foi adicionado ao seu inventário.';
-
-      if (item.reward_type === 'role' && compra.status === 'pending') {
-        try {
-          await entregarCargo(interaction, item.reward_value);
-          await royal.marcarCompraEntregue({
-            guildId: interaction.guildId,
-            userId: interaction.user.id,
-            purchaseId: compra.purchase_id,
-          });
-          entrega = 'O cargo foi concedido e a entrega foi registrada no Supabase.';
-        } catch (erro) {
-          await auditarEntregaPendente({
-            guildId: interaction.guildId,
-            userId: interaction.user.id,
-            requestId: compra.purchase_id,
-            tipo: 'purchase',
-            valor: item.reward_value,
-            erro,
-          });
-          entrega = 'A compra foi registrada, mas a entrega do cargo ficou pendente para a staff.';
-        }
-      } else if (item.reward_type === 'role') {
-        entrega = compra.status === 'delivered'
-          ? 'O cargo já foi concedido.'
-          : 'A entrega do cargo está registrada como pendente para a staff.';
-      } else if (['physical', 'pix'].includes(item.reward_type)) {
-        entrega = 'Seu resgate foi registrado como pendente para pagamento ou entrega pela ADM.';
-      }
-
-      await royal.auditar({
-        guildId: interaction.guildId,
-        actorId: interaction.user.id,
-        action: 'shop.purchase',
-        entityType: 'purchase',
-        entityId: compra.purchase_id,
-        requestId: interaction.id,
-        detail: item.name,
-      });
-      return responderPrivado(interaction, {
-        embeds: [
-          embedSucesso(
-            `✅ Compra registrada: **${item.name}**\n` +
-              `Saldo restante: **${numeroBR(compra.new_balance)} ${config.MOEDA}**\n\n${entrega}`,
-          ),
-        ],
-      });
+      return require('./lojinhaPro').comando.executar(interaction);
     },
   },
 

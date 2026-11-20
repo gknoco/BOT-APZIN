@@ -132,8 +132,8 @@ async function verificarDesativacaoLoja(cliente, guildId, id) {
 }
 
 async function verificarHistorico(cliente, guildId, dom, antes, valores) {
-  // Os registros de giro/compra referenciam a linha atual, não um snapshot.
-  // Não reescrever a identidade/recompensa de algo já usado; cria-se outro item.
+  // Pré-validação amigável; a loja também aplica esta regra no banco sob
+  // o mesmo lock da compra, inclusive se ela ocorrer após esta consulta.
   const campos = dom === 'r' ? ['name', 'reward_type', 'reward_value']
     : ['name', 'description', 'reward_type', 'reward_value'];
   if (!campos.some((campo) => valores[campo] !== antes[campo])) return;
@@ -368,6 +368,7 @@ async function salvarFormulario(i, dom, acao) {
       q = antes.stock === null ? q.is('stock', null) : q.eq('stock', antes.stock);
     }
     const { data, error } = await q.select(COLUNAS[dom]).maybeSingle();
+    if (error && dom === 'l' && /possui histórico/.test(error.message || '')) falhar('Este item possui histórico; nome, descrição e recompensa são imutáveis. Crie outro item.');
     if (error) throw new Error('atualização');
     if (!data) falhar('O item mudou durante a operação. Consulte a lista e tente novamente.');
     return data;

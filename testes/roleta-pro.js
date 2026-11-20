@@ -90,6 +90,15 @@ function clienteMemoria() {
   const consultas = [];
   return {
     consultas,
+    async rpc(nome, args) {
+      assert.equal(nome, 'royal_rescue_action');
+      if (args.p_action === 'claim') return { data: { result: 'acquired', user_id: royal.ultimoGiro.userId,
+        reward_type: royal.resultado.reward_type, reward_value: royal.resultado.reward_value }, error: null };
+      try {
+        await royal.marcarRecompensaEntregue({ guildId: args.p_guild_id, userId: royal.ultimoGiro.userId, request: args.p_request_id });
+        return { data: { result: 'finished' }, error: null };
+      } catch (error) { return { data: null, error }; }
+    },
     from(tabela) {
       const filtros = []; const ordens = [];
       const consulta = { tabela, filtros, ordens };
@@ -413,7 +422,7 @@ test('falha de cargo ou confirmação gera pendência auditada e não esconde o 
     i.member.roles.add = async () => { if (falha === 'cargo') throw new Error('hierarquia'); };
     await roleta.handleComponent(i);
     assert.match(corpo(i), /VIP/);
-    assert.match(corpo(i), /pendente para a staff/);
+    assert.match(corpo(i), /requer revisão/);
     assert.ok(royal.auditados.some((a) => a.action === 'reward.delivery.pending' && a.entityId === 'spin-role'));
     assert.equal(royal.marcados.length, falha === 'cargo' ? 0 : 1);
   }
@@ -568,7 +577,7 @@ test('aviso de pendência vem após auditoria, usa protocolo do giro e não alte
     const i = interacao({ componente: 'roletapro:girar' });
     i.member.roles.add = async () => { throw new Error('sem cargo'); };
     await roleta.handleComponent(i);
-    assert.match(corpo(i), /pendente/);
+    assert.match(corpo(i), /pendente|revisão/);
     assert.equal(avisos.chamados.length, 1);
     assert.equal(avisos.chamados[0].protocolo, 'spin:interaction-001');
     assert.doesNotMatch(avisos.chamados[0].descricao, /chave-PIX-nao-divulgar/);

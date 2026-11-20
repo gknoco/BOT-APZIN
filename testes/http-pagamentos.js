@@ -108,7 +108,10 @@ test('handler HTTP valida configuração, JSON, assinatura e persiste evento de 
     }));
     assert.equal(aceito.status, 200);
     assert.deepEqual(json(aceito), { received: true });
-    assert.deepEqual(enfileirados, [{ eventKey: 'mp:event-1', paymentId: '123', action: 'payment.updated' }]);
+    assert.equal(enfileirados.length, 1);
+    assert.match(enfileirados[0].eventKey, /^receipt:[0-9a-f-]{36}$/);
+    assert.equal(enfileirados[0].paymentId, '123');
+    assert.equal(enfileirados[0].action, 'payment.updated');
   } finally {
     config.MP_WEBHOOK_SECRET = secretAntes;
     mercadoPago.assinaturaValida = assinaturaAntes;
@@ -122,8 +125,8 @@ test('worker processa recarga, encaminha compra quando necessário e confirma so
   try {
     config.MP_ACCESS_TOKEN = 'token-test';
     roomSales.reivindicarEventos = async () => [
-      { id: 'event-recarga', payment_id: '100' },
-      { id: 'event-compra', payment_id: '200' },
+      { id: 'event-recarga', payment_id: '100', attempts: 1 },
+      { id: 'event-compra', payment_id: '200', attempts: 1 },
     ];
     mercadoPago.buscarPagamento = async (id) => ({ id, status: 'approved', external_reference: `order-${id}` });
     recargas.processarPagamentoWebhook = async (pagamento) => {
@@ -157,7 +160,7 @@ test('worker reprocessa com segurança quando a aplicação falha e não confirm
   let tentativa = 0;
   try {
     config.MP_ACCESS_TOKEN = 'token-test';
-    roomSales.reivindicarEventos = async () => [{ id: 'event-retry', payment_id: '300' }];
+    roomSales.reivindicarEventos = async () => [{ id: 'event-retry', payment_id: '300', attempts: tentativa + 1 }];
     mercadoPago.buscarPagamento = async () => ({ id: '300', status: 'approved', external_reference: 'order-300' });
     recargas.processarPagamentoWebhook = async () => {
       tentativa += 1;
@@ -170,8 +173,8 @@ test('worker reprocessa com segurança quando a aplicação falha e não confirm
     await worker.processarLote();
     assert.equal(tentativa, 2);
     assert.deepEqual(chamadas, [
-      { eventId: 'event-retry', success: false, errorCode: 'ETIMEDOUT' },
-      { eventId: 'event-retry', success: true },
+      { eventId: 'event-retry', attempt: 1, success: false, errorCode: 'ETIMEDOUT' },
+      { eventId: 'event-retry', attempt: 2, success: true },
     ]);
   } finally {
     config.MP_ACCESS_TOKEN = tokenAntes;

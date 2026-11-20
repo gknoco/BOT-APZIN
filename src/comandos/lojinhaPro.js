@@ -11,6 +11,7 @@ const royal = require('../servicos/royalSupabase');
 const supabase = require('../servicos/supabase');
 const avisos = require('../servicos/avisosEconomia');
 const { entregarCargo } = require('../servicos/entregaCargo');
+const rescueClaim = require('../servicos/rescueClaim');
 const { EFEMERO, ehAdmin } = require('../util/seguranca');
 const { numeroBR } = require('../util/embeds');
 
@@ -37,9 +38,12 @@ function card(titulo, descricao) {
 function botao(id, label, style = ButtonStyle.Secondary, disabled = false) {
   return new ButtonBuilder().setCustomId(`${PREFIXO}${id}`).setLabel(label).setStyle(style).setDisabled(disabled);
 }
-function moeda(n) { return `${numeroBR(n)} COIN`; }
+function moeda(n) {
+  if (typeof n === 'string' && /^\d+$/.test(n)) return `${BigInt(n).toLocaleString('pt-BR')} COIN`;
+  return `${numeroBR(n)} COIN`;
+}
 function estoque(item) {
-  return item.stock == null ? 'Estoque livre' : Number(item.stock) > 0 ? `${numeroBR(item.stock)} em estoque` : 'Esgotado';
+  return item.stock == null ? 'Estoque livre' : BigInt(item.stock) > 0n ? `${BigInt(item.stock).toLocaleString('pt-BR')} em estoque` : 'Esgotado';
 }
 function tipo(item) { return TIPOS[item.reward_type] || 'Item'; }
 function statusCompra(status) { return STATUS[status] || textoSeguro(status || 'Desconhecido', 30); }
@@ -58,6 +62,9 @@ function mensagemErro(erro, compra = false) {
   const mensagem = String(erro?.message || '');
   if (/saldo insuficiente/i.test(mensagem)) return 'Saldo insuficiente para este item. Confira suas moedas antes de tentar novamente.';
   if (/o preço mudou/i.test(mensagem)) return 'O preço mudou. Abra o catálogo e confirme o valor atualizado antes de comprar.';
+  if (/termos do item mudaram/i.test(mensagem)) return 'Os termos do item mudaram. Abra o catálogo e confirme novamente.';
+  if (/intenção expirada/i.test(mensagem)) return 'Esta confirmação expirou. Abra o catálogo e confirme novamente.';
+  if (/intenção inválida/i.test(mensagem)) return 'Confirmação inválida ou pertencente a outro jogador. Abra o catálogo novamente.';
   if (/sem estoque/i.test(mensagem)) return 'Este item está sem estoque. Consulte o catálogo atualizado.';
   if (/item indispon[ií]vel/i.test(mensagem)) return 'Este item não está mais disponível. Consulte o catálogo atualizado.';
   if (/limite de compras por usu[aá]rio atingido/i.test(mensagem)) return 'Você já atingiu o limite de compras deste item.';
@@ -196,7 +203,7 @@ function linhasHistorico(rows) {
   return rows.map((linha) => {
     const data = Date.parse(linha.created_at);
     const dataTexto = Number.isFinite(data) ? `<t:${Math.floor(data / 1000)}:d>` : 'data desconhecida';
-    return `• **${textoSeguro(linha.royal_shop_items?.name || 'Item', 55)}** · ${moeda(linha.price)} · **${statusCompra(linha.status)}**\n  ${dataTexto} · \`${textoSeguro(linha.id, 36)}\``;
+    return `• **${textoSeguro(linha.terms_snapshot?.name || 'Item legado indisponível', 55)}** · ${moeda(linha.price)} · **${statusCompra(linha.status)}**${linha.snapshot_source === 'legacy_current' ? ' · termos legados aproximados' : ''}\n  ${dataTexto} · \`${textoSeguro(linha.id, 36)}\``;
   });
 }
 async function mostrarInventario(i) {
@@ -205,7 +212,7 @@ async function mostrarInventario(i) {
     cliente.from('royal_inventory').select('quantity,item_id,royal_shop_items(name,description,reward_type)')
       .eq('guild_id', String(i.guildId)).eq('user_id', String(i.user.id)).gt('quantity', 0)
       .order('updated_at', { ascending: false }).limit(10),
-    cliente.from('royal_purchases').select('id,price,status,created_at,royal_shop_items(name,reward_type)')
+    cliente.from('royal_purchases').select('id,price,status,created_at,terms_snapshot,snapshot_source')
       .eq('guild_id', String(i.guildId)).eq('user_id', String(i.user.id))
       .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(10),
   ]);
@@ -248,7 +255,7 @@ async function mostrarMeusItens(i, pagina = 0) {
 async function mostrarHistorico(i, pagina = 0) {
   const inicio = pagina * 10;
   const resultado = await supabase.obterCliente().from('royal_purchases')
-    .select('id,price,status,created_at,royal_shop_items(name,reward_type)', { count: 'exact' })
+    .select('id,price,status,created_at,terms_snapshot,snapshot_source', { count: 'exact' })
     .eq('guild_id', String(i.guildId)).eq('user_id', String(i.user.id))
     .order('created_at', { ascending: false }).order('id', { ascending: false }).range(inicio, inicio + 9);
   if (resultado.error) {
@@ -319,65 +326,66 @@ async function buscarItem(guildId, chave, campo = 'id') {
 }
 async function detalhesItem(i, item) {
   if (!item) return erroPrivado(i, 'Item não encontrado ou indisponível. Abra o catálogo novamente.');
-  const descricao = `**${textoSeguro(item.name, 100)}**\n${textoSeguro(item.description || 'Sem descrição.', 600)}\n\n` +
-    `**PREÇO**  ${moeda(item.price)}\n**TIPO**  ${tipo(item)}\n**ESTOQUE**  ${estoque(item)}\n\n` +
-    'A confirmação registra uma compra. Pix e itens físicos são tratados pela administração.';
-  const preco = String(item.price);
-  const componentes = (item.stock != null && Number(item.stock) < 1) || !/^\d{1,19}$/.test(preco) ? [] : [
-    new ActionRowBuilder().addComponents(botao(`comprar:${i.user.id}:${item.id}:${preco}`, 'Confirmar compra', ButtonStyle.Success)),
-  ];
+  const intencao = await royal.criarIntencaoLoja({
+    guildId: i.guildId, userId: i.user.id, itemId: item.id, sourceId: i.id,
+  });
+  if (!intencao?.terms || !UUID.test(String(intencao.nonce || ''))) throw new Error('Intenção não retornada');
+  const termos = { ...intencao.terms, stock: intencao.stock };
+  const descricao = `**${textoSeguro(termos.name, 100)}**\n${textoSeguro(termos.description || 'Sem descrição.', 600)}\n\n` +
+    `**PREÇO**  ${moeda(termos.price)}\n**TIPO**  ${tipo(termos)}\n**ESTOQUE**  ${estoque(termos)}\n\n` +
+    'A confirmação registra uma compra e expira em 15 minutos. Pix e itens físicos são tratados pela administração.';
+  const componentes = [new ActionRowBuilder().addComponents(
+    botao(`comprar:${i.user.id}:${intencao.nonce}`, 'Confirmar compra', ButtonStyle.Success),
+  )];
   return editar(i, { embeds: [card('CATÁLOGO  /  DETALHES', descricao)], components: componentes });
 }
 async function auditarSeguro(evento) {
   try { await royal.auditar(evento); } catch (erro) { console.error('[lojinhapro] auditoria:', erro.message); }
 }
-async function comprarItem(i, item, precoConfirmado = item?.price) {
-  if (!item) return erroPrivado(i, 'Item não encontrado ou indisponível. Abra o catálogo novamente.');
-  if (precoConfirmado === undefined || precoConfirmado === null) throw new Error('Preço esperado inválido');
-  // O preço é validado no banco sob o mesmo lock que protege estoque e débito.
-  const compra = await royal.comprar({
-    guildId: i.guildId, userId: i.user.id, itemId: item.id, request: i.id, expectedPrice: precoConfirmado,
-  });
+async function comprarItem(i, nonce) {
+  const compra = await royal.confirmarIntencaoLoja({ guildId: i.guildId, userId: i.user.id, nonce });
   if (!compra?.purchase_id) throw new Error('A compra não retornou confirmação.');
+  // O mesmo botão pode ser reenviado com outro interaction.id. O banco retorna
+  // replay sem novo débito; não repetimos qualquer efeito externo de entrega.
+  if (compra.is_replay) return editar(i, { embeds: [card('RESGATE  /  JÁ REGISTRADO',
+    `Esta confirmação já foi usada. Protocolo: \`${textoSeguro(compra.purchase_id, 36)}\`\nConfira o status no histórico; nenhuma nova entrega foi iniciada.`)], components: [] });
   let entrega;
   let pendenciaAviso;
-  if (item.reward_type === 'role' && compra.status === 'pending') {
+  if (compra.reward_type === 'role' && compra.status === 'pending') {
     try {
-      // Não conceder o cargo previamente consultado se o cadastro tiver mudado.
-      const atual = await buscarItem(i.guildId, item.id);
-      if (!atual || atual.reward_type !== 'role' || atual.reward_value !== item.reward_value) throw new Error('Cadastro do cargo alterado; requer revisão manual');
-      await entregarCargo({ guild: i.guild, userId: i.user.id, roleId: atual.reward_value });
-      const marcado = await royal.marcarCompraEntregue({ guildId: i.guildId, userId: i.user.id, purchaseId: compra.purchase_id });
-      if (marcado === false) throw new Error('Não foi possível confirmar o registro da entrega');
+      // O claim valida o snapshot persistido antes de qualquer efeito no Discord.
+      await rescueClaim.entregaAutomatica({ guildId: i.guildId, tipo: 'loja', protocolo: compra.purchase_id,
+        interactionId: i.id, userId: i.user.id, roleId: compra.reward_value,
+        entregar: () => entregarCargo({ guild: i.guild, userId: i.user.id, roleId: compra.reward_value }),
+      });
       entrega = 'Cargo concedido e entrega registrada.';
     } catch (erro) {
       await auditarSeguro({ guildId: i.guildId, actorId: i.user.id, action: 'reward.delivery.pending',
         entityType: 'purchase', entityId: compra.purchase_id, requestId: i.id,
-        detail: `Entrega de cargo requer revisão (${limitar(item.reward_value, 80)}): ${limitar(erro.message, 300)}` });
-      entrega = 'Entrega do cargo requer revisão da administração. Verifique o status no histórico.';
+        detail: `Entrega de cargo requer revisão (${limitar(compra.reward_value, 80)}): ${limitar(erro.message, 300)}` });
+      entrega = 'Entrega do cargo requer revisão da administração. Não repita a concessão sem reconciliar.';
       pendenciaAviso = 'Entrega de cargo da lojinha pendente ou requer revisão.';
     }
   } else if (compra.status === 'pending') {
     entrega = 'Resgate pendente: a administração deverá processar o pagamento ou a entrega. Nada é pago ou enviado automaticamente.';
-    if (['pix', 'physical'].includes(item.reward_type)) {
-      pendenciaAviso = item.reward_type === 'pix'
+    if (['pix', 'physical'].includes(compra.reward_type)) {
+      pendenciaAviso = compra.reward_type === 'pix'
         ? 'Resgate PIX da lojinha pendente de atendimento; pagamento não confirmado.'
         : 'Resgate de produto físico da lojinha pendente de atendimento.';
       await auditarSeguro({ guildId: i.guildId, actorId: i.user.id, action: 'reward.delivery.pending',
-        entityType: 'purchase', entityId: compra.purchase_id, requestId: i.id,
-        detail: pendenciaAviso });
+        entityType: 'purchase', entityId: compra.purchase_id, requestId: i.id, detail: pendenciaAviso });
     }
   } else {
     entrega = `Status registrado: **${statusCompra(compra.status)}**.`;
   }
   await auditarSeguro({ guildId: i.guildId, actorId: i.user.id, action: 'shop.purchase', entityType: 'purchase',
-    entityId: compra.purchase_id, requestId: i.id, detail: limitar(item.name, 150) });
+    entityId: compra.purchase_id, requestId: i.id, detail: limitar(compra.item_name, 150) });
   if (pendenciaAviso) {
     try { await avisos.avisarStaff(i, { origem: 'Lojinha', descricao: pendenciaAviso, protocolo: compra.purchase_id }); }
     catch (erro) { console.error('[lojinhapro] falha ao avisar staff:', erro.message); }
   }
   return editar(i, { embeds: [card('RESGATE  /  REGISTRADO',
-    `**${textoSeguro(compra.item_name || item.name, 100)}**\nSaldo após a compra: **${moeda(compra.new_balance)}**\n` +
+    `**${textoSeguro(compra.item_name, 100)}**\nSaldo após a compra: **${moeda(compra.new_balance)}**\n` +
     `Protocolo: \`${textoSeguro(compra.purchase_id, 36)}\`\n\n${entrega}`)], components: [] });
 }
 
@@ -397,7 +405,7 @@ const comando = {
         if (!chave || chave.length > 100) return erroPrivado(i, 'Informe o ID ou slug de um item válido.');
         let item = UUID.test(chave) ? await buscarItem(i.guildId, chave, 'id') : null;
         if (!item) item = await buscarItem(i.guildId, chave, 'slug');
-        return await comprarItem(i, item);
+        return await detalhesItem(i, item);
       }
       return erroPrivado(i, 'Subcomando desconhecido.');
     } catch (erro) {
@@ -425,7 +433,7 @@ async function handleComponent(i) {
     return true;
   }
   try {
-    if (resto.length || (extra && acao !== 'comprar')) await erroPrivado(i, 'Interação inválida. Abra o catálogo novamente.');
+    if (resto.length || extra) await erroPrivado(i, 'Interação inválida. Abra o catálogo novamente.');
     else if (acao === 'moedas' && !dono) await mostrarMoedas(i);
     else if (acao === 'ranking' && !dono) await mostrarRanking(i);
     else if (acao === 'inventario' && !dono) await mostrarInventario(i);
@@ -435,10 +443,8 @@ async function handleComponent(i) {
     else if (acao === 'meusitens' && /^\d{1,6}$/.test(argumento || '')) await mostrarMeusItens(i, Number(argumento));
     else if (acao === 'selecionar' && !argumento && Array.isArray(i.values) && i.values.length === 1 && UUID.test(i.values[0])) {
       await detalhesItem(i, await buscarItem(i.guildId, i.values[0]));
-    } else if (acao === 'comprar' && UUID.test(argumento || '') && /^\d{1,19}$/.test(extra || '')) {
-      const item = await buscarItem(i.guildId, argumento);
-      if (item && String(item.price) !== extra) await erroPrivado(i, 'O preço mudou. Abra o catálogo e confirme o valor atualizado antes de comprar.');
-      else await comprarItem(i, item, extra);
+    } else if (acao === 'comprar' && UUID.test(argumento || '') && !extra) {
+      await comprarItem(i, argumento);
     } else await erroPrivado(i, 'Interação inválida. Abra o catálogo novamente.');
   } catch (erro) {
     console.error('[lojinhapro] componente:', erro.message);

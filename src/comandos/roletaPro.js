@@ -20,6 +20,7 @@ const supabase = require('../servicos/supabase');
 const avisos = require('../servicos/avisosEconomia');
 const roletaAnimada = require('../servicos/roletaAnimada');
 const { entregarCargo } = require('../servicos/entregaCargo');
+const rescueClaim = require('../servicos/rescueClaim');
 const { EFEMERO, ehAdmin } = require('../util/seguranca');
 const { numeroBR } = require('../util/embeds');
 
@@ -243,9 +244,10 @@ async function executarGiro(interaction, ctx) {
   if (resultado.reward_type === 'role') {
     try {
       // A transação já registrou a pendência; a chamada Discord é externa à RPC.
-      await entregarCargo({ guild: interaction.guild, userId: interaction.user.id, roleId: resultado.reward_value });
-      await royal.marcarRecompensaEntregue({
-        guildId: interaction.guildId, userId: interaction.user.id, request: interaction.id,
+      await rescueClaim.entregaAutomatica({ guildId: interaction.guildId, tipo: 'roleta',
+        protocolo: `spin:${interaction.id}`, interactionId: interaction.id, userId: interaction.user.id,
+        roleId: resultado.reward_value,
+        entregar: () => entregarCargo({ guild: interaction.guild, userId: interaction.user.id, roleId: resultado.reward_value }),
       });
       entrega = 'Cargo concedido e entrega registrada.';
     } catch (erro) {
@@ -255,7 +257,7 @@ async function executarGiro(interaction, ctx) {
         requestId: interaction.id,
         detail: `Entrega de cargo pendente (${String(resultado.reward_value).slice(0, 100)}): ${String(erro.message || 'falha Discord').slice(0, 300)}`,
       });
-      entrega = 'O prêmio foi registrado, mas a entrega do cargo está pendente para a staff.';
+      entrega = 'O prêmio foi registrado; a entrega do cargo requer revisão. Não repita a concessão sem reconciliar.';
       pendenciaAviso = 'Entrega de cargo da roleta pendente ou requer revisão.';
     }
   } else if (resultado.reward_type === 'pix') {

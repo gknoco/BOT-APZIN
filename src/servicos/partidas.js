@@ -153,11 +153,38 @@ async function darGo(db, { partidaId, userId, guildId, canalId, mensagemId, sala
   });
 }
 
-/** Resultado + jogadores + auditoria são confirmados em uma única transação. */
+// O mesmo pedido pode ser repetido após timeout: a RPC verifica o resultado
+// sob lock. Não transforme um commit possivelmente realizado em falha definitiva.
+async function encerrarTransacional(db, parametros) {
+  let ultima;
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      const resposta = await rpc(db, 'royal_operacional_encerrar_partida', parametros);
+      const p = resposta?.partida;
+      const motivo = parametros.p_motivo || (parametros.p_cancelar ? 'cancelada pela staff' : 'resultado');
+      const motivoEsperado = parametros.p_cancelar ? [...motivo].slice(0, 200).join('') : motivo;
+      if (!p || String(p.id) !== parametros.p_id || !Array.isArray(resposta.jogadores)
+          || p.status !== (parametros.p_cancelar ? STATUS.CANCELADA : STATUS.FINALIZADA)
+          || (p.motivo_fim || (parametros.p_cancelar ? '' : 'resultado')) !== motivoEsperado
+          || (!parametros.p_cancelar && Number(p.vencedor_time) !== parametros.p_vencedor_time)) {
+        throw new Error('Resposta de encerramento ausente ou incompatível.');
+      }
+      return resposta;
+    }
+    catch (erro) {
+      // Erros de PostgreSQL/PostgREST são respostas definitivas; transporte não é.
+      if (/^(?:[0-9A-Z]{5}|PGRST[0-9]+)$/.test(erro.code || '')) throw erro;
+      ultima = erro;
+    }
+  }
+  throw new Error('Não foi possível confirmar o encerramento; ele pode ter sido concluído. Consulte a partida ou repita exatamente o mesmo resultado antes de alterá-lo.', { cause: ultima });
+}
+
+/** Resultado, economia, auditoria e outbox são confirmados em uma única transação. */
 async function finalizar(db, { partidaId, vencedorTime, autorId = null, motivo = 'resultado' }) {
   const time = Number(vencedorTime);
   if (![1, 2].includes(time)) throw new Error('O time vencedor precisa ser 1 ou 2.');
-  return rpc(db, 'royal_operacional_encerrar_partida', {
+  return encerrarTransacional(db, {
     p_id: String(partidaId), p_vencedor_time: time,
     p_autor_id: autorId == null ? null : String(autorId), p_motivo: String(motivo), p_cancelar: false,
   });
@@ -170,7 +197,7 @@ async function aplicarWO(db, { partidaId, timeAusente, autorId = null }) {
 }
 
 async function cancelar(db, { partidaId, autorId = null, motivo = 'cancelada pela staff' }) {
-  const resultado = await rpc(db, 'royal_operacional_encerrar_partida', {
+  const resultado = await encerrarTransacional(db, {
     p_id: String(partidaId), p_vencedor_time: null,
     p_autor_id: autorId == null ? null : String(autorId), p_motivo: String(motivo), p_cancelar: true,
   });

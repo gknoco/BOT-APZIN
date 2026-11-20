@@ -486,19 +486,21 @@ test('fluxo aguarda jogadores e persistência da mensagem', async () => {
   });
 });
 
-test('fluxo repete resultado idempotente sem finalizar outra vez', async () => {
-  const partida = { id: 'p', guild_id: 'g', canal_id: 'c', preco: 50, status: partidas.STATUS.FINALIZADA, vencedor_time: 1, motivo_fim: 'resultado' };
-  let registrado = false;
+test('fluxo usa somente a finalização transacional inclusive em replay e conflito', async () => {
+  const partida = { id: 'p', guild_id: 'g', status: partidas.STATUS.FINALIZADA, vencedor_time: 1, motivo_fim: 'resultado' };
+  let chamadas = 0;
   await substituir([
-    [partidas, 'buscar', async () => partida],
-    [partidas, 'jogadores', async () => [{ user_id: 'u', time: 1 }]],
-    [partidas, 'finalizar', async () => { throw new Error('não deve finalizar novamente'); }],
-    [royal, 'registrarResultadoPartida', async (resultado) => { assert.equal(resultado.players[0].user_id, 'u'); registrado = true; }],
-    [auditoria, 'registrar', async () => {}],
+    [partidas, 'finalizar', async (_db, dados) => {
+      chamadas++;
+      if (dados.vencedorTime !== 1) throw new Error('outro resultado');
+      return { partida, jogadores: [{ user_id: 'u', time: 1 }], replay: true };
+    }],
+    [royal, 'registrarResultadoPartida', async () => { throw new Error('RPC econômica separada não deve ser chamada'); }],
+    [auditoria, 'registrar', async () => { throw new Error('auditoria separada não deve ser chamada'); }],
   ], async () => {
-    assert.equal((await fluxo.encerrarPartida({ channels: { cache: new Map([['c', null]]), fetch: async () => null } }, bancoFalso(), { partidaId: 'p', vencedorTime: 1, autorId: 'u' })).partida.id, 'p');
-    assert.ok(registrado);
+    assert.equal((await fluxo.encerrarPartida({}, bancoFalso(), { partidaId: 'p', vencedorTime: 1, autorId: 'u' })).partida.id, 'p');
     await assert.rejects(() => fluxo.encerrarPartida({}, bancoFalso(), { partidaId: 'p', vencedorTime: 2 }), /outro resultado/);
+    assert.equal(chamadas, 2);
   });
 });
 

@@ -24,7 +24,6 @@ const mediadores = require('./mediadores');
 const plantao = require('./plantao');
 const blacklist = require('./blacklist');
 const auditoria = require('./auditoria');
-const royalSupabase = require('./royalSupabase');
 
 const { STATUS } = partidas;
 const CARGO_MEDIADOR_ACESSO = '1543684028719173732';
@@ -869,73 +868,25 @@ async function entrarNaFila(client, db, { guild, userId, modo, preco, gelo }) {
   return { posicao: resultado.posicao, naFila: 0, faltam: 0, fechou: true, partida, reservaId, partidaId, canalId: canal.id };
 }
 
-/** Finaliza e avisa na sala. */
-async function finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo }) {
-  const existente = await partidas.buscar(db, partidaId);
-  let resultado;
-  if (existente?.status === STATUS.FINALIZADA) {
-    // Se a RPC de resultado falhou após finalizar o estado na nuvem, o mesmo
-    // botão pode repetir a sincronização com o ID da partida como chave idempotente.
-    if (Number(existente.vencedor_time) !== Number(vencedorTime) || existente.motivo_fim !== motivo) {
-      throw new Error('Essa partida já foi encerrada com outro resultado.');
-    }
-    resultado = { partida: existente, jogadores: await partidas.jogadores(db, partidaId) };
-  } else {
-    resultado = await partidas.finalizar(db, { partidaId, vencedorTime, autorId, motivo });
-  }
-
-  await royalSupabase.registrarResultadoPartida({
-    guildId: resultado.partida.guild_id,
-    matchId: partidaId,
-    winnerTime: vencedorTime,
-    stake: resultado.partida.preco,
-    players: resultado.jogadores,
-    reason: motivo,
-  });
-  return resultado;
+/** Resultado, economia, auditoria e outbox são confirmados na mesma RPC. */
+async function finalizarERegistrarNoSupabase(db, dados) {
+  return partidas.finalizar(db, dados);
 }
 
 async function encerrarPartida(client, db, { partidaId, vencedorTime, autorId, motivo = 'resultado' }) {
-  const resultado = await finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo });
-  await atualizarPartida(client, db, partidaId);
-  await auditoria.registrar(db, client, {
-    guildId: resultado.partida.guild_id,
-    autorId,
-    acao: motivo === 'wo' ? 'W.O. aplicado' : 'Resultado registrado',
-    detalhe: `Sala ${partidaId} · ${nomeTime(vencedorTime)} venceu · ${reais(resultado.partida.preco)}`,
-  });
-  return resultado;
+  return finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo });
 }
 
 async function aplicarWO(client, db, { partidaId, timeAusente, autorId }) {
   const ausente = Number(timeAusente);
   if (![1, 2].includes(ausente)) throw new Error('O time ausente precisa ser 1 ou 2.');
-  const resultado = await finalizarERegistrarNoSupabase(db, {
-    partidaId,
-    vencedorTime: ausente === 1 ? 2 : 1,
-    autorId,
-    motivo: 'wo',
+  return finalizarERegistrarNoSupabase(db, {
+    partidaId, vencedorTime: ausente === 1 ? 2 : 1, autorId, motivo: 'wo',
   });
-  await atualizarPartida(client, db, partidaId);
-  await auditoria.registrar(db, client, {
-    guildId: resultado.partida.guild_id,
-    autorId,
-    acao: 'W.O. aplicado',
-    detalhe: `Sala ${partidaId} · ${nomeTime(timeAusente)} não apareceu · ${reais(resultado.partida.preco)}`,
-  });
-  return resultado;
 }
 
 async function cancelarPartida(client, db, { partidaId, autorId, motivo }) {
-  const partida = await partidas.cancelar(db, { partidaId, autorId, motivo });
-  await atualizarPartida(client, db, partidaId);
-  await auditoria.registrar(db, client, {
-    guildId: partida.guild_id,
-    autorId,
-    acao: 'AP cancelado',
-    detalhe: `Sala ${partidaId} · ${motivo}`,
-  });
-  return partida;
+  return partidas.cancelar(db, { partidaId, autorId, motivo });
 }
 
 module.exports = {

@@ -196,7 +196,8 @@ test('economia, perfil, placar e rankings usam serviço Supabase, sem chamadas a
   assert.match(botoes, /royalSupabase\.topPerfis/);
   assert.doesNotMatch(botoes, /usuarios\.top/);
   const fluxo = fs.readFileSync(path.join(__dirname, '../src/servicos/fluxo.js'), 'utf8');
-  assert.match(fluxo, /royalSupabase\.registrarResultadoPartida/);
+  assert.match(fluxo, /partidas\.finalizar/);
+  assert.doesNotMatch(fluxo, /royalSupabase\.registrarResultadoPartida/);
   const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/202611150002_economy_source_of_truth.sql'), 'utf8');
   for (const rpc of [
     'royal_adjust_profile',

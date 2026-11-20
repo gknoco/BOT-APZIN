@@ -19,6 +19,7 @@ const { abrirBanco } = require('./src/db');
 const { iniciarServidor } = require('./src/servidor');
 const eventos = require('./src/eventos');
 const mercadoPagoWorker = require('./src/servicos/mercadoPagoWorker');
+const matchOutboxWorker = require('./src/servicos/matchOutboxWorker');
 
 const TENTATIVAS_LOGIN = 5;
 const ESPERA_MAXIMA = 60 * 1000;
@@ -82,10 +83,11 @@ const client = new Client({
 
 eventos.montar(client, db);
 mercadoPagoWorker.iniciar();
+matchOutboxWorker.iniciar(client, db);
 eventos.ligarProcesso(db, {
   client,
   servidorHttp,
-  pararWorker: () => mercadoPagoWorker.parar(),
+  pararWorker: () => { mercadoPagoWorker.parar(); matchOutboxWorker.parar(); },
 });
 
 /**

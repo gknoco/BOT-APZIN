@@ -99,7 +99,7 @@ teste('remoções usam contagem exata, blacklist aguarda consulta', async () => 
 });
 
 teste('partida cria jogadores, confirma, dá GO e finaliza via RPC', async () => {
-  const result = { partida: { id: 'm' }, jogadores: [] };
+  const result = { partida: { id: 'm', status: 'finalizada', vencedor_time: 1, motivo_fim: 'resultado' }, jogadores: [] };
   const { db, chamadas } = transporte([{ data: { id: 'm' } }, { data: { completo: true } }, { data: { iniciou: true } }, { data: result }]);
   await partidas.criar(db, { reservaId: 'r', partidaId: 'm', guildId: 'g', modo: 'solo', preco: 100, gelo: 'normal', canalId: 'c', jogadores: [{ userId: 'a', time: 1 }] });
   assert.deepEqual(chamadas[0][2].p_jogadores, [{ user_id: 'a', time: 1 }]);

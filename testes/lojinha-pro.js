@@ -32,7 +32,7 @@ function dbFake() {
         { guild_id: G1, user_id: U2, coins: 500, spins: 0, wins: 1, losses: 0 },
         { guild_id: G2, user_id: U1, coins: 9000, spins: 0, wins: 50, losses: 0 },
       ], royal_inventory: [], royal_purchases: [], royal_audit_events: [], discord_configuracoes: [],
-    }, calls: [], requests: new Map(), ack: () => {}, rpcError: null, configReadError: false, configWriteError: false, markError: false,
+    }, calls: [], requests: new Map(), intents: new Map(), ack: () => {}, rpcError: null, configReadError: false, configWriteError: false, markError: false,
     from(tabela) {
       db.ack();
       const state = { tabela, eqs: [], gt: [], order: [], operation: 'select' };
@@ -78,38 +78,59 @@ function dbFake() {
     async rpc(nome, args) {
       db.ack();
       db.calls.push({ rpc: nome, args });
+      if (nome === 'royal_rescue_action') {
+        const purchase = db.tables.royal_purchases.find((p) => p.guild_id === args.p_guild_id && p.id === args.p_protocol);
+        if (!purchase) return { data: { result: 'not_found' }, error: null };
+        if (args.p_action === 'claim') {
+          if (purchase.owner) return { data: { result: 'already_owned' }, error: null };
+          purchase.owner = args.p_actor_id;
+          return { data: { result: 'acquired', user_id: purchase.user_id, reward_type: purchase.terms_snapshot.reward_type, reward_value: purchase.terms_snapshot.reward_value }, error: null };
+        }
+        if (db.markError) return { data: null, error: { message: 'sem registro de entrega' } };
+        purchase.status = 'delivered'; return { data: { result: 'finished' }, error: null };
+      }
       if (nome === 'royal_mark_purchase_delivered') {
         if (db.markError) return { data: null, error: { message: 'sem registro de entrega' } };
         const purchase = db.tables.royal_purchases.find((p) => p.guild_id === args.p_guild_id && p.user_id === args.p_user_id && p.id === args.p_purchase_id);
         if (!purchase) return { data: null, error: { message: 'não encontrada' } };
         purchase.status = 'delivered'; return { data: true, error: null };
       }
-      assert.equal(nome, 'royal_buy_item_confirmed');
-      assert.notEqual(args.p_expected_price, undefined);
-      if (db.rpcError) return { data: null, error: { message: db.rpcError } };
-      const chave = `${args.p_guild_id}:${args.p_request_id}`;
-      if (db.requests.has(chave)) {
-        const old = db.requests.get(chave);
-        if (old.user !== args.p_user_id || old.item !== args.p_item_id) return { error: { message: 'request reutilizada' } };
-        return { data: [{ ...old.result }], error: null };
+      if (nome === 'royal_create_shop_intention') {
+        const anterior = [...db.intents.values()].find((x) => x.guild === args.p_guild_id && x.source === args.p_source_id);
+        if (anterior) return { data: [anterior.view], error: null };
+        const produto = db.tables.royal_shop_items.find((x) => x.guild_id === args.p_guild_id && x.active && x.id === args.p_item_id);
+        if (!produto) return { error: { message: 'Item indisponível' } };
+        if (produto.stock !== null && produto.stock < 1) return { error: { message: 'Item sem estoque' } };
+        const nonce = uuid(1000 + db.intents.size);
+        const terms = { slug: produto.slug, name: produto.name, description: produto.description,
+          price: String(produto.price), reward_type: produto.reward_type, reward_value: produto.reward_value, metadata: produto.metadata || {} };
+        const view = { nonce, terms, stock: produto.stock };
+        db.intents.set(nonce, { view, guild: args.p_guild_id, user: args.p_user_id, item: produto.id, source: args.p_source_id });
+        return { data: [view], error: null };
       }
-      const produto = db.tables.royal_shop_items.find((x) => x.guild_id === args.p_guild_id && x.active && x.id === args.p_item_id);
-      const perfil = db.tables.royal_profiles.find((x) => x.guild_id === args.p_guild_id && x.user_id === args.p_user_id);
-      if (!produto) return { data: null, error: { message: 'Item indisponível' } };
+      assert.equal(nome, 'royal_confirm_shop_intention');
+      if (db.rpcError) return { data: null, error: { message: db.rpcError } };
+      const intent = db.intents.get(args.p_nonce);
+      if (!intent || intent.guild !== args.p_guild_id || intent.user !== args.p_user_id) return { error: { message: 'Intenção inválida' } };
+      if (intent.result) return { data: [{ ...intent.result, is_replay: true }], error: null };
+      const produto = db.tables.royal_shop_items.find((x) => x.guild_id === intent.guild && x.active && x.id === intent.item);
+      const perfil = db.tables.royal_profiles.find((x) => x.guild_id === intent.guild && x.user_id === intent.user);
+      if (!produto) return { error: { message: 'Item indisponível' } };
       if (db.alterarPrecoNaRpc) produto.price = db.alterarPrecoNaRpc;
-      if (String(produto.price) !== String(args.p_expected_price)) return { data: null, error: { message: 'O preço mudou' } };
-      if (!perfil || perfil.coins < produto.price) return { data: null, error: { message: 'Saldo insuficiente' } };
-      if (produto.stock !== null && produto.stock < 1) return { data: null, error: { message: 'Item sem estoque' } };
+      if (String(produto.price) !== intent.view.terms.price) return { error: { message: 'O preço mudou' } };
+      if (produto.reward_type !== intent.view.terms.reward_type || produto.reward_value !== intent.view.terms.reward_value || produto.name !== intent.view.terms.name || produto.description !== intent.view.terms.description) return { error: { message: 'Os termos do item mudaram' } };
+      if (!perfil || perfil.coins < produto.price) return { error: { message: 'Saldo insuficiente' } };
+      if (produto.stock !== null && produto.stock < 1) return { error: { message: 'Item sem estoque' } };
       perfil.coins -= produto.price;
       if (produto.stock !== null) produto.stock--;
       const status = ['pix', 'physical', 'role'].includes(produto.reward_type) ? 'pending' : 'completed';
-      const purchase = { id: uuid(500 + db.requests.size), guild_id: args.p_guild_id, user_id: args.p_user_id,
-        item_id: produto.id, price: produto.price, status, created_at: '2026-11-17T12:00:00Z' };
+      const purchase = { id: uuid(500 + db.tables.royal_purchases.length), guild_id: intent.guild, user_id: intent.user,
+        item_id: produto.id, price: produto.price, status, terms_snapshot: structuredClone(intent.view.terms), snapshot_source: 'purchase', created_at: '2026-11-17T12:00:00Z' };
       db.tables.royal_purchases.push(purchase);
-      db.tables.royal_inventory.push({ guild_id: args.p_guild_id, user_id: args.p_user_id, item_id: produto.id, quantity: 1 });
-      const result = { purchase_id: purchase.id, item_name: produto.name, new_balance: perfil.coins, status };
-      db.requests.set(chave, { user: args.p_user_id, item: args.p_item_id, result });
-      return { data: [result], error: null };
+      db.tables.royal_inventory.push({ guild_id: intent.guild, user_id: intent.user, item_id: produto.id, quantity: 1 });
+      intent.result = { purchase_id: purchase.id, item_name: produto.name, new_balance: perfil.coins, status, reward_type: produto.reward_type, reward_value: produto.reward_value, is_replay: false };
+      if (db.afterConfirm) db.afterConfirm(purchase, produto);
+      return { data: [intent.result], error: null };
     },
   };
   return db;
@@ -147,6 +168,16 @@ async function clicar(db, customId, opts = {}) {
   await comDb(db, i, () => loja.handleComponent(i));
   assert.equal(i.chamadas[0][0], 'defer'); assert.equal(i.chamadas[0][1].flags, MessageFlags.Ephemeral);
   return i;
+}
+
+async function prepararCompra(db, itemId = uuid(1), opts = {}) {
+  const detalhes = await clicar(db, `lojinhapro:selecionar:${opts.user || U1}`, { ...opts, values: [itemId] });
+  return componentes(detalhes)[0]?.components[0]?.custom_id;
+}
+async function comprar(db, itemId = uuid(1), opts = {}) {
+  const botao = await prepararCompra(db, itemId, opts);
+  assert.ok(botao, 'prévia deve gerar botão');
+  return clicar(db, botao, opts);
 }
 
 test('contrato exportado e slash compatível', () => {
@@ -205,161 +236,104 @@ test('moedas e ranking usam dados reais da guild, com resposta privada', async (
   assert.ok(db.calls.filter((x) => x.tabela === 'royal_profiles').every((x) => x.eqs.some(([k, v]) => k === 'guild_id' && v === G1)));
 });
 
-test('catálogo pagina >25, seleção mostra detalhes e confirma compra real', async () => {
-  const db = dbFake();
-  db.tables.royal_shop_items[26].stock = 2;
+test('catálogo pagina e prévia cria intenção vinculada; confirmação usa nonce', async () => {
+  const db = dbFake(); db.tables.royal_shop_items[26].stock = 2;
   const lista = await clicar(db, 'lojinhapro:catalogo');
-  assert.match(texto(lista), /Página \*\*1\/2/);
   assert.equal(componentes(lista)[0].components[0].options.length, 25);
-  const proxima = componentes(lista)[1].components[1].custom_id;
-  const pagina = await clicar(db, proxima);
+  const pagina = await clicar(db, componentes(lista)[1].components[1].custom_id);
   const menu = componentes(pagina)[0].components[0];
-  assert.equal(menu.options.length, 5); assert.match(texto(pagina), /2\/2/);
-  assert.deepEqual(db.calls.filter((x) => x.tabela === 'royal_shop_items').map((x) => x.range), [[0, 24], [25, 49]]);
-  const escolhido = menu.options.find((x) => x.value === uuid(27));
-  const detalhes = await clicar(db, menu.custom_id, { values: [escolhido.value] });
+  const detalhes = await clicar(db, menu.custom_id, { values: [uuid(27)] });
   assert.match(texto(detalhes), /Produto 27/); assert.match(texto(detalhes), /2 em estoque/);
-  const confirmado = await clicar(db, componentes(detalhes)[0].components[0].custom_id, { id: '777777777777777777' });
-  assert.match(texto(confirmado), /pendente/); assert.match(texto(confirmado), /Nada é pago ou enviado automaticamente/);
-  const chamada = db.calls.find((x) => x.rpc === 'royal_buy_item_confirmed');
-  assert.deepEqual(chamada.args, { p_guild_id: G1, p_user_id: U1, p_item_id: uuid(27), p_request_id: 'buy:777777777777777777', p_expected_price: '27' });
+  const cid = componentes(detalhes)[0].components[0].custom_id;
+  assert.ok(cid.length <= 100);
+  const confirmado = await clicar(db, cid, { id: '777777777777777777' });
+  assert.match(texto(confirmado), /pendente/);
+  assert.deepEqual(db.calls.find((x) => x.rpc === 'royal_confirm_shop_intention').args,
+    { p_guild_id: G1, p_user_id: U1, p_nonce: cid.split(':').at(-1) });
   assert.equal(db.tables.royal_profiles[0].coins, 973); assert.equal(db.tables.royal_shop_items[26].stock, 1);
-  assert.equal(db.tables.royal_purchases[0].status, 'pending');
-  assert.equal(db.calls.filter((x) => x.operation === 'update').length, 0);
 });
 
-test('menus e confirmação pertencem ao membro e não acessam DB para outro', async () => {
-  const db = dbFake();
-  for (const cid of [`lojinhapro:pagina:${U1}:1`, `lojinhapro:historico:${U1}:0`, `lojinhapro:meusitens:${U1}:0`, `lojinhapro:selecionar:${U1}`, `lojinhapro:comprar:${U1}:${uuid(1)}:1`]) {
-    const i = await clicar(db, cid, { user: U2, values: [uuid(1)] });
-    assert.match(texto(i), /pertence a outro jogador/);
+test('replay com outros IDs não debita ou entrega novamente; nova prévia permite nova compra', async () => {
+  const db = dbFake(); Object.assign(db.tables.royal_shop_items[0], { reward_type: 'role', reward_value: '123456789012345678' });
+  let entregas = 0;
+  const cid = await prepararCompra(db);
+  await clicar(db, cid, { id: '777777777777777777', roleAdd: async () => { entregas++; } });
+  const repetido = await clicar(db, cid, { id: '888888888888888888', roleAdd: async () => { entregas++; } });
+  assert.match(texto(repetido), /já foi usada/); assert.equal(entregas, 1);
+  assert.equal(db.tables.royal_profiles[0].coins, 999); assert.equal(db.tables.royal_purchases.length, 1);
+  await comprar(db); assert.equal(db.tables.royal_purchases.length, 2); assert.equal(db.tables.royal_profiles[0].coins, 998);
+});
+
+test('menus privados, nonce de outra pessoa e botões antigos são rejeitados', async () => {
+  const db = dbFake(); const cid = await prepararCompra(db);
+  const antes = db.calls.length;
+  const alheia = await clicar(db, cid, { user: U2 });
+  assert.match(texto(alheia), /pertence a outro jogador/); assert.equal(db.calls.length, antes);
+  const adulterado = await clicar(db, cid.replace(U1, U2), { user: U2 });
+  assert.match(texto(adulterado), /inválida/);
+  const velho = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
+  assert.match(texto(velho), /Interação inválida/); assert.equal(db.tables.royal_purchases.length, 0);
+});
+
+test('alteração de preço ou recompensa após prévia não debita', async () => {
+  for (const campo of ['price', 'reward_value']) {
+    const db = dbFake(); const cid = await prepararCompra(db);
+    db.tables.royal_shop_items[0][campo] = campo === 'price' ? 100 : '6.00';
+    const i = await clicar(db, cid);
+    assert.match(texto(i), campo === 'price' ? /O preço mudou/ : /termos do item mudaram/);
+    assert.equal(db.tables.royal_profiles[0].coins, 1000); assert.equal(db.tables.royal_purchases.length, 0);
   }
-  assert.equal(db.calls.length, 0);
 });
 
-test('IDs de itens são filtrados por guild e seleção forjada não compra item de outro servidor', async () => {
-  const db = dbFake(); db.tables.royal_shop_items.push(item(99, { guild_id: G2 }));
-  const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(99)}:99`);
-  assert.match(texto(i), /não encontrado ou indisponível/); assert.equal(db.calls.some((x) => x.rpc), false);
-  assert.ok(db.calls[0].eqs.some(([key, val]) => key === 'guild_id' && val === G1));
-});
-
-test('preço modificado depois da prévia não é aceito sem nova confirmação', async () => {
+test('slash abre prévia e não compra; id e slug são aceitos', async () => {
   const db = dbFake();
-  const detalhes = await clicar(db, `lojinhapro:selecionar:${U1}`, { values: [uuid(1)] });
-  const confirmar = componentes(detalhes)[0].components[0].custom_id;
-  db.tables.royal_shop_items[0].price = 100;
-  const i = await clicar(db, confirmar);
-  assert.match(texto(i), /O preço mudou/); assert.equal(db.calls.some((x) => x.rpc?.startsWith('royal_buy_item')), false);
-  assert.equal(db.tables.royal_profiles[0].coins, 1000);
-});
-
-test('preço que muda após a leitura é recusado atomicamente pela RPC', async () => {
-  const db = dbFake();
-  db.alterarPrecoNaRpc = 100;
-  const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
-  assert.match(texto(i), /O preço mudou/);
-  assert.equal(db.tables.royal_profiles[0].coins, 1000);
+  for (const chave of ['item-5', uuid(5)]) {
+    const i = interacao({ sub: 'comprar', chave }); await comDb(db, i, () => loja.comando.executar(i));
+    assert.match(texto(i), /Produto 5/); assert.ok(componentes(i)[0]);
+  }
   assert.equal(db.tables.royal_purchases.length, 0);
-  assert.ok(db.calls.some((x) => x.rpc === 'royal_buy_item_confirmed' && x.args.p_expected_price === '1'));
 });
 
-test('inventário e histórico são escopados e mostram status sem afirmar pagamento', async () => {
-  const db = dbFake();
-  db.tables.royal_inventory.push({ guild_id: G1, user_id: U1, item_id: uuid(1), quantity: 2 }, { guild_id: G1, user_id: U2, item_id: uuid(2), quantity: 9 });
-  db.tables.royal_purchases.push(
-    { id: uuid(200), guild_id: G1, user_id: U1, item_id: uuid(1), price: 1, status: 'pending', created_at: '2026-11-17T12:00:00Z' },
-    { id: uuid(201), guild_id: G1, user_id: U2, item_id: uuid(2), price: 2, status: 'paid', created_at: '2026-11-17T12:00:00Z' },
-    { id: uuid(202), guild_id: G2, user_id: U1, item_id: uuid(3), price: 3, status: 'delivered', created_at: '2026-11-17T12:00:00Z' },
-  );
-  const i = await clicar(db, 'lojinhapro:inventario');
-  assert.match(texto(i), /Produto 1/); assert.match(texto(i), /Pendente/); assert.match(texto(i), /não há pagamento ou envio automático/);
-  assert.doesNotMatch(texto(i), /Produto 2|Produto 3/);
-  const queries = db.calls.filter((x) => ['royal_inventory', 'royal_purchases'].includes(x.tabela));
-  assert.equal(queries.length, 2); assert.ok(queries.every((x) => x.eqs.some(([k, v]) => k === 'guild_id' && v === G1) && x.eqs.some(([k, v]) => k === 'user_id' && v === U1)));
-});
-
-test('histórico e inventário completos têm paginação privada', async () => {
-  const db = dbFake();
-  for (let n = 1; n <= 12; n++) {
-    db.tables.royal_inventory.push({ guild_id: G1, user_id: U1, item_id: uuid(n), quantity: n, updated_at: `2026-11-${String(n).padStart(2, '0')}T12:00:00Z` });
-    db.tables.royal_purchases.push({ id: uuid(200 + n), guild_id: G1, user_id: U1, item_id: uuid(n), price: n,
-      status: n === 1 ? 'pending' : 'completed', created_at: `2026-11-${String(n).padStart(2, '0')}T12:00:00Z` });
-  }
-  const inicio = await clicar(db, 'lojinhapro:inventario');
-  const botoes = componentes(inicio)[0].components;
-  assert.equal(botoes.length, 2);
-  for (const botao of botoes) {
-    const pagina1 = await clicar(db, botao.custom_id);
-    assert.match(texto(pagina1), /Página 1\/2/);
-    const pagina2 = await clicar(db, componentes(pagina1)[0].components[1].custom_id);
-    assert.match(texto(pagina2), /Página 2\/2/);
-    assert.match(texto(pagina2), /Produto 1/);
-    if (botao.label.includes('histórico')) assert.match(texto(pagina2), /Pendente/);
-  }
-});
-
-test('compra por slash aceita slug e ID; replay de mesma interação não debita duas vezes', async () => {
-  const db = dbFake();
-  const slash = interacao({ sub: 'comprar', chave: 'item-5', id: '999999999999999999' });
-  await comDb(db, slash, () => loja.comando.executar(slash));
-  assert.match(texto(slash), /Produto 5/); assert.equal(db.tables.royal_profiles[0].coins, 995);
-  const replay = interacao({ sub: 'comprar', chave: uuid(5), id: '999999999999999999' });
-  await comDb(db, replay, () => loja.comando.executar(replay));
-  assert.equal(db.tables.royal_profiles[0].coins, 995); assert.equal(db.tables.royal_purchases.length, 1);
-});
-
-test('slug com formato UUID também é encontrado se não existir ID correspondente', async () => {
-  const db = dbFake(); db.tables.royal_shop_items[0].slug = uuid(999);
-  const i = interacao({ sub: 'comprar', chave: uuid(999) });
-  await comDb(db, i, () => loja.comando.executar(i));
-  assert.match(texto(i), /Produto 1/); assert.equal(db.tables.royal_purchases.length, 1);
-});
-
-test('saldo e estoque insuficientes são verificados no RPC e informados sem alteração direta', async () => {
-  for (const tipo of ['saldo', 'estoque']) {
-    const db = dbFake();
+test('saldo, estoque e erros de transporte não são ignorados', async () => {
+  for (const tipo of ['saldo', 'estoque', 'transporte', 'limite']) {
+    const db = dbFake(); const cid = await prepararCompra(db);
     if (tipo === 'saldo') db.tables.royal_profiles[0].coins = 0;
-    else db.tables.royal_shop_items[0].stock = 0;
-    const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
-    assert.match(texto(i), tipo === 'saldo' ? /Saldo insuficiente/ : /sem estoque/);
-    assert.equal(db.tables.royal_purchases.length, 0); assert.ok(db.calls.some((x) => x.rpc === 'royal_buy_item_confirmed'));
+    if (tipo === 'estoque') db.tables.royal_shop_items[0].stock = 0;
+    if (tipo === 'transporte') db.rpcError = 'falha de transporte';
+    if (tipo === 'limite') db.rpcError = 'Limite de compras por usuário atingido';
+    const i = await clicar(db, cid);
+    assert.match(texto(i), { saldo: /Saldo insuficiente/, estoque: /sem estoque/, transporte: /Consulte seu histórico/, limite: /já atingiu o limite/ }[tipo]);
+    assert.equal(db.tables.royal_purchases.length, 0);
   }
 });
 
-test('cargo bem-sucedido é concedido e marcado; falha conserva pendência e audita', async () => {
+test('cargo é entregue pelo snapshot, falha permanece pendente', async () => {
   for (const falha of [false, true]) {
-    const db = dbFake(); db.tables.royal_shop_items[0].reward_type = 'role'; db.tables.royal_shop_items[0].reward_value = '123456789012345678';
-    let tentativa = 0;
-    const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`, { roleAdd: async (id) => { tentativa++; assert.equal(id, '123456789012345678'); if (falha) throw new Error('sem permissão'); } });
-    assert.equal(tentativa, 1);
-    if (falha) {
-      assert.equal(db.tables.royal_purchases[0].status, 'pending'); assert.match(texto(i), /revisão da administração/);
-      const evento = db.tables.royal_audit_events.find((x) => x.action === 'reward.delivery.pending');
-      assert.equal(evento.guild_id, G1); assert.equal(evento.actor_id, U1); assert.match(evento.detail, /sem permissão/);
-    } else {
-      assert.equal(db.tables.royal_purchases[0].status, 'delivered'); assert.match(texto(i), /Cargo concedido/);
-    }
+    const db = dbFake(); Object.assign(db.tables.royal_shop_items[0], { reward_type: 'role', reward_value: '123456789012345678' });
+    let chamadas = 0;
+    const i = await comprar(db, uuid(1), { roleAdd: async (id) => { chamadas++; assert.equal(id, '123456789012345678'); if (falha) throw new Error('sem permissão'); } });
+    assert.equal(chamadas, 1); assert.equal(db.tables.royal_purchases[0].status, falha ? 'pending' : 'delivered');
+    assert.match(texto(i), falha ? /revisão da administração/ : /Cargo concedido/);
   }
 });
 
-test('falha após concessão de cargo não anuncia entrega concluída', async () => {
-  const db = dbFake(); db.markError = true; db.tables.royal_shop_items[0].reward_type = 'role'; db.tables.royal_shop_items[0].reward_value = '123456789012345678';
-  const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
-  assert.match(texto(i), /revisão da administração/); assert.equal(db.tables.royal_purchases[0].status, 'pending');
-  assert.ok(db.tables.royal_audit_events.some((x) => x.action === 'reward.delivery.pending'));
+test('entrega da compra usa claim persistente e snapshot mesmo se o cadastro divergir', async () => {
+  const db = dbFake();
+  Object.assign(db.tables.royal_shop_items[0], { reward_type: 'role', reward_value: '123456789012345678' });
+  db.afterConfirm = (_, produto) => { produto.reward_value = '999999999999999999'; };
+  let entregas = 0;
+  await comprar(db, uuid(1), { roleAdd: async (id) => { entregas++; assert.equal(id, '123456789012345678'); } });
+  assert.equal(entregas, 1);
+  assert.deepEqual(db.calls.filter((x) => x.rpc === 'royal_rescue_action').map((x) => x.args.p_action), ['claim', 'finish']);
+  assert.equal(db.calls.some((x) => x.rpc === 'royal_mark_purchase_delivered'), false);
+  assert.equal(db.tables.royal_purchases[0].status, 'delivered');
 });
 
-test('erro indeterminado da compra orienta consultar histórico antes de nova tentativa', async () => {
-  const db = dbFake(); db.rpcError = 'falha de transporte';
-  const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
-  assert.match(texto(i), /Consulte seu histórico antes de tentar novamente/);
-});
-
-test('RPC informa quando o limite por usuário foi atingido', async () => {
-  const db = dbFake(); db.rpcError = 'Limite de compras por usuário atingido';
-  const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
-  assert.match(texto(i), /já atingiu o limite/);
+test('histórico usa snapshot de nome, não cadastro mutável', async () => {
+  const db = dbFake(); await comprar(db);
+  db.tables.royal_shop_items[0].name = 'Nome novo';
+  const i = await clicar(db, 'lojinhapro:inventario');
+  assert.match(texto(i), /Produto 1/);
 });
 
 test('SQL versionado contém lock, checagem de saldo e estoque, e pendência para Pix/físico', () => {
@@ -447,7 +421,7 @@ test('avisos de PIX, físico e cargo pendentes são pós-auditoria e best effort
   for (const tipo of ['pix', 'physical', 'role']) {
     const db = dbFake(); avisoFalha = true;
     Object.assign(db.tables.royal_shop_items[0], { reward_type: tipo, reward_value: 'CHAVE-PIX-SEGREDO' });
-    const i = await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`, {
+    const i = await comprar(db, uuid(1), {
       roleAdd: async () => { throw new Error('sem permissão'); },
     });
     assert.match(texto(i), /pendente|revisão/);
@@ -459,7 +433,7 @@ test('avisos de PIX, físico e cargo pendentes são pós-auditoria e best effort
     assert.doesNotMatch(texto(i), /staff avisada|aviso enviado/i);
   }
   const db = dbFake(); Object.assign(db.tables.royal_shop_items[0], { reward_type: 'role', reward_value: '123456789012345678' });
-  await clicar(db, `lojinhapro:comprar:${U1}:${uuid(1)}:1`);
+  await comprar(db);
   assert.equal(avisosChamados.length, 0);
 });
 
@@ -477,4 +451,36 @@ test('canal atual em thread exige permissão de envio em thread e falhas não de
       assert.equal(db.tables.discord_configuracoes.some((c) => c.chave === 'lojinhapro_painel'), false);
     }
   }
+});
+
+test('inventário e histórico permanecem privados e paginados', async () => {
+  const db = dbFake();
+  for (let n = 1; n <= 12; n++) {
+    db.tables.royal_inventory.push({ guild_id: G1, user_id: U1, item_id: uuid(n), quantity: n, updated_at: `2026-11-${String(n).padStart(2, '0')}T12:00:00Z` });
+    db.tables.royal_purchases.push({ id: uuid(200 + n), guild_id: G1, user_id: U1, item_id: uuid(n), price: n,
+      terms_snapshot: { name: `Comprado ${n}` }, snapshot_source: 'purchase', status: 'pending', created_at: `2026-11-${String(n).padStart(2, '0')}T12:00:00Z` });
+  }
+  db.tables.royal_purchases.push({ id: uuid(400), guild_id: G2, user_id: U1, item_id: uuid(1), price: 1, terms_snapshot: { name: 'Não exibir' }, status: 'pending', created_at: '2026-12-01' });
+  const inicio = await clicar(db, 'lojinhapro:inventario');
+  assert.doesNotMatch(texto(inicio), /Não exibir/);
+  const historico = componentes(inicio)[0].components.find((b) => b.label.includes('histórico'));
+  const pagina = await clicar(db, historico.custom_id);
+  assert.match(texto(pagina), /Página 1\/2/);
+  const segunda = await clicar(db, componentes(pagina)[0].components[1].custom_id);
+  assert.match(texto(segunda), /Página 2\/2/); assert.match(texto(segunda), /Comprado 1/);
+});
+
+test('erro ao marcar a entrega de cargo conserva pendência sem afirmar sucesso', async () => {
+  const db = dbFake(); db.markError = true;
+  Object.assign(db.tables.royal_shop_items[0], { reward_type: 'role', reward_value: '123456789012345678' });
+  const i = await comprar(db);
+  assert.match(texto(i), /revisão da administração/);
+  assert.equal(db.tables.royal_purchases[0].status, 'pending');
+  assert.ok(db.tables.royal_audit_events.some((x) => x.action === 'reward.delivery.pending'));
+});
+
+test('prévia exibe preço bigint exato recebido como texto', async () => {
+  const db = dbFake(); db.tables.royal_shop_items[0].price = '9007199254740993';
+  const detalhes = await clicar(db, `lojinhapro:selecionar:${U1}`, { values: [uuid(1)] });
+  assert.match(texto(detalhes), /9\.007\.199\.254\.740\.993 COIN/);
 });

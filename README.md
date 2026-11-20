@@ -50,8 +50,13 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
    - `supabase/migrations/20261120000300_blacklist_queues_atomic.sql`
    - `supabase/migrations/20261120000400_match_readiness_manual_room.sql`
    - `supabase/migrations/20261120001000_filas_exclusao_ids_seguras.sql`
+   - `supabase/migrations/20261120002001_pag04_direct_room_refunds.sql`
+   - `supabase/migrations/20261120002002_eco01_eco02_shop_intentions.sql`
+   - `supabase/migrations/20261120002003_eco03_rescue_claim.sql`
+   - `supabase/migrations/20261120002004_fil08_match_outbox.sql`
 
    Em banco já existente, faça backup e confira o histórico **e o schema real** antes de aplicar somente as migrações ainda necessárias, em ordem, sem reaplicar indiscriminadamente migrações antigas. Arquivos executados manualmente no SQL Editor podem não constar no histórico gerenciado; os dois scripts de imagem de fila alteram a configuração de um servidor específico. Confira também se foram adicionados arquivos posteriores à lista acima e aplique-os antes do deploy. A execução manual no SQL Editor não registra automaticamente a migração no histórico da CLI.
+   Para o corte das novas migrações, pare e drene todas as instâncias antigas, atendimentos e integrações incompatíveis; siga os roteiros de [estorno de compra direta](docs/runbooks/direct-room-refund-review.md), [resgates](docs/runbooks/rescue-claim-cutover.md) e [encerramento de partidas](docs/runbooks/fil08-encerramento-outbox.md) e o [guia da lojinha](GUIA_ROLETA_LOJINHA.md). Faça backup, audite permissões e integrações, aplique as migrações em ordem e só depois inicie o novo código e registre os comandos slash. Não misture versões durante o corte.
    Para o corte das migrações de resgate e blacklist, **pare todas as instâncias antigas do bot antes de aplicá-las** e só inicie instâncias com o novo código depois: o resgate legado podia escrever diretamente na carteira e não deve disputar com a fotografia de revisão. Confira o schema e o backup antes do corte. A migração de blacklist também remove jogadores bloqueados já presentes em filas; republique ou atualize os painéis afetados no Discord após o corte.
    A migração `20261120000400` também altera o contrato das RPCs de prontidão e sala manual: aplique-a com instâncias antigas paradas e reinicie somente com este código. Não misture versões durante o corte.
    Carteiras anteriores sem resgate comprovado são encaminhadas para revisão em `royal_room_initial_redemption_reviews`: o resgate inicial fica bloqueado até a administração investigar pedidos, ledger e histórico e resolver o caso de forma auditável. Isso não altera nem reduz o saldo existente. Se não for possível comprovar a origem, mantenha a revisão e não crie evidências ou créditos artificiais.
@@ -61,6 +66,10 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 6. Inicie com `npm start`.
 
 `SUPABASE_SERVICE_ROLE_KEY` é segredo exclusivo do servidor. Nunca a envie ao Discord, ao cliente ou ao GitHub. Configure no Railway o `SUPABASE_URL` do projeto Apzin e a chave `service_role` emitida por esse mesmo projeto antes do deploy; uma chave antiga de outro projeto não serve. O ZIP de distribuição não deve conter `.env`, `node_modules`, bancos locais ou arquivos de credenciais.
+
+## Encerramento de partidas (FIL-08)
+
+A migração `20261120002004_fil08_match_outbox.sql` confirma resultado/W.O. ou cancelamento, prêmio em coins, estatísticas, auditoria e intenções de aviso transacionalmente. O consumidor da outbox é iniciado com o bot. Avisos Discord podem atrasar ou duplicar; históricos sem marcador econômico exigem revisão antes de crédito. Valores em reais e Pix continuam externos ao bot. Veja o [roteiro de encerramento e reconciliação](docs/runbooks/fil08-encerramento-outbox.md).
 
 ## Persistência exclusivamente Supabase
 
@@ -102,12 +111,13 @@ values
   ('ID_DO_SERVIDOR', 'acai', 'Copão de Açaí', 'Resgate físico com a ADM', 500, 'physical', 'acai-copao', null);
 ```
 
-Os produtos podem conceder coins, giros, cargos, resgates físicos ou PIX. Compras e giros usam IDs de interação como chaves de idempotência; estoque, saldo, inventário e ledger são processados pelo Supabase.
+Os produtos podem conceder coins, giros, cargos, resgates físicos ou PIX. Cada prévia de compra cria uma intenção única e expira em 15 minutos; seu botão é idempotente mesmo com novos cliques. Estoque, saldo, termos, inventário e ledger são processados pelo Supabase. Para corte e limitações dos registros antigos, consulte o [guia da lojinha](GUIA_ROLETA_LOJINHA.md).
 
 ## Testes e operação
 
 - `npm test` executa as suítes offline de regressão, compras, comandos, serviços e persistência Supabase, sem gerar cobranças reais nem iniciar o bot.
 - `npm run test:economia:sql` e `npm run test:auditoria:sql` executam testes em PostgreSQL temporário local; exigem PostgreSQL com `initdb`, `pg_ctl` e `psql`, além de Python 3. Não acessam o Supabase de produção.
+- `npm run test:pag04:sql`, `npm run test:resgates:sql`, `npm run test:match:sql` e `npm run test:prontidao:sql` também executam testes em PostgreSQL local temporário.
 - `npm run test:prontidao:sql` testa cliques e publicação manual concorrentes em PostgreSQL temporário usando `pg_virtualenv`; não acessa o banco remoto.
 - `npm run migrate:supabase -- --sqlite /caminho/backup.db --origem servidor-royal` importa o estado legado em modo somente leitura, preservando dados remotos e abortando conflitos de perfis.
 - `npm run commands:sync` publica a lista atual e remove comandos remotos obsoletos conforme a resposta da API do Discord.

@@ -16,18 +16,19 @@ async function processarLote() {
     const eventos = await vendas.reivindicarEventos(5);
     for (const evento of eventos) {
       try {
+        if (!Number.isSafeInteger(evento.attempts) || evento.attempts < 1) throw new Error('WEBHOOK_INVALID_LEASE');
         const pagamento = await mp.buscarPagamento(evento.payment_id);
         const resultadoRecarga = await recargas.processarPagamentoWebhook(pagamento);
         const resultado = resultadoRecarga.identificado
           ? resultadoRecarga
           : await compras.processarEventoWebhook(evento, pagamento);
-        await vendas.finalizarEvento({ eventId: evento.id, success: true });
+        await vendas.finalizarEvento({ eventId: evento.id, attempt: evento.attempts, success: true });
         if (resultado?.resultado?.status === 'manual_review') {
           console.error(`[mp-worker] pedido ${evento.payment_id} requer revisão; nenhum crédito foi liberado.`);
         }
       } catch (error) {
         const codigo = compras.resumoErro(error);
-        await vendas.finalizarEvento({ eventId: evento.id, success: false, errorCode: codigo }).catch((dbError) => {
+        await vendas.finalizarEvento({ eventId: evento.id, attempt: evento.attempts, success: false, errorCode: codigo }).catch((dbError) => {
           console.error('[mp-worker] não consegui reagendar evento:', dbError.message);
         });
         console.error(`[mp-worker] evento ${evento.id} será tentado novamente (${codigo}).`);
