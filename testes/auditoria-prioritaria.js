@@ -240,9 +240,15 @@ test('botões de vencedor e W.O. também bloqueiam mediador não atribuído e es
 test('RPC administrativa restringe execução a service_role na migration original e na correção forward', () => {
   const arquivoBase = fs.readFileSync(path.join(raiz, 'supabase/migrations/20261118010000_royal_room_admin_grants.sql'), 'utf8');
   const arquivoForward = fs.readFileSync(path.join(raiz, 'supabase/migrations/20261120000100_wallet_topup_refund_protection.sql'), 'utf8');
+  const reconciliação = fs.readFileSync(path.join(raiz, 'supabase/operations/reconcile_wallet_refund.sql'), 'utf8');
   assert.match(arquivoForward, /royal_wallet_propagate_freeze_to_rooms/);
   assert.match(arquivoForward, /ROOM_WALLET_FROZEN_FOR_REVIEW/);
   assert.match(arquivoForward, /'wallet_frozen', COALESCE\(v_wallet\.is_frozen, false\)/);
+  assert.match(arquivoForward, /to_regprocedure\('public\.royal_room_admin_grant/);
+  assert.match(reconciliação, /detail->>'resolves_request_id'/);
+  assert.match(reconciliação, /'resolution', 'provider_reinstated'/);
+  assert.match(reconciliação, /v_open_cases = 0/);
+  assert.match(reconciliação, /royal_wallet_balances[\s\S]*is_frozen = false[\s\S]*royal_room_wallets[\s\S]*is_frozen = false/);
   for (const sql of [arquivoBase, arquivoForward]) {
     assert.match(sql, /REVOKE ALL ON FUNCTION public\.royal_room_admin_grant\(text,\s*text,\s*text,\s*bigint,\s*text\)[\s\S]*FROM PUBLIC, anon, authenticated/);
     assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.royal_room_admin_grant\(text,\s*text,\s*text,\s*bigint,\s*text\)[\s\S]*TO service_role/);

@@ -249,10 +249,14 @@ GRANT EXECUTE ON FUNCTION public.royal_wallet_purchase_rooms(text,text,text,inte
   TO service_role;
 REVOKE ALL ON FUNCTION public.royal_wallet_balance(text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.royal_wallet_balance(text,text) TO service_role;
-REVOKE ALL ON FUNCTION public.royal_room_admin_grant(text,text,text,bigint,text)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.royal_room_admin_grant(text,text,text,bigint,text)
-  TO service_role;
+DO $acl$
+BEGIN
+  IF to_regprocedure('public.royal_room_admin_grant(text,text,text,bigint,text)') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.royal_room_admin_grant(text,text,text,bigint,text) FROM PUBLIC, anon, authenticated';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.royal_room_admin_grant(text,text,text,bigint,text) TO service_role';
+  END IF;
+END;
+$acl$;
 
 
 
