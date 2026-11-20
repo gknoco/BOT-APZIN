@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const config = require('../config');
+const { validarPixPayloadExato } = require('./pixPayload');
 
 const API = 'https://api.mercadopago.com';
 const TIMEOUT_MS = 12000;
@@ -52,7 +53,8 @@ function centavos(valor) {
   const texto = String(valor ?? '').trim();
   const achou = /^(\d+)(?:\.(\d{1,2}))?$/.exec(texto);
   if (!achou) return null;
-  return Number(achou[1]) * 100 + Number((achou[2] || '').padEnd(2, '0') || 0);
+  const total = BigInt(achou[1]) * 100n + BigInt((achou[2] || '').padEnd(2, '0') || '0');
+  return total <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(total) : null;
 }
 
 function validarEmailPix(valor) {
@@ -107,7 +109,9 @@ async function requisitar(caminho, { metodo = 'GET', corpo, idempotencyKey } = {
       body: corpo ? JSON.stringify(corpo) : undefined,
       signal: controller.signal,
     });
-    const texto = await response.text().catch(() => '');
+    // A resposta pode interromper durante o corpo, mesmo após receber headers.
+    // Esse resultado é incerto e não deve ser convertido em JSON vazio/sucesso.
+    const texto = await response.text();
     let data = {};
     try { data = texto ? JSON.parse(texto) : {}; } catch { data = {}; }
     if (!response.ok) {
@@ -120,7 +124,9 @@ async function requisitar(caminho, { metodo = 'GET', corpo, idempotencyKey } = {
         : null;
       const erro = new ErroMercadoPago(`Mercado Pago respondeu HTTP ${response.status}.`, {
         status: response.status,
-        definitive: response.status >= 400 && response.status < 500,
+        // Conflitos de idempotência, bloqueios e timeouts não provam que um
+        // pedido anterior não tenha sido processado.
+        definitive: response.status >= 400 && response.status < 500 && ![408, 409, 423, 429].includes(response.status),
         code: `mp_http_${response.status}`,
         apiMessage,
         apiCause,
@@ -138,7 +144,7 @@ async function requisitar(caminho, { metodo = 'GET', corpo, idempotencyKey } = {
     return data;
   } catch (error) {
     if (error instanceof ErroMercadoPago) throw error;
-    const abortado = error?.name === 'AbortError';
+    const abortado = controller.signal.aborted || error?.name === 'AbortError';
     const erro = new ErroMercadoPago(abortado ? 'Tempo limite ao falar com o Mercado Pago.' : 'Falha de rede ao falar com o Mercado Pago.', {
       code: abortado ? 'mp_timeout' : 'mp_network_error',
       definitive: false,
@@ -151,8 +157,9 @@ async function requisitar(caminho, { metodo = 'GET', corpo, idempotencyKey } = {
 }
 
 function montarPayloadPix({ order, email, description }) {
-  const transactionAmount = Number((Number(order.amount_cents) / 100).toFixed(2));
-  if (!Number.isFinite(transactionAmount) || transactionAmount < 0.01) {
+  const amountCents = Number(order?.amount_cents);
+  const transactionAmount = Number((amountCents / 100).toFixed(2));
+  if (!Number.isSafeInteger(amountCents) || amountCents < 1 || centavos(transactionAmount) !== amountCents) {
     throw new ErroMercadoPago('O valor do Pix precisa ser de pelo menos R$ 0,01.', { code: 'mp_amount_invalid', definitive: true });
   }
   if (!validarEmailPix(email)) {
@@ -166,14 +173,15 @@ function montarPayloadPix({ order, email, description }) {
     description: descricao || 'Compra de salas Royal Sala',
     external_reference: String(order.id),
     payer: { email: String(email) },
-    date_of_expiration: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    // O padrão do Mercado Pago é de 24h. Não enviar Date.now() mantém o
+    // mesmo corpo ao repetir a mesma chave de idempotência.
     notification_url: config.MP_WEBHOOK_URL,
   };
 }
 
 async function criarPix({ order, payerEmail, description }) {
   exigirAmbiente();
-  if (!order?.id || !Number.isInteger(Number(order.amount_cents)) || Number(order.amount_cents) < 1) {
+  if (!order?.id || !Number.isSafeInteger(Number(order.amount_cents)) || Number(order.amount_cents) < 1) {
     throw new ErroMercadoPago('Pedido inválido para gerar Pix.', { code: 'mp_order_invalid', definitive: true });
   }
   const email = String(payerEmail || '').trim().toLowerCase();
@@ -208,11 +216,28 @@ async function criarPix({ order, payerEmail, description }) {
       code: 'mp_qr_missing',
     });
   }
+  const idValido = typeof pagamento.id === 'number'
+    ? Number.isSafeInteger(pagamento.id) && pagamento.id > 0
+    : typeof pagamento.id === 'string' && /^(?!0+$)\d{1,32}$/.test(pagamento.id);
+  if (!idValido) {
+    throw new ErroMercadoPago('O Mercado Pago retornou um identificador de pagamento inválido; verifique o status antes de tentar novamente.', {
+      status: 201, definitive: false, code: 'mp_payment_id_invalid',
+    });
+  }
+  const imagem = typeof transacao.qr_code_base64 === 'string'
+    ? transacao.qr_code_base64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '') : '';
+  const imagemValida = imagem && imagem.length <= 6 * 1024 * 1024 && /^[A-Za-z0-9+/=]+$/.test(imagem);
+  const tamanhoImagem = imagemValida ? Buffer.from(imagem, 'base64').length : 0;
+  if (!tamanhoImagem || tamanhoImagem > 4 * 1024 * 1024) {
+    throw new ErroMercadoPago('O Mercado Pago retornou uma imagem de QR inválida; verifique o pagamento antes de tentar novamente.', {
+      status: 201, definitive: false, code: 'mp_qr_image_invalid',
+    });
+  }
   const qrCode = transacao.qr_code;
-  // O Mercado Pago é a autoridade do payload EMV. Não recalcular CRC nem rejeitar
-  // localmente um código que a API retornou com o pagamento criado.
-  if (typeof qrCode !== 'string' || !qrCode || qrCode.length > 3000) {
-    throw new ErroMercadoPago('O Mercado Pago retornou um Pix copia e cola vazio ou fora do limite seguro.', {
+  // Verificar estrutura/CRC não corrige nem reescreve o payload. Caso a API
+  // retorne algo malformado, o pagamento pode existir: exige reconciliação.
+  if (!validarPixPayloadExato(qrCode)) {
+    throw new ErroMercadoPago('O Mercado Pago retornou um Pix copia e cola inválido. Verifique o pagamento antes de tentar novamente.', {
       status: 201,
       definitive: false,
       code: 'mp_qr_invalid',
@@ -223,7 +248,7 @@ async function criarPix({ order, payerEmail, description }) {
     status: String(pagamento.status || 'pending').toLowerCase(),
     // Não normalizar, recortar ou recalcular: este é o payload exato fornecido pela API.
     qrCode,
-    qrBase64: transacao.qr_code_base64 ? String(transacao.qr_code_base64) : null,
+    qrBase64: transacao.qr_code_base64,
     ticketUrl: transacao.ticket_url ? String(transacao.ticket_url) : null,
     expiresAt: pagamento.date_of_expiration || null,
   };

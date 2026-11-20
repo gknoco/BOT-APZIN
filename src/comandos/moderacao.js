@@ -125,7 +125,7 @@ const comandos = [
     data: new SlashCommandBuilder()
       .setName('anunciar')
       .setDescription('Envia um anúncio oficial formatado')
-      .addStringOption((opcao) => opcao.setName('titulo').setDescription('Título do anúncio').setRequired(true).setMaxLength(256))
+      .addStringOption((opcao) => opcao.setName('titulo').setDescription('Título do anúncio').setRequired(true).setMaxLength(253))
       .addStringOption((opcao) => opcao.setName('mensagem').setDescription('Texto do anúncio').setRequired(true).setMaxLength(4000))
       .addChannelOption((opcao) => opcao.setName('canal').setDescription('Canal (vazio = aqui)').addChannelTypes(...CANAIS_ANUNCIO)),
 

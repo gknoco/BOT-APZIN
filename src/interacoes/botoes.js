@@ -94,8 +94,23 @@ async function responderVerificacaoPix(interaction, payload) {
   return responderPrivado(interaction, corpo);
 }
 
-function autorizadoPixSS(member) {
-  return plantaoModalidade.autorizado(member, 'ss_mobile') || plantaoModalidade.autorizado(member, 'ss_emu');
+async function autorizadoPixSS(member) {
+  return await plantaoModalidade.autorizado(member, 'ss_mobile') || await plantaoModalidade.autorizado(member, 'ss_emu');
+}
+
+async function responderCodigoPix(interaction, codigo) {
+  // O conteúdo é opaco: mesmo espaços e pontuação integram o EMV e o CRC.
+  // O anexo oferece uma cópia literal mesmo que o Discord formate o texto.
+  const { AttachmentBuilder } = require('discord.js');
+  const arquivo = new AttachmentBuilder(Buffer.from(codigo, 'utf8'), { name: 'pix-copia-e-cola.txt' });
+  if (codigo.length <= 2000) {
+    return responderPrivado(interaction, { content: codigo, files: [arquivo], allowedMentions: { parse: [] } });
+  }
+  return responderPrivado(interaction, {
+    content: 'O código Pix excede o limite seguro de mensagem do Discord. Abra o arquivo e copie seu conteúdo integral, ou use o QR Code; não gere outra cobrança.',
+    files: [arquivo],
+    allowedMentions: { parse: [] },
+  });
 }
 
 /**
@@ -411,7 +426,7 @@ async function fecharSala(interaction, { db, client }, partidaId) {
 
 async function tratarPlantaoModalidade(interaction, { db }, modalidade, acao) {
   const dados = plantaoModalidade.obterModalidade(modalidade);
-  if (!plantaoModalidade.autorizado(interaction.member, modalidade)) {
+  if (!(await plantaoModalidade.autorizado(interaction.member, modalidade))) {
     await responderErro(interaction, `Você precisa do cargo <@&${dados.cargoAcesso}> para usar o plantão ${dados.label}.`);
     return true;
   }
@@ -501,12 +516,12 @@ async function handleBotao(interaction, ctx) {
       case 'ssmobileentrar':
       case 'ssmobilesair':
       case 'ssmobilestatus':
-        return tratarPlantaoModalidade(interaction, ctx, 'ss_mobile', acao);
+        return await tratarPlantaoModalidade(interaction, ctx, 'ss_mobile', acao);
 
       case 'ssemuentrar':
       case 'ssemusair':
       case 'ssemustatus':
-        return tratarPlantaoModalidade(interaction, ctx, 'ss_emu', acao);
+        return await tratarPlantaoModalidade(interaction, ctx, 'ss_emu', acao);
 
       case 'entrar':
       case 'gelo':
@@ -899,7 +914,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'pixsssregistrar': {
-        if (!autorizadoPixSS(interaction.member)) {
+        if (!(await autorizadoPixSS(interaction.member))) {
           await responderErro(interaction, 'Apenas membros com cargo SS Mobile ou SS EMU podem configurar o PIX.');
           return true;
         }
@@ -909,7 +924,7 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'pixsssverificar': {
-        if (!autorizadoPixSS(interaction.member)) {
+        if (!(await autorizadoPixSS(interaction.member))) {
           await responderErro(interaction, 'Apenas membros com cargo SS Mobile ou SS EMU podem consultar o PIX.');
           return true;
         }
@@ -1019,19 +1034,17 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'copiarinfinita': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Consulte o Pix dentro do servidor onde ele foi criado.');
+          return true;
+        }
         const infinita = require('../servicos/salaInfinita');
         const codigo = await infinita.codigoPixUsuario({ orderId: args[0], guildId: interaction.guildId, userId: interaction.user.id });
-        if (!codigo) {
-          await responderErro(interaction, 'Não encontrei o código Pix deste plano na sua conta.');
+        if (typeof codigo !== 'string' || !codigo) {
+          await responderErro(interaction, 'Não encontrei um Pix pendente para este plano na sua conta. Verifique o pagamento ou procure a administração antes de gerar outra cobrança.');
           return true;
         }
-        const limpo = typeof codigo === 'string' ? codigo : '';
-        if (!limpo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
-        if (limpo.length > 2000) {
-          await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code ou procure a administração.');
-          return true;
-        }
-        await responderPrivado(interaction, { content: limpo, allowedMentions: { parse: [] } });
+        await responderCodigoPix(interaction, codigo);
         return true;
       }
 
@@ -1049,32 +1062,33 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         const revisao = order.status === 'manual_review';
+        const encerrado = ['failed', 'rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(order.status);
         await responderPrivado(interaction, {
-          embeds: [embed(revisao ? '⚠️ Pagamento em análise' : '♾️ Sala Infinita · pagamento pendente', revisao
-            ? 'Não foi ativada nenhuma assinatura. Não faça outro Pix para esta solicitação; procure a administração.'
-            : `Pagamento ainda não aprovado (status: **${order.status || 'pendente'}**). Após pagar, verifique novamente.`)],
+          embeds: [embed(revisao ? '⚠️ Pagamento em análise' : '♾️ Sala Infinita · status do pagamento', revisao
+            ? 'A situação do pagamento e da assinatura requer análise. Não faça outro Pix para esta solicitação; procure a administração.'
+            : encerrado
+              ? `O pagamento está em **${order.status}**. Não pague este Pix; consulte a administração.`
+              : `Pagamento ainda não aprovado (status: **${order.status || 'pendente'}**). Após pagar, verifique novamente.`)],
         });
         return true;
       }
 
       case 'copiarrecarga': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Consulte o Pix dentro do servidor onde ele foi criado.');
+          return true;
+        }
         const recargas = require('../servicos/recargas');
         const codigo = await recargas.codigoPixUsuario({
           topupId: args[0],
           guildId: interaction.guildId,
           userId: interaction.user.id,
         });
-        if (!codigo) {
-          await responderErro(interaction, 'Não encontrei o código Pix desta recarga na sua carteira.');
+        if (typeof codigo !== 'string' || !codigo) {
+          await responderErro(interaction, 'Não encontrei um Pix pendente para esta recarga. Verifique o pagamento ou procure a administração antes de gerar outra cobrança.');
           return true;
         }
-        const limpo = typeof codigo === 'string' ? codigo.replace(/[\s`]/g, '') : '';
-        if (!limpo) { await responderErro(interaction, 'O código Pix salvo está inválido. Gere uma nova cobrança.'); return true; }
-        if (limpo.length > 2000) {
-          await responderErro(interaction, 'O código Pix excede o limite seguro de mensagem do Discord. Use o QR Code exibido ou procure a administração.');
-          return true;
-        }
-        await responderPrivado(interaction, { content: limpo, allowedMentions: { parse: [] } });
+        await responderCodigoPix(interaction, codigo);
         return true;
       }
 
@@ -1101,10 +1115,13 @@ async function handleBotao(interaction, ctx) {
           return true;
         }
         const revisao = resultado.status === 'manual_review';
+        const encerrado = ['failed', 'rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(resultado.status);
         await responderPrivado(interaction, {
           embeds: [embed(revisao ? '⚠️ Recarga em análise' : '💠 Status da recarga', revisao
-            ? 'Não foi liberado nenhum crédito. Não faça outro Pix para esta solicitação; procure a administração.'
-            : `Pagamento ainda não aprovado (status: **${resultado.status || 'pendente'}**). Tente verificar novamente após pagar.`)],
+            ? 'A situação do pagamento e da carteira requer análise. Não faça outro Pix para esta solicitação; procure a administração.'
+            : encerrado
+              ? `O pagamento está em **${resultado.status}**. Não pague este Pix; consulte a administração.`
+              : `Pagamento ainda não aprovado (status: **${resultado.status || 'pendente'}**). Tente verificar novamente após pagar.`)],
         });
         return true;
       }
@@ -1120,6 +1137,10 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'verificarcompra': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Verifique a compra dentro do servidor onde ela foi criada.');
+          return true;
+        }
         const pedido = await comprasSalas.verificarPedido({
           orderId: args[0],
           guildId: interaction.guildId,
@@ -1131,9 +1152,12 @@ async function handleBotao(interaction, ctx) {
           });
           return true;
         }
+        const encerrado = ['failed', 'rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(pedido.status);
         const mensagem = pedido.status === 'manual_review'
-          ? 'O pagamento está em revisão. Nenhum crédito foi liberado; não faça outro Pix para este pedido.'
-          : `Pagamento ainda não aprovado (status: **${pedido.status || 'pendente'}**). Assim que o Mercado Pago confirmar, o saldo será liberado automaticamente.`;
+          ? 'A situação do pagamento e dos créditos requer análise. Não faça outro Pix para este pedido; procure a administração.'
+          : encerrado
+            ? `O pagamento está em **${pedido.status}**. Não pague este Pix; consulte a administração.`
+            : `Pagamento ainda não aprovado (status: **${pedido.status || 'pendente'}**). Assim que o Mercado Pago confirmar, o saldo será liberado automaticamente.`;
         await responderPrivado(interaction, {
           embeds: [embed(pedido.status === 'approved' ? '✅ Pix aprovado' : '💠 Status do Pix', mensagem)],
         });
@@ -1141,6 +1165,10 @@ async function handleBotao(interaction, ctx) {
       }
 
       case 'copiarpix': {
+        if (!interaction.guildId) {
+          await responderErro(interaction, 'Consulte o Pix dentro do servidor onde ele foi criado.');
+          return true;
+        }
         const pedido = await vendasDb.obterPixPedidoUsuario({
           orderId: args[0],
           guildId: interaction.guildId,
@@ -1148,17 +1176,10 @@ async function handleBotao(interaction, ctx) {
         });
         const codigo = typeof pedido?.pix_copy_paste === 'string' ? pedido.pix_copy_paste : '';
         if (!codigo) {
-          await responderErro(interaction, 'Não encontrei o código Pix deste pedido. Confirme se o pedido pertence à sua conta ou gere um novo atendimento.');
+          await responderErro(interaction, 'Não encontrei um Pix pendente para este pedido na sua conta. Verifique o pagamento ou procure a administração antes de gerar outra cobrança.');
           return true;
         }
-        if (codigo.length > 2000) {
-          await responderErro(interaction, 'O código Pix retornado excede o limite seguro de mensagem do Discord. Use o QR Code exibido no pedido e fale com a administração se precisar de ajuda.');
-          return true;
-        }
-        await responderPrivado(interaction, {
-          content: codigo,
-          allowedMentions: { parse: [] },
-        });
+        await responderCodigoPix(interaction, codigo);
         return true;
       }
 

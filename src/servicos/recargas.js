@@ -37,6 +37,14 @@ async function criarRecargaPix({ guildId, userId, requestId, amountCents, payerE
     amountCents: Number(amountCents),
     payerEmail: email,
   });
+  if (order.status === 'approved') {
+    return { order: { ...order, balance_cents: await db.saldoUsuario(guildId, userId) }, payment: null };
+  }
+  if (order.status === 'failed') throw new Error('Esta tentativa de recarga foi recusada. Inicie uma nova solicitação.');
+  if (order.status === 'manual_review') throw new Error('A solicitação ficou com resultado incerto. Não gere outro Pix para esta tentativa; procure a administração.');
+  if (['rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(order.status)) {
+    throw new Error('Esta recarga não está disponível para pagamento. Inicie uma nova solicitação se necessário.');
+  }
   if (order.mp_payment_id && order.pix_copy_paste && order.pix_qr_base64) {
     return {
       order,
@@ -50,18 +58,16 @@ async function criarRecargaPix({ guildId, userId, requestId, amountCents, payerE
       },
     };
   }
-  if (order.status === 'approved') {
-    return { order: { ...order, balance_cents: await db.saldoUsuario(guildId, userId) }, payment: null };
-  }
-  if (order.status === 'failed') throw new Error('Esta tentativa de recarga foi recusada. Inicie uma nova solicitação.');
-  if (order.status === 'manual_review') throw new Error('A solicitação ficou com resultado incerto. Não gere outro Pix para esta tentativa; procure a administração.');
+  if (order.mp_payment_id) throw new Error('A recarga já tem pagamento vinculado, mas o Pix não está disponível. Não gere outro; procure a administração.');
 
+  let pagamentoCriado = false;
   try {
     const payment = await mp.criarPix({
       order: { id: order.id, amount_cents: order.amount_cents },
       payerEmail: email,
       description: 'Recarga da carteira digital · ORG Royal AP',
     });
+    pagamentoCriado = true;
     const atualizado = await db.anexarPagamento({
       topupId: order.id,
       paymentId: payment.id,
@@ -76,7 +82,9 @@ async function criarRecargaPix({ guildId, userId, requestId, amountCents, payerE
     }
     return { order: atualizado, payment };
   } catch (error) {
-    const status = error?.definitive ? 'failed' : 'manual_review';
+    // Após a criação, até uma rejeição definitiva na consulta posterior ou no
+    // anexo não prova que a cobrança criada deixou de existir.
+    const status = !pagamentoCriado && error?.definitive ? 'failed' : 'manual_review';
     await db.marcarFalha({ topupId: order.id, status, errorCode: resumoErro(error) }).catch((dbError) => {
       console.error('[recargas] falha ao salvar resultado incerto no Supabase:', dbError.message);
     });
@@ -102,11 +110,17 @@ function validarPagamento(order, payment) {
 async function aplicarStatusPagamento(order, payment) {
   if (!payment?.id) throw new Error('O Mercado Pago não retornou um ID de pagamento válido.');
   const { amountCents, externalReference, reason } = validarPagamento(order, payment);
-  const refundedCents = mp.centavos(payment.transaction_amount_refunded) ?? 0;
+  const refundedCents = payment.transaction_amount_refunded == null ? 0 : mp.centavos(payment.transaction_amount_refunded);
+  // Tratar um estorno presente mas ilegível como zero poderia liberar saldo
+  // já reembolsado. Falhar permite ao worker repetir e reconciliar o evento.
+  if (!Number.isSafeInteger(refundedCents) || refundedCents < 0) throw new Error('O Mercado Pago retornou um valor de estorno inválido.');
   return db.aplicarPagamento({
     topupId: order.id,
     paymentId: String(payment.id),
-    status: reason ? 'manual_review' : String(payment.status || 'pending').toLowerCase(),
+    // A RPC valida referência, moeda, método, ID e valor sob lock. Substituir
+    // 'approved' por 'manual_review' aqui escondia dela a divergência de valor
+    // e a fazia rebaixar o caso para 'pending' em vez de sinalizar revisão.
+    status: reason && reason !== 'amount_mismatch' ? 'manual_review' : String(payment.status || 'pending').toLowerCase(),
     amountCents,
     currency: payment.currency_id || null,
     externalReference,
@@ -119,7 +133,8 @@ async function verificarRecarga({ topupId, guildId, userId }) {
   if (!UUID.test(String(topupId || ''))) throw new Error('Identificador de recarga inválido.');
   const order = await db.obterRecargaUsuario({ topupId, guildId, userId });
   if (!order) throw new Error('Esta recarga não pertence à sua carteira.');
-  if (order.status === 'approved') return { ...order, balance_cents: await db.saldoUsuario(guildId, userId) };
+  // Mesmo uma recarga aprovada pode ter recebido estorno ou chargeback depois.
+  if (order.status === 'approved' && !order.mp_payment_id) return { ...order, balance_cents: await db.saldoUsuario(guildId, userId) };
   if (!order.mp_payment_id) {
     if (order.status === 'manual_review') throw new Error('Esta recarga está em revisão. Não gere outro Pix; procure a administração.');
     throw new Error('O Mercado Pago ainda não vinculou um pagamento a esta recarga. Aguarde e tente verificar novamente.');

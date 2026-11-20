@@ -243,7 +243,7 @@ test('criação Nix existente libera e anuncia sala pelo contrato legado', async
     p = { ...p, ...args.p_dados, status: 'sala_liberada', sala_versao: 1 };
     return { data: { ...p }, error: null };
   } } };
-  const channel = { id: 'c', send: async (payload) => { enviadas.push(payload); } };
+  const channel = { id: 'c', guildId: 'g', send: async (payload) => { enviadas.push(payload); } };
   const client = { channels: { cache: new Map([['c', channel]]) } };
   await comMocks([
     [partidas, 'buscar', async () => ({ ...p })],

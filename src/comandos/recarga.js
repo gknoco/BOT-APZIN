@@ -49,7 +49,7 @@ function componentesRecarga() {
 }
 
 function embedSalaInfinita() {
-  return embed('Sala Infinita · Planos Premium', 'O pagamento é por Pix e o plano ativa automaticamente. Comprar de novo soma os dias.', {
+  return embed('Sala Infinita · Planos Premium', 'O pagamento é por Pix. Após pagar, clique em Verificar pagamento para confirmar e ativar o plano. Comprar de novo soma os dias.', {
     cor: config.CORES.neutro,
     rodape: 'Operado por Royal AP · Suporte Royal AP',
   }).setImage(`attachment://${BANNER_INFINITA_NOME}`);

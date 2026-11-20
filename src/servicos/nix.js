@@ -126,6 +126,7 @@ async function requisitar(rota, { metodo = 'GET', corpo = null, tempoLimite = TE
   if (typeof relogio.unref === 'function') relogio.unref();
 
   let resposta;
+  let texto;
   try {
     resposta = await fetch(url, {
       method: metodo,
@@ -133,6 +134,8 @@ async function requisitar(rota, { metodo = 'GET', corpo = null, tempoLimite = TE
       body: corpo === null ? undefined : JSON.stringify(corpo),
       signal: controlador.signal,
     });
+    // fetch resolve nos cabeçalhos; a leitura do corpo também precisa de prazo.
+    texto = await resposta.text();
   } catch (erro) {
     const abortado = erro?.name === 'AbortError';
     throw new ErroNix(
@@ -145,7 +148,6 @@ async function requisitar(rota, { metodo = 'GET', corpo = null, tempoLimite = TE
     clearTimeout(relogio);
   }
 
-  const texto = await resposta.text().catch(() => '');
   let dados = null;
   if (texto) {
     try {

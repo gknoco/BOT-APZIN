@@ -15,11 +15,11 @@ const config = require('../config');
 const persistenciaSupabase = require('../servicos/supabase');
 const partidas = require('../servicos/partidas');
 const paineis = require('../servicos/paineis');
-const { exigirStaff, exigirAdmin, responderPrivado } = require('../util/seguranca');
+const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso } = require('../util/embeds');
 
-// Estas listas servem apenas para organizar o registro, nunca para filtrar
-// comandos: qualquer nome ainda não categorizado aparece em "Outros comandos".
+// Organiza os comandos e aplica o filtro opcional de categorias por cargo;
+// nomes ainda não categorizados aparecem em "Outros comandos".
 const CATEGORIAS_AJUDA = [
   { id: 'inicio', titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
   { id: 'filas', titulo: '🎮 Filas e partidas', nomes: ['painelfilas', 'vencedor', 'wo', 'apostas', 'criar_telagem', 'telagem_links'] },
@@ -201,6 +201,8 @@ function ajudaEmbeds(listaComandos = require('./index').definicoes(), filtroCate
   // O mesmo JSON usado no registro de slash commands é a fonte da ajuda.
   for (const comando of listaComandos) {
     const json = definicaoAjuda(comando);
+    const categoriaOriginal = CATEGORIAS_AJUDA.find((item) => item.nomes.includes(json.name));
+    if (categoriaOriginal && filtroCategorias && !filtroCategorias.has(categoriaOriginal.id)) continue;
     const categoria = categorias.find((item) => item.nomes.includes(json.name)) || outras;
     categoria.secoes.push(...secoesComandoAjuda(json));
   }

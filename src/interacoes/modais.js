@@ -46,6 +46,24 @@ async function responderPainelPrivadoTemporario(interaction, payload) {
   return mensagem;
 }
 
+async function responderCobranca(interaction, payload, temporario = false, orderId = null) {
+  try {
+    return await (temporario ? responderPainelPrivadoTemporario(interaction, payload) : responderPrivado(interaction, payload));
+  } catch (erro) {
+    console.error('[modais] não consegui apresentar o resultado da cobrança:', erro.message);
+    const referencia = comprasSalas.UUID.test(String(orderId || '')) ? ` Pedido: ${orderId}.` : '';
+    throw new Error(`A solicitação já foi processada, mas não foi possível confirmar a apresentação do resultado. Não gere outro Pix; confira o pedido com a administração.${referencia}`);
+  }
+}
+
+function exigirPixPendente(order, payment) {
+  if (order?.status === 'manual_review') throw new Error('O pagamento está em revisão. Não pague este Pix nem gere outra cobrança; procure a administração.');
+  if (['failed', 'rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(order?.status) ||
+      ['rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(payment?.status)) {
+    throw new Error('Esta cobrança não está pendente de pagamento. Não pague o Pix; consulte a administração.');
+  }
+}
+
 async function abrirModalRegras(interaction, db, partidaId) {
   const partida = await buscarPartidaDaGuild(db, interaction, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada.');
@@ -461,11 +479,12 @@ async function aplicarPlanoInfinito(interaction, db, plan) {
   });
   const plano = salaInfinita.PLANOS[plan];
   if (resultado.order.status === 'approved') {
-    return responderPrivado(interaction, {
+    return responderCobranca(interaction, {
       embeds: [embedSucesso(`Pagamento aprovado. Sala Infinita ${plano.nome} ativa até **${dataBR(Date.parse(resultado.order.premium_until_after))}**. O privilégio está vinculado somente à sua conta Discord neste servidor.`)],
-    });
+    }, false, resultado.order.id);
   }
   const payment = resultado.payment;
+  exigirPixPendente(resultado.order, payment);
   if (!payment?.qrBase64 || !payment?.qrCode) {
     throw new Error('O pedido foi salvo, mas o Mercado Pago não retornou o QR Code. Não faça outro Pix; procure a administração.');
   }
@@ -473,22 +492,23 @@ async function aplicarPlanoInfinito(interaction, db, plan) {
   if (base64.length > 6 * 1024 * 1024 || !/^[A-Za-z0-9+/=]+$/.test(base64)) throw new Error('O Mercado Pago retornou um QR Code inválido. O pedido permanece salvo; procure a administração.');
   const qr = Buffer.from(base64, 'base64');
   if (!qr.length || qr.length > 4 * 1024 * 1024) throw new Error('O QR Code excede o limite seguro. O pedido permanece salvo; procure a administração.');
-  const codigo = String(payment.qrCode).replace(/[\r\n]/g, '').trim();
-  if (!codigo || codigo.length > 3000) throw new Error('O código Pix retornado não pode ser exibido com segurança. Procure a administração.');
+  if (typeof payment.qrCode !== 'string' || payment.qrCode.length > 3000) throw new Error('O código Pix retornado não pode ser exibido com segurança. Procure a administração.');
   const expiraEm = payment.expiresAt || resultado.order.expires_at;
   const card = embed(`Pix · Sala Infinita ${plano.nome}`,
-    `**Plano:** ${plano.dias} dias · **Valor:** ${reais(plano.amountCents)}${expiraEm ? `\n**Expira:** ${dataBR(Date.parse(expiraEm))}` : ''}`,
+    `**Plano:** ${plano.dias} dias · **Valor:** ${reais(plano.amountCents)}${expiraEm ? `\n**Expira:** ${dataBR(Date.parse(expiraEm))}` : ''}` +
+    `\n**Pedido:** \`${resultado.order.id}\`\n\nPague pelo QR Code ou clique em **Copia e Cola**. Após pagar, clique em **Verificar pagamento** para confirmar e ativar o plano.` +
+    '\nEste painel expira em 30 minutos; se não conseguir verificar, informe o pedido à administração antes de gerar outro Pix.',
     { cor: config.CORES.neutro, rodape: 'ROYAL AP SALA · Mercado Pago' })
     .setImage('attachment://royal-infinite-qr.png');
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`ap:copiarinfinita:${resultado.order.id}`).setLabel('Copia e Cola').setEmoji('📋').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`ap:verificarinfinita:${resultado.order.id}`).setLabel('Verificar pagamento').setEmoji('🔄').setStyle(ButtonStyle.Success),
   );
-  return responderPainelPrivadoTemporario(interaction, {
+  return responderCobranca(interaction, {
     embeds: [card],
     files: [new AttachmentBuilder(qr, { name: 'royal-infinite-qr.png' })],
     components: [row],
-  });
+  }, true, resultado.order.id);
 }
 
 async function aplicarRecarga(interaction) {
@@ -517,10 +537,11 @@ async function aplicarRecarga(interaction) {
   if (order.status === 'approved') {
     const bonusAprovado = Number(order.bonus_cents || 0);
     const creditoAprovado = Number(order.credit_cents || order.amount_cents);
-    return responderPrivado(interaction, {
+    return responderCobranca(interaction, {
       embeds: [embedSucesso(`Recarga aprovada! **${reais(creditoAprovado)}** foram adicionados à sua carteira${bonusAprovado > 0 ? `, incluindo **${reais(bonusAprovado)}** de bônus` : ''}.\n**Saldo disponível:** ${reais(order.balance_cents)}.`)],
-    });
+    }, false, order.id);
   }
+  exigirPixPendente(order, payment);
   if (!payment?.qrBase64 || !payment?.qrCode) {
     throw new Error('O pedido foi registrado, mas o Mercado Pago não retornou o QR Code. Não gere outra recarga para esta tentativa; procure a administração.');
   }
@@ -532,14 +553,13 @@ async function aplicarRecarga(interaction) {
   if (!qr.length || qr.length > 4 * 1024 * 1024) {
     throw new Error('O QR Code retornado excede o limite seguro. A recarga permanece salva; procure a administração.');
   }
-  const codigo = String(payment.qrCode).replace(/[\r\n]/g, '').trim();
-  if (!codigo || codigo.length > 3000) {
+  if (typeof payment.qrCode !== 'string' || payment.qrCode.length > 3000) {
     throw new Error('O código Pix retornado está fora do limite seguro de exibição. Use o atendimento da administração.');
   }
   const expiracao = payment.expiresAt || order.expires_at;
   const bonus = Number(order.bonus_cents || 0);
   const credito = Number(order.credit_cents || order.amount_cents);
-  const corpo = `**Valor do Pix:** ${reais(order.amount_cents)}${bonus > 0 ? `\n**Bônus Royal AP (10%):** +${reais(bonus)}` : ''}\n**Crédito na carteira:** ${reais(credito)}${expiracao ? `\n**Expira:** ${dataBR(Date.parse(expiracao))}` : ''}`;
+  const corpo = `**Valor do Pix:** ${reais(order.amount_cents)}${bonus > 0 ? `\n**Bônus Royal AP (10%):** +${reais(bonus)}` : ''}\n**Crédito na carteira:** ${reais(credito)}${expiracao ? `\n**Expira:** ${dataBR(Date.parse(expiracao))}` : ''}\n\nPague pelo QR Code ou clique em **Copia e Cola**. Após pagar, use **Verificar pagamento** para consultar a recarga.`;
   const card = embed('Pix de recarga', corpo, {
     cor: config.CORES.ouro,
     rodape: 'Carteira Digital · Mercado Pago · Crédito após aprovação',
@@ -556,11 +576,11 @@ async function aplicarRecarga(interaction) {
       .setEmoji('🔄')
       .setStyle(ButtonStyle.Success),
   );
-  return responderPainelPrivadoTemporario(interaction, {
+  return responderCobranca(interaction, {
     embeds: [card],
     files: [new AttachmentBuilder(qr, { name: 'royal-wallet-topup-qr.png' })],
     components: [botoes],
-  });
+  }, true, order.id);
 }
 
 async function aplicarCompraSalas(interaction, partes) {
@@ -594,11 +614,12 @@ async function aplicarCompraSalas(interaction, partes) {
   });
 
   if (order.status === 'approved') {
-    return responderPrivado(interaction, { content: comprasSalas.textoPagamentoAprovado(order.rooms_quantity) });
+    return responderCobranca(interaction, { content: comprasSalas.textoPagamentoAprovado(order.rooms_quantity) }, false, order.id);
   }
+  exigirPixPendente(order, payment);
 
-  const expiracao = payment.expiresAt || order.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const expiracaoTexto = dataBR(Date.parse(expiracao));
+  const expiracao = payment?.expiresAt || order.expires_at;
+  const expiracaoTexto = expiracao ? dataBR(Date.parse(expiracao)) : 'não informada pelo Mercado Pago';
   const detalheCupom = Number(order.discount_cents) > 0 ? `**Desconto aplicado:** ${reais(order.discount_cents)}` : null;
   const descricaoQuantidade = quantidadeFixa === 'custom' ? '**quantidade:**' : '**Pacote selecionado:**';
   const card = embed(
@@ -610,12 +631,13 @@ async function aplicarCompraSalas(interaction, partes) {
       `**Expiração:** ${expiracaoTexto}`,
       '',
       'O saldo é liberado automaticamente assim que o Mercado Pago aprovar o pagamento.',
+      'Pague pelo QR Code ou clique em **Copia e Cola**; após pagar, use **Verificar pagamento** para consultar o pedido.',
       `**Pedido:** \`${order.id}\``,
     ].filter(Boolean).join('\n'),
     { cor: config.CORES.ouro, rodape: 'ROYAL SALA · Pix Mercado Pago' },
   );
   const arquivos = [];
-  const base64 = String(payment.qrBase64 || '').replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+  const base64 = String(payment?.qrBase64 || '').replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
   if (base64 && base64.length <= 6 * 1024 * 1024 && /^[A-Za-z0-9+/=]+$/.test(base64)) {
     const imagem = Buffer.from(base64, 'base64');
     if (imagem.length > 0 && imagem.length <= 4 * 1024 * 1024) {
@@ -634,11 +656,11 @@ async function aplicarCompraSalas(interaction, partes) {
     .setCustomId(`ap:verificarcompra:${order.id}`)
     .setLabel('Verificar pagamento')
     .setStyle(ButtonStyle.Success)];
-  return responderPrivado(interaction, {
+  return responderCobranca(interaction, {
     embeds: [card],
     files: arquivos,
     components: [new ActionRowBuilder().addComponents(...botoes)],
-  });
+  }, false, order.id);
 }
 
 async function aplicarCompraSaldo(interaction) {
@@ -680,7 +702,7 @@ async function aplicarCompraSaldo(interaction) {
 
 async function aplicarPix(interaction, db, ss = false) {
   const autorizado = ss
-    ? plantaoModalidade.autorizado(interaction.member, 'ss_mobile') || plantaoModalidade.autorizado(interaction.member, 'ss_emu')
+    ? await plantaoModalidade.autorizado(interaction.member, 'ss_mobile') || await plantaoModalidade.autorizado(interaction.member, 'ss_emu')
     : await staffSupabase.temCargoMediador(interaction.guildId, interaction.member);
   if (!autorizado) {
     await responderErro(interaction, ss ? 'Apenas membros com cargo SS Mobile ou SS EMU podem registrar PIX.' : 'Só mediadores/ADM registram PIX de recebimento.');

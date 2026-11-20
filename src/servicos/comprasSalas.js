@@ -41,16 +41,21 @@ async function criarPedidoPix({ guildId, userId, requestId, quantity, couponCode
   if (!Number.isInteger(qtd) || qtd < 1 || qtd > 1000) throw new Error('A quantidade precisa ser um número inteiro entre 1 e 1.000 salas.');
 
   const order = await vendas.criarPedido({ guildId, userId, requestId, quantity: qtd, couponCode, payerEmail: email });
+  if (order.status === 'approved') return { order, payment: null };
+  if (order.status === 'failed') throw new Error('Este pedido já foi recusado. Inicie uma nova compra.');
+  if (order.status === 'manual_review') throw new Error('Esta compra ficou com resultado incerto. Não faça outro Pix; aguarde a confirmação ou procure a administração.');
+  if (['rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(order.status)) {
+    throw new Error('Este pedido não está pendente de pagamento. Não pague o Pix antigo; consulte a administração.');
+  }
   if (order.mp_payment_id && order.pix_copy_paste) {
     return { order, payment: { id: String(order.mp_payment_id), status: order.status, qrCode: order.pix_copy_paste, qrBase64: order.pix_qr_base64, ticketUrl: order.ticket_url, expiresAt: order.expires_at } };
   }
-  if (order.status === 'failed') throw new Error('Este pedido já foi recusado. Inicie uma nova compra.');
-  if (order.status === 'manual_review') throw new Error('Esta compra ficou com resultado incerto. Não faça outro Pix; aguarde a confirmação ou procure a administração.');
 
   let payment;
+  let atualizado;
   try {
     payment = await mp.criarPix({ order, payerEmail: email });
-    await vendas.anexarPagamento({
+    atualizado = await vendas.anexarPagamento({
       orderId: order.id,
       paymentId: payment.id,
       qrCode: payment.qrCode,
@@ -59,30 +64,29 @@ async function criarPedidoPix({ guildId, userId, requestId, quantity, couponCode
       expiresAt: payment.expiresAt,
     });
   } catch (error) {
-    // O cliente atual usa fetch; manter também error.response.data para compatibilidade com Axios.
-    // Não registrar token, QR completo nem e-mail do pagador.
+    // Não registrar respostas brutas, QR, token ou dados do pagador.
     console.error('[compras-salas] erro exato ao criar/anexar Pix do Mercado Pago:', JSON.stringify({
-      responseData: error?.response?.data || error?.details || null,
-      message: error?.message || String(error),
       code: resumoErro(error),
       status: error?.status || error?.response?.status || null,
-      apiMessage: error?.apiMessage || null,
-      apiCause: error?.apiCause || null,
       orderId: String(order.id),
       transactionAmount: Number((Number(order.amount_cents) / 100).toFixed(2)),
     }));
-    const status = error?.definitive ? 'failed' : 'manual_review';
+    // Uma falha definitiva de persistência não desfaz um Pix já criado.
+    const status = !payment && error?.definitive ? 'failed' : 'manual_review';
     await vendas.marcarFalhaPedido({ orderId: order.id, status, errorCode: resumoErro(error) }).catch((dbError) => {
       console.error('[compras-salas] não consegui atualizar o pedido após falha MP:', dbError.message);
     });
-    throw new Error(mensagemFalhaMercadoPago(error));
+    throw new Error(mensagemFalhaMercadoPago(status === 'failed' ? error : null));
   }
 
   if (payment.status === 'approved') {
-    const atualizado = await processarPagamento(payment.id, order.id);
-    return { order: atualizado, payment };
+    try {
+      return { order: await processarPagamento(payment.id, order.id), payment };
+    } catch {
+      throw new Error('O Pix foi criado, mas não foi possível confirmar o pagamento. Não gere outra cobrança; aguarde ou procure a administração.');
+    }
   }
-  return { order: { ...order, status: 'pending' }, payment };
+  return { order: atualizado || { ...order, status: 'pending' }, payment };
 }
 
 async function aplicarPagamentoVerificado(order, payment) {

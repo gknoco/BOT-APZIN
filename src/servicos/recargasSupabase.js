@@ -67,6 +67,7 @@ async function obterCodigoPixUsuario({ topupId, guildId, userId }) {
     .eq('id', String(topupId))
     .eq('guild_id', String(guildId))
     .eq('user_id', String(userId))
+    .eq('status', 'pending')
     .maybeSingle();
   if (error) throw new Error(`consulta do código Pix no Supabase: ${error.message}`);
   return data?.pix_copy_paste || null;

@@ -542,7 +542,7 @@ test('Copia e Cola consulta pedido por ID, guild e dono e entrega o código brut
     await botoes.handleBotao(interaction, ctx);
     assert.equal(ultimoPayload(interaction).content, pedidos[0].pix_copy_paste);
     assert.equal(ultimoPayload(interaction).flags & EFEMERO, EFEMERO);
-    assert.deepEqual(consultas[0].filtros, [['id', ID_PEDIDO], ['guild_id', 'guild-a'], ['user_id', 'user-a']]);
+    assert.deepEqual(consultas[0].filtros, [['id', ID_PEDIDO], ['guild_id', 'guild-a'], ['user_id', 'user-a'], ['status', 'pending']]);
     for (const alteracao of [{ user: { id: 'user-b' } }, { guildId: 'guild-b' }]) {
       const negada = Object.assign(interacao(`ap:copiarpix:${ID_PEDIDO}`), alteracao);
       await botoes.handleBotao(negada, ctx);

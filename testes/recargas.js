@@ -241,7 +241,7 @@ test('consulta de código Pix mantém o filtro de servidor e usuário dono', asy
   assert.deepEqual(supabase.codeArgs, { topupId: ORDER_ID, guildId: 'guild-a', userId: 'user-a' });
 });
 
-test('botão Copia e Cola da recarga responde somente o código Pix contínuo, sem espaços ou cercas', async () => {
+test('botão Copia e Cola da recarga preserva o código exatamente como salvo', async () => {
   const chamadas = [];
   const loadOriginal = Module._load;
   Module._load = function loadRecargasMock(request, parent, isMain) {
@@ -266,7 +266,7 @@ test('botão Copia e Cola da recarga responde somente o código Pix contínuo, s
     Module._load = loadOriginal;
   }
   const resposta = chamadas.find(([nome]) => nome === 'followUp')[1];
-  assert.equal(resposta.content, '000201PIXCODE');
-  assert.doesNotMatch(resposta.content, /\s|`/);
+  assert.equal(resposta.content, ' 000201\r\nPI X ` CODE  ');
+  assert.deepEqual(resposta.allowedMentions, { parse: [] });
   assert.equal(resposta.flags & 64, 64);
 });

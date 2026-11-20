@@ -160,18 +160,22 @@ async function executarCriarSala(interaction, db) {
   const dados = resultado.dados;
 
   const extra = [];
-  if (aviso === 'canal' && interaction.channel?.isTextBased?.()) {
-    await interaction.channel
-      .send({
+  if (aviso === 'canal') {
+    try {
+      if (!interaction.channel?.isTextBased?.() || typeof interaction.channel.send !== 'function') throw new Error('canal não enviável');
+      await interaction.channel.send({
         content:
           `🎮 **Sala criada automaticamente**\n` +
           `**ID:** \`${dados.room_id}\` · **Senha:** \`${dados.password}\`\n` +
           (dados.invite_link ? `**Link:** ${dados.invite_link}\n` : '') +
           `_Entrem e aguardem o mediador dar start._`,
         allowedMentions: { parse: [] },
-      })
-      .catch(() => {});
-    extra.push({ name: 'Aviso', value: `Sala divulgada em <#${interaction.channel.id}>.` });
+      });
+      extra.push({ name: 'Aviso', value: `Sala divulgada em <#${interaction.channel.id}>.` });
+    } catch (erro) {
+      console.error('[nix] sala criada, mas não consegui divulgar no canal:', erro.message);
+      extra.push({ name: 'Aviso', value: 'A sala foi criada, mas não consegui confirmar a divulgação no canal. Confira o canal antes de enviar os dados novamente; não recrie a sala.' });
+    }
   }
   if (!resultado.creditoLiquidado) extra.push({ name: 'Crédito', value: 'A sala foi criada, mas a confirmação do consumo ficou pendente no Supabase. Não repita a criação; avise a administração.' });
 

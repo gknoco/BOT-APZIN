@@ -17,7 +17,7 @@ const comando = {
       return responderErro(interaction, `Apenas mediadores com o cargo ${CARGO_MEDIADOR} podem usar este comando.`);
     }
     if (!interaction.guildId) return responderErro(interaction, 'Use este comando dentro do servidor.');
-    await interaction.deferReply({ flags: EFEMERO });
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: EFEMERO });
     let resultado;
     try {
       resultado = await vendasDb.resgatarSalasIniciais({

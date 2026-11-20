@@ -36,12 +36,14 @@ function lerLote(valor) {
 }
 
 async function enviarTodasAsFilas({ db, client, guildId }) {
+  const anteriores = lerLote(await persistenciaSupabase.obterConfig(guildId, CHAVE_LOTE, db.client));
   const resultados = await Promise.all(config.MODOS.map(async (modo) => {
     const channelId = CANAIS_FILAS[modo.comando];
     if (!channelId) return { enviadas: [], falhas: [] };
     try {
       const canal = client.channels.cache.get(channelId) || await client.channels.fetch(channelId);
       if (!canal?.send) throw new Error('canal não é enviável');
+      if (String(canal.guildId || canal.guild?.id || '') !== String(guildId)) throw new Error('canal não pertence a este servidor');
       const entradas = await filas.listar(db, { guildId, modo: modo.id });
       const mensagens = await paineis.publicarFila(db, canal, { guildId, modo, entradas });
       return {
@@ -55,7 +57,9 @@ async function enviarTodasAsFilas({ db, client, guildId }) {
   }));
   const enviadas = resultados.flatMap((resultado) => resultado.enviadas);
   const falhas = resultados.flatMap((resultado) => resultado.falhas);
-  await persistenciaSupabase.definirConfig(guildId, CHAVE_LOTE, JSON.stringify(enviadas), db.client);
+  // Uma republicação parcial não pode esquecer mensagens de lotes anteriores.
+  const lote = [...new Map([...anteriores, ...enviadas].map((linha) => [`${linha.channelId}:${linha.messageId}`, linha])).values()];
+  await persistenciaSupabase.definirConfig(guildId, CHAVE_LOTE, JSON.stringify(lote), db.client);
   return { enviadas, falhas };
 }
 
@@ -65,17 +69,24 @@ async function apagarTodasAsFilas({ db, client, guildId }) {
   const resultados = await Promise.all(lote.map(async (linha) => {
     try {
       const canal = client.channels.cache.get(String(linha.channelId)) || await client.channels.fetch(String(linha.channelId));
-      const mensagem = await canal?.messages?.fetch(String(linha.messageId)).catch(() => null);
-      if (!mensagem) return 0;
-      await mensagem.delete().catch(() => {});
-      return 1;
+      if (String(canal?.guildId || canal?.guild?.id || '') !== String(guildId) || !canal?.messages?.fetch) {
+        throw new Error('canal indisponível ou de outro servidor');
+      }
+      const mensagem = await canal.messages.fetch(String(linha.messageId));
+      if (!mensagem?.delete) throw new Error('mensagem indisponível');
+      await mensagem.delete();
+      return { apagada: 1, pendente: false };
     } catch (erro) {
+      // Mensagens/canais comprovadamente removidos não precisam de nova tentativa.
+      if ([10003, 10008].includes(Number(erro?.code))) return { apagada: 0, pendente: false };
       console.error(`[painelfilas] falha ao apagar mensagem ${linha.messageId}:`, erro);
-      return 0;
+      return { apagada: 0, pendente: true };
     }
   }));
-  const apagadas = resultados.reduce((total, resultado) => total + resultado, 0);
-  await persistenciaSupabase.removerConfig(guildId, CHAVE_LOTE, db.client);
+  const apagadas = resultados.reduce((total, resultado) => total + resultado.apagada, 0);
+  const pendentes = lote.filter((_, indice) => resultados[indice].pendente);
+  if (pendentes.length) await persistenciaSupabase.definirConfig(guildId, CHAVE_LOTE, JSON.stringify(pendentes), db.client);
+  else await persistenciaSupabase.removerConfig(guildId, CHAVE_LOTE, db.client);
   return { apagadas, encontradas: lote.length };
 }
 

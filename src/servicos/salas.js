@@ -84,7 +84,10 @@ async function publicarSalaLiberada(client, db, partidaId, dados) {
   const canalId = partida.canal_id;
   if (!canalId) return null;
   const canal = client?.channels?.cache?.get?.(canalId) || (await client?.channels?.fetch?.(canalId).catch?.(() => null));
-  if (!canal?.send) return null;
+  if (!canal?.send || !partida.guild_id || String(canal.guildId || canal.guild?.id || '') !== String(partida.guild_id)) {
+    console.error(`[salas] canal ${canalId} indisponível ou não pertence à guild ${partida.guild_id}; credenciais não publicadas.`);
+    return null;
+  }
 
   await canal.send({
     content: `${lista.map((linha) => mencao(linha.user_id)).join(' ')} — sala do AP pronta!`,

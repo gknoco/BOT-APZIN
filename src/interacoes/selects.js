@@ -17,6 +17,7 @@ const plantao = require('../servicos/plantao');
 const vendasDb = require('../servicos/roomSalesSupabase');
 const vendasUI = require('../comandos/vendas');
 const { responderPrivado, responderErro, ehAdmin } = require('../util/seguranca');
+const { obterConfig } = require('../db');
 const { embed, reais, listaUsuarios } = require('../util/embeds');
 
 const ACOES = ['preco', 'medcargos', 'medfila', 'medpix', 'compraspacote', 'comprascargos', 'comprascanal', 'addsalasadm'];
@@ -134,6 +135,11 @@ async function handleSelect(interaction, ctx) {
         await mediadores.definirCargos(ctx.db, interaction.guildId, valores);
       }
       if (acao === 'medfila') {
+        const canalPartidas = await obterConfig(ctx.db, interaction.guildId, 'canal_partidas_formadas', null);
+        if (String(canalPartidas || '') === String(valores[0] || '')) {
+          await responderErro(interaction, 'O canal do bate-ponto não pode ser o mesmo canal de partidas formadas. Escolha outro canal.');
+          return true;
+        }
         await mediadores.definirCanalBatePonto(ctx.db, interaction.guildId, valores[0]);
       }
       if (acao === 'medpix') {

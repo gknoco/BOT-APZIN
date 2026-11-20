@@ -4,8 +4,55 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const config = require('../config');
-
+const PRAZO_SUPABASE_MS = 15000;
 let cliente;
+
+// Abortar limita a espera, mas não prova que uma escrita não foi confirmada.
+// Chamadores devem tratar timeouts de escrita como resultados incertos.
+async function fetchComPrazo(input, init = {}, prazoMs = PRAZO_SUPABASE_MS) {
+  const controlador = new AbortController();
+  const sinalOriginal = init.signal === undefined && input instanceof Request ? input.signal : init.signal;
+  const limpar = () => {
+    clearTimeout(relogio);
+    sinalOriginal?.removeEventListener('abort', aoAbortar);
+  };
+  const aoAbortar = () => { controlador.abort(sinalOriginal.reason); limpar(); };
+  const relogio = setTimeout(() => { controlador.abort(); limpar(); }, prazoMs);
+  relogio.unref?.();
+  if (sinalOriginal?.aborted) aoAbortar();
+  else sinalOriginal?.addEventListener('abort', aoAbortar, { once: true });
+
+  let resposta;
+  try {
+    resposta = await fetch(input, { ...init, signal: controlador.signal });
+  } catch (erro) {
+    limpar();
+    throw erro;
+  }
+  if (!resposta.body) {
+    limpar();
+    return resposta;
+  }
+  // fetch resolve com os cabeçalhos; o prazo também cobre a leitura do corpo.
+  const leitor = resposta.body.getReader();
+  const corpo = new ReadableStream({
+    async pull(destino) {
+      try {
+        const parte = await leitor.read();
+        if (parte.done) { limpar(); destino.close(); }
+        else destino.enqueue(parte.value);
+      } catch (erro) { limpar(); destino.error(erro); }
+    },
+    cancel(motivo) { limpar(); return leitor.cancel(motivo); },
+  });
+  const protegida = new Response(corpo, {
+    status: resposta.status, statusText: resposta.statusText, headers: resposta.headers,
+  });
+  for (const propriedade of ['url', 'redirected', 'type']) {
+    Object.defineProperty(protegida, propriedade, { value: resposta[propriedade] });
+  }
+  return protegida;
+}
 
 function obterCliente() {
   if (cliente) return cliente;
@@ -16,6 +63,9 @@ function obterCliente() {
   }
   cliente = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    global: { fetch: fetchComPrazo },
+    // Não introduzir novas tentativas automáticas; o chamador decide a recuperação.
+    db: { retry: false },
   });
   return cliente;
 }
@@ -95,4 +145,4 @@ async function sortearVersiculo(guildId, userId, clienteOverride) {
   };
 }
 
-module.exports = { obterCliente, definirConfig, obterConfig, listarConfigs, removerConfig, sortearVersiculo };
+module.exports = { obterCliente, fetchComPrazo, definirConfig, obterConfig, listarConfigs, removerConfig, sortearVersiculo };

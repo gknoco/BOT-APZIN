@@ -388,8 +388,8 @@ async function notificarPartidaFormada(client, db, partida) {
       console.error(`[fluxo] não consegui buscar canal_partidas_formadas ${canalId} da guild ${partida.guild_id}:`, erro);
       return null;
     });
-    if (!canal?.send) {
-      console.error(`[fluxo] canal_partidas_formadas ${canalId} da guild ${partida.guild_id} não é um canal enviável.`);
+    if (!canal?.send || !partida.guild_id || String(canal.guildId || canal.guild?.id || '') !== String(partida.guild_id)) {
+      console.error(`[fluxo] canal_partidas_formadas ${canalId} indisponível ou não pertence à guild ${partida.guild_id}.`);
       return false;
     }
     // Revalida imediatamente antes do envio para não publicar se o último
@@ -403,8 +403,8 @@ async function notificarPartidaFormada(client, db, partida) {
     const mensagemSalva = await obterConfig(db, partida.guild_id, chaveMensagem, null);
     if (mensagemSalva) {
       const mensagemExistente = await canal.messages.fetch(String(mensagemSalva)).catch((erro) => {
-        if (erro?.code === 10008) console.warn(`[fluxo] painel salvo ${mensagemSalva} da partida ${partida.id} não existe mais; será reenviado.`);
-        else console.error(`[fluxo] falha ao verificar painel salvo ${mensagemSalva} da partida ${partida.id}:`, erro);
+        if (Number(erro?.code) !== 10008) throw erro;
+        console.warn(`[fluxo] painel salvo ${mensagemSalva} da partida ${partida.id} não existe mais; será reenviado.`);
         return null;
       });
       if (mensagemExistente) return true;
@@ -412,10 +412,8 @@ async function notificarPartidaFormada(client, db, partida) {
     // Repara referências ausentes/stale e bloqueia duplicatas criadas por
     // reinício do processo ou por chamadas concorrentes que não salvaram a
     // configuração antes de uma nova varredura.
-    const mensagensRecentes = await canal.messages.fetch({ limit: 100 }).catch((erro) => {
-      console.error(`[fluxo] falha ao procurar painéis duplicados da partida ${partida.id}:`, erro);
-      return null;
-    });
+    // Uma falha ao verificar o histórico não prova ausência da mensagem.
+    const mensagensRecentes = await canal.messages.fetch({ limit: 100 });
     const customIdPainel = `ap:assumirnotificacao:${partida.id}`;
     const painelExistente = [...(mensagensRecentes?.values?.() || [])].find((mensagem) =>
       mensagem.components?.some((linha) => linha.components?.some((componente) => componente.customId === customIdPainel)));
@@ -569,7 +567,8 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
       console.error(`[fluxo] não consegui buscar a sala privada ${partida.canal_id}:`, erro);
       return null;
     });
-  if (!matchChannel?.permissionOverwrites?.edit) return false;
+  if (!matchChannel?.permissionOverwrites?.edit || !partida.guild_id
+      || String(matchChannel.guildId || matchChannel.guild?.id || '') !== String(partida.guild_id)) return false;
   const A = PermissionFlagsBits;
   const cargosMediadores = new Set([
     CARGO_MEDIADOR_ACESSO,

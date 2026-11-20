@@ -287,13 +287,18 @@ const comandos = [
       .addStringOption((o) => o.setName('id_sala').setDescription('ID da sala criada, se houver').setMaxLength(64))
       .addStringOption((o) => o.setName('sessao').setDescription('session_id retornado pela Nix, se houver').setMaxLength(64))
       .addStringOption((o) => o.setName('observacao').setDescription('Motivo/registro da conciliação').setMaxLength(300)),
-    async executar(interaction) {
+    async executar(interaction, { db }) {
       if (!interaction.guildId) return responderErro(interaction, 'Use /salasreconciliar dentro do servidor.');
       const dono = config.DEV_OWNER_ID && String(interaction.user.id) === String(config.DEV_OWNER_ID);
       if (!dono && !ehAdmin(interaction.member)) return responderErro(interaction, 'Somente o dono do bot ou um Administrador pode reconciliar créditos.');
+      const requestId = interaction.options.getString('codigo');
+      const { data, error } = await db.client.from('royal_room_usages').select('request_id')
+        .eq('request_id', requestId).eq('guild_id', String(interaction.guildId)).limit(1).maybeSingle();
+      if (error) throw new Error('Não foi possível verificar a operação neste servidor. Nenhuma conciliação foi iniciada.');
+      if (!data) return responderErro(interaction, 'Operação não encontrada neste servidor.');
       const resultado = interaction.options.getString('resultado');
       const registro = await vendasDb.reconciliarUso({
-        requestId: interaction.options.getString('codigo'),
+        requestId,
         outcome: resultado,
         actorId: interaction.user.id,
         roomId: interaction.options.getString('id_sala'),

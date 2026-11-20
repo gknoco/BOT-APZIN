@@ -18,18 +18,18 @@ const telagem = require('../servicos/telagem');
 const { exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso } = require('../util/embeds');
 
-function listaEmBlocos(linhas, limite = 1024) {
-  const blocos = [];
-  let atual = '';
+function listaLimitada(linhas, vazio, limite = 1024) {
+  if (!linhas.length) return vazio;
+  const exibidas = [];
   for (const linha of linhas) {
-    if ((atual + linha).length > limite) {
-      blocos.push(atual);
-      atual = '';
-    }
-    atual += (atual ? '\n' : '') + linha;
+    const restantes = linhas.length - exibidas.length - 1;
+    const sufixo = restantes ? `\n… e mais ${restantes} item(ns).` : '';
+    const candidato = [...exibidas, linha].join('\n');
+    if (candidato.length + sufixo.length > limite) break;
+    exibidas.push(linha);
   }
-  if (atual) blocos.push(atual);
-  return blocos.length ? blocos : ['`nenhum link`'];
+  const omitidas = linhas.length - exibidas.length;
+  return `${exibidas.join('\n')}${exibidas.length && omitidas ? '\n' : ''}${omitidas ? `… e mais ${omitidas} item(ns).` : ''}`;
 }
 
 const comandos = [
@@ -111,16 +111,11 @@ const comandos = [
       const campos = [
         {
           name: `Pool (${pool.length})`,
-          value: listaEmBlocos(pool.map((url) => `• ${url}`)).join('\n'),
+          value: listaLimitada(pool.map((url) => `• ${url}`), '`nenhum link`'),
         },
         {
           name: `Em uso (${reservas.length})`,
-          value: reservas.length
-            ? reservas
-                .slice(0, 15)
-                .map((linha) => `• ${linha.chave} → ${linha.url}`)
-                .join('\n')
-            : '`nenhuma sala usando link agora`',
+          value: listaLimitada(reservas.map((linha) => `• ${linha.chave} → ${linha.url}`), '`nenhuma sala usando link agora`'),
         },
         { name: 'Livres', value: String(livres.length), inline: true },
         { name: 'Do .env', value: String(doEnv.length), inline: true },

@@ -141,7 +141,7 @@ test('botão público Sala Infinita abre painel efêmero e só atualiza mensagem
   const payload = last(i);
   assert.equal(payload.flags & 64, 64);
   assert.equal(payload.embeds[0].toJSON().image.url, 'attachment://sala-infinita-royal-ap.png');
-  assert.equal(payload.embeds[0].toJSON().description, 'O pagamento é por Pix e o plano ativa automaticamente. Comprar de novo soma os dias.');
+  assert.equal(payload.embeds[0].toJSON().description, 'O pagamento é por Pix. Após pagar, clique em Verificar pagamento para confirmar e ativar o plano. Comprar de novo soma os dias.');
   assert.equal(payload.embeds[0].toJSON().footer.text, 'Operado por Royal AP · Suporte Royal AP');
   assert.equal(payload.files[0].attachment, path.resolve(__dirname, '../assets/sala-infinita-royal-ap.png'));
   const components = payload.components.flatMap((row) => row.toJSON().components);

@@ -20,7 +20,11 @@ async function criar({ guildId, userId, requestId, source, sourceRef, sala }) {
   try {
     await vendas.reservarSala({ guildId, userId, requestId, source, sourceRef });
   } catch (error) {
-    throw erroDeSaldo(error);
+    const conhecido = erroDeSaldo(error);
+    if (conhecido !== error) throw conhecido;
+    // O banco pode ter reservado o crédito antes de a resposta se perder.
+    // Ainda não houve chamada à Nix; outra tentativa pode reservar novamente.
+    throw new Error('Supabase indisponível ou não confirmou a reserva do crédito. Nenhuma sala foi criada nesta tentativa, mas o crédito pode ter sido reservado; não tente novamente antes de procurar a administração para reconciliar.', { cause: error });
   }
 
   let dados;

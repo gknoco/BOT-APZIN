@@ -343,7 +343,7 @@ function ligarProcesso(db, recursos = {}) {
       console.error('[processo] falha ao parar worker:', erro?.stack || erro);
     }
     try {
-      recursos.client?.destroy?.();
+      await recursos.client?.destroy?.();
     } catch (erro) {
       console.error('[processo] falha ao encerrar cliente Discord:', erro?.stack || erro);
     }

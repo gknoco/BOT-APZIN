@@ -39,7 +39,7 @@ async function obterPedidoUsuario({ orderId, guildId, userId }) {
 
 async function obterCodigoPixUsuario({ orderId, guildId, userId }) {
   const { data, error } = await cliente().from('royal_infinite_orders').select('pix_copy_paste')
-    .eq('id', String(orderId)).eq('guild_id', String(guildId)).eq('user_id', String(userId)).maybeSingle();
+    .eq('id', String(orderId)).eq('guild_id', String(guildId)).eq('user_id', String(userId)).eq('status', 'pending').maybeSingle();
   if (error) throw new Error(`consulta do código Pix Sala Infinita no Supabase: ${error.message}`);
   return data?.pix_copy_paste || null;
 }

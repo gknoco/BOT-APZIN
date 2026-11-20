@@ -1,11 +1,6 @@
 'use strict';
 
-/**
- * Normaliza o Pix copia e cola no padrão EMV BR Code.
- * O Mercado Pago já fornece o payload completo; aqui validamos os TLVs e
- * recalculamos somente o CRC16-CCITT obrigatório (campo 63), sem alterar a
- * chave, o valor ou os dados do recebedor.
- */
+// O CRC cobre os bytes UTF-8, inclusive o identificador e tamanho "6304".
 function crc16Ccitt(texto) {
   let crc = 0xffff;
   for (const byte of Buffer.from(String(texto), 'utf8')) {
@@ -16,82 +11,73 @@ function crc16Ccitt(texto) {
   }
   return crc.toString(16).toUpperCase().padStart(4, '0');
 }
+
+// Compatibilidade com chamadas antigas: um Pix fornecido pelo PSP é opaco e
+// jamais pode ser limpo, recortado, normalizado ou ter o CRC substituído.
 function limparPayload(valor) {
-  return String(valor ?? '').replace(/`/g, '').replace(/[\r\n]/g, '').trim();
+  return valor;
 }
+
 function lerTLV(payload) {
+  // O tamanho EMV é em caracteres, não em unidades UTF-16 ou bytes UTF-8.
+  const caracteres = Array.from(payload);
   const campos = [];
-  for (let pos = 0; pos < payload.length;) {
-    if (pos + 4 > payload.length || !/^\d{4}$/.test(payload.slice(pos, pos + 4))) throw new Error('Pix EMV inválido: TLV incompleto.');
-    const id = payload.slice(pos, pos + 2);
-    const tamanho = Number(payload.slice(pos + 2, pos + 4));
+  const ids = new Set();
+  for (let pos = 0; pos < caracteres.length;) {
+    const cabecalho = caracteres.slice(pos, pos + 4).join('');
+    if (!/^\d{4}$/.test(cabecalho)) throw new Error('Pix EMV inválido: TLV incompleto.');
+    const id = cabecalho.slice(0, 2);
+    const tamanho = Number(cabecalho.slice(2));
     const inicio = pos + 4;
     const fim = inicio + tamanho;
-    if (!Number.isInteger(tamanho) || fim > payload.length) throw new Error('Pix EMV inválido: tamanho de campo inconsistente.');
-    campos.push({ id, valor: payload.slice(inicio, fim) });
+    if (!tamanho || fim > caracteres.length || ids.has(id)) throw new Error('Pix EMV inválido: tamanho ou identificador de campo inconsistente.');
+    ids.add(id);
+    campos.push({ id, valor: caracteres.slice(inicio, fim).join('') });
     pos = fim;
   }
   return campos;
 }
+
 function montarTLV(id, valor) {
   const texto = String(valor);
-  if (texto.length > 99) throw new Error(`Pix EMV inválido: campo ${id} excede 99 caracteres.`);
-  return `${id}${texto.length.toString().padStart(2, '0')}${texto}`;
+  const tamanho = Array.from(texto).length;
+  if (!/^\d{2}$/.test(String(id)) || tamanho < 1 || tamanho > 99) throw new Error(`Pix EMV inválido: campo ${id} com identificador ou comprimento inválido.`);
+  return `${id}${tamanho.toString().padStart(2, '0')}${texto}`;
 }
-function normalizarPixPayload(valor) {
-  const payload = limparPayload(valor);
-  if (!payload || payload.length > 1200) throw new Error('Pix EMV vazio ou acima do limite seguro.');
-  const semCrc = payload.endsWith('6304') ? payload.slice(0, -4) : payload;
-  const campos = lerTLV(semCrc);
-  const crcCampo = campos.find((campo) => campo.id === '63');
-  if (crcCampo) {
-    if (crcCampo.valor.length !== 4) throw new Error('Pix EMV inválido: CRC malformado.');
-    const semCrcReal = semCrc.slice(0, semCrc.lastIndexOf('63'));
-    if (crcCampo.valor.toUpperCase() !== crc16Ccitt(`${semCrcReal}6304`)) {
-      return `${semCrcReal}6304${crc16Ccitt(`${semCrcReal}6304`)}`;
-    }
-    return `${semCrcReal}6304${crcCampo.valor.toUpperCase()}`;
-  }
-  const recalculado = `${semCrc}6304`;
-  return `${recalculado}${crc16Ccitt(recalculado)}`;
-}
-function validarPixPayload(valor) {
+
+/** Verifica estrutura e CRC sem jamais reconstruir o código recebido do PSP. */
+function validarPixPayloadExato(valor) {
   try {
-    const normalizado = normalizarPixPayload(valor);
-    const campos = lerTLV(normalizado);
-    const ids = new Set(campos.map((campo) => campo.id));
-    const campo00 = campos.find((campo) => campo.id === '00');
-    const campo26 = campos.find((campo) => campo.id === '26');
-    if (!ids.has('00') || !ids.has('26') || !ids.has('63') || campo00?.valor !== '01') return false;
-    const subcampos = lerTLV(campo26.valor);
-    const gui = subcampos.find((campo) => campo.id === '00');
-    if (!gui || gui.valor !== 'BR.GOV.BCB.PIX') return false;
-    return normalizado;
+    // NUL não pode ser persistido em uma coluna text do PostgreSQL; pares
+    // substitutos isolados também não admitem uma representação UTF-8 fiel.
+    if (typeof valor !== 'string' || !valor || valor.length > 3000 || valor.includes('\0') || !valor.isWellFormed()) return false;
+    const campos = lerTLV(valor);
+    const primeiro = campos[0];
+    const crc = campos.at(-1);
+    if (primeiro?.id !== '00' || primeiro.valor !== '01' || crc?.id !== '63' || !/^[0-9A-F]{4}$/.test(crc.valor)) return false;
+    if (crc.valor !== crc16Ccitt(valor.slice(0, -4))) return false;
+    // O GUI Pix é case-insensitive e pode estar em qualquer ID de 26 a 51.
+    return campos.some((campo) => {
+      const id = Number(campo.id);
+      if (id < 26 || id > 51) return false;
+      try {
+        return lerTLV(campo.valor).some((subcampo) => subcampo.id === '00' && subcampo.valor.toLowerCase() === 'br.gov.bcb.pix');
+      } catch {
+        return false;
+      }
+    });
   } catch {
     return false;
   }
 }
 
-/**
- * Valida o payload exatamente como recebido, sem trim, replace ou recálculo.
- * O qr_code do Mercado Pago deve ser repassado byte a byte ao usuário.
- */
-function validarPixPayloadExato(valor) {
-  try {
-    if (typeof valor !== 'string' || !valor || valor.length > 1200 || /[`\r\n]/.test(valor)) return false;
-    const campos = lerTLV(valor);
-    const ids = new Set(campos.map((campo) => campo.id));
-    const campo00 = campos.find((campo) => campo.id === '00');
-    const campo26 = campos.find((campo) => campo.id === '26');
-    const crc = campos[campos.length - 1];
-    if (!ids.has('00') || !ids.has('26') || !campo00 || campo00.valor !== '01' || !crc || crc.id !== '63' || crc.valor.length !== 4) return false;
-    const subcampos = lerTLV(campo26.valor);
-    const gui = subcampos.find((campo) => campo.id === '00');
-    if (!gui || gui.valor !== 'BR.GOV.BCB.PIX') return false;
-    const semCrc = valor.slice(0, -8);
-    return crc.valor === crc16Ccitt(`${semCrc}6304`);
-  } catch {
-    return false;
-  }
+function validarPixPayload(valor) {
+  return validarPixPayloadExato(valor) ? valor : false;
 }
+
+function normalizarPixPayload(valor) {
+  if (!validarPixPayloadExato(valor)) throw new Error('Pix EMV inválido: estrutura ou CRC inconsistente.');
+  return valor;
+}
+
 module.exports = { crc16Ccitt, limparPayload, normalizarPixPayload, validarPixPayload, validarPixPayloadExato, montarTLV };

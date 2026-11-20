@@ -125,6 +125,7 @@ async function obterPixPedidoUsuario({ orderId, guildId, userId }) {
     .eq('id', String(orderId))
     .eq('guild_id', String(guildId))
     .eq('user_id', String(userId))
+    .eq('status', 'pending')
     .maybeSingle();
   if (error) throw new Error(`consulta do Pix do pedido Supabase: ${error.message}`);
   return data;

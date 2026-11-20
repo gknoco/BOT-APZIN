@@ -1,7 +1,7 @@
 'use strict';
 
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
-const { responderPrivado, responderErro, ehAdmin } = require('../util/seguranca');
+const { EFEMERO, responderPrivado, responderErro, ehAdmin } = require('../util/seguranca');
 const CARGO_ADM = '1543684028719173732';
 
 function painel() {
@@ -14,10 +14,22 @@ const comando = {
     return responderPrivado(interaction, painel());
   },
 };
-function selectAdm(interaction) {
-  const membros = [...(interaction.guild?.members?.cache?.values?.() || [])].filter((m) => m.roles?.cache?.has(CARGO_ADM)).slice(0, 25);
-  if (!membros.length) return responderErro(interaction, 'Nenhum usuário humano com o cargo administrativo exigido foi encontrado.');
-  return interaction.reply({ content: 'Selecione o ADM que receberá as salas:', ephemeral: true, components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('ap:addsalasadm').setPlaceholder('Selecione um ADM').addOptions(membros.map((m) => ({ label: m.user.username.slice(0, 100), value: m.id, description: `ID ${m.id}` }))))] });
+async function selectAdm(interaction) {
+  const adiadoAqui = !interaction.deferred && !interaction.replied;
+  if (adiadoAqui) await interaction.deferReply({ flags: EFEMERO });
+  const responder = (payload) => adiadoAqui ? interaction.editReply(payload) : responderPrivado(interaction, payload);
+  let membros;
+  try {
+    if (!interaction.guild?.members?.fetch) throw new Error('servidor indisponível');
+    membros = await interaction.guild.members.fetch();
+  } catch (erro) {
+    console.error('[addsalas] não consegui consultar os membros:', erro.message);
+    return responder({ content: 'Não consegui consultar os membros do servidor. Verifique o intent de membros e tente novamente.' });
+  }
+  const elegiveis = [...membros.values()]
+    .filter((m) => m.user && !m.user.bot && m.roles?.cache?.has(CARGO_ADM)).slice(0, 25);
+  if (!elegiveis.length) return responder({ content: 'Nenhum usuário humano com o cargo administrativo exigido foi encontrado.' });
+  return responder({ content: 'Selecione o ADM que receberá as salas:', components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('ap:addsalasadm').setPlaceholder('Selecione um ADM').addOptions(elegiveis.map((m) => ({ label: m.user.username.slice(0, 100), value: m.id, description: `ID ${m.id}` }))))] });
 }
 function modalQuantidade(userId) {
   return new ModalBuilder().setCustomId(`ap:modaladdsalas:${userId}`).setTitle('Quantidade de salas').addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('quantidade').setLabel('Quantidade de salas').setPlaceholder('Ex.: 10').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(6)));

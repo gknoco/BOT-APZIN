@@ -130,13 +130,13 @@ async function conectar(tentativa = 1) {
 
     const espera = Math.min(ESPERA_MAXIMA, 5000 * tentativa);
     console.warn(`   Vou tentar de novo em ${Math.round(espera / 1000)}s...`);
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
-        client.destroy();
-      } catch {
-        /* ainda não conectado */
+        await client.destroy();
+      } catch (erroDesconexao) {
+        console.warn('[discord] falha ao encerrar conexão anterior:', erroDesconexao.message);
       }
-      conectar(tentativa + 1);
+      await conectar(tentativa + 1);
     }, espera);
   }
 }

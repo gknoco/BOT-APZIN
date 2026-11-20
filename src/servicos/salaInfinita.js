@@ -50,12 +50,16 @@ async function criarPixPlano({ guildId, userId, requestId, plan, payerEmail }) {
   if (order.status === 'approved') return { order, payment: null };
   if (order.status === 'failed') throw new Error('Esta solicitação de pagamento falhou. Inicie uma nova tentativa.');
   if (order.status === 'manual_review') throw new Error('A solicitação está em revisão. Não faça outro Pix; procure a administração.');
+  if (['rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(order.status)) {
+    throw new Error('Este pedido não está pendente de pagamento. Não pague o Pix antigo; consulte a administração.');
+  }
   if (order.mp_payment_id && order.pix_copy_paste && order.pix_qr_base64) {
     return { order, payment: { id: String(order.mp_payment_id), status: order.mp_status || order.status, qrCode: order.pix_copy_paste,
       qrBase64: order.pix_qr_base64, expiresAt: order.expires_at, ticketUrl: order.ticket_url } };
   }
+  let payment;
   try {
-    const payment = await mp.criarPix({
+    payment = await mp.criarPix({
       order: { id: order.id, amount_cents: order.amount_cents },
       payerEmail: email,
       description: `Sala Infinita ${plano.nome} · Royal AP`,
@@ -64,10 +68,16 @@ async function criarPixPlano({ guildId, userId, requestId, plan, payerEmail }) {
       orderId: order.id, paymentId: payment.id, qrCode: payment.qrCode, qrBase64: payment.qrBase64,
       ticketUrl: payment.ticketUrl, expiresAt: payment.expiresAt,
     });
-    if (payment.status === 'approved') return { order: await aplicarPagamento(atualizado, payment), payment };
+    if (payment.status === 'approved') {
+      // criarPix retorna somente dados de apresentação; a validação precisa
+      // consultar o pagamento completo (valor, moeda, método e referência).
+      const verificado = await mp.buscarPagamento(payment.id);
+      return { order: await aplicarPagamento(atualizado, verificado), payment };
+    }
     return { order: atualizado, payment };
   } catch (error) {
-    const status = error?.definitive ? 'failed' : 'manual_review';
+    // Após a criação, até uma falha definitiva ao consultar/gravar não desfaz o Pix.
+    const status = !payment && error?.definitive ? 'failed' : 'manual_review';
     await db.marcarFalha({ orderId: order.id, status, errorCode: resumoErro(error) }).catch((dbError) => {
       console.error('[sala-infinita] falha ao salvar estado do pedido:', dbError.message);
     });
@@ -81,6 +91,7 @@ async function verificarPlano({ orderId, guildId, userId }) {
   const order = await db.obterPedidoUsuario({ orderId, guildId, userId });
   if (!order) throw new Error('Este pedido não pertence à sua conta neste servidor.');
   if (order.status === 'approved') return order;
+  if (!order.mp_payment_id && order.status === 'manual_review') throw new Error('Esta solicitação está em revisão. Não gere outro Pix; procure a administração.');
   if (!order.mp_payment_id) throw new Error('O Mercado Pago ainda não vinculou um pagamento a esta solicitação. Aguarde e tente novamente.');
   const payment = await mp.buscarPagamento(order.mp_payment_id);
   return aplicarPagamento(order, payment);

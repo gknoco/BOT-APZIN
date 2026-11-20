@@ -74,9 +74,22 @@ async function ativasReais(db, guildId, client) {
   const reais = [];
   for (const partida of candidatas) {
     const canalId = String(partida.canal_id || '').trim();
-    const canal = canalId && client?.channels?.fetch
-      ? client.channels.cache?.get?.(canalId) || await client.channels.fetch(canalId).catch(() => null)
-      : null;
+    let canal = canalId ? client?.channels?.cache?.get?.(canalId) : null;
+    if (canalId && !canal) {
+      if (typeof client?.channels?.fetch !== 'function') {
+        throw new Error('Não foi possível verificar as salas: cliente Discord indisponível.');
+      }
+      try {
+        canal = await client.channels.fetch(canalId);
+        if (!canal) throw new Error('Discord não confirmou a existência do canal.');
+      } catch (erro) {
+        // Somente Unknown Channel comprova remoção. Timeout, 403 e falha de
+        // rede não autorizam encerrar uma partida (possivelmente já paga).
+        if (Number(erro?.code) !== 10003 && erro?.name !== 'UnknownChannel') {
+          throw new Error(`Não foi possível verificar o canal ${canalId}; nenhuma limpeza foi feita para ele.`, { cause: erro });
+        }
+      }
+    }
     const pertenceAoServidor = canal && String(canal.guildId || canal.guild?.id || '') === String(guildId);
     const canalDeTexto = canal && (typeof canal.isTextBased !== 'function' || canal.isTextBased());
     if (pertenceAoServidor && canalDeTexto) {

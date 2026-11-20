@@ -11,6 +11,7 @@ const SNOWFLAKE = /^\d{13,20}$/;
 const HORA = /^([01]\d|2[0-3]):([0-5]\d)$/;
 let timer = null;
 let ultimaExecucao = new Map();
+let varreduraEmAndamento = null;
 
 function limpar(valor) {
   return String(valor ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
@@ -105,7 +106,7 @@ async function enviarAnuncios(client, db, guildId, config) {
   config.mensagens = mensagens;
   await supabase.definirConfig(guildId, CHAVE_ANUNCIOS, JSON.stringify(config), configCliente(db));
 }
-async function executarPendentes(client, db, force = false) {
+async function varrerPendentes(client, db, force = false) {
   const horario = agora();
   const dia = diaAtual();
   for (const guild of client.guilds.cache.values()) {
@@ -122,6 +123,16 @@ async function executarPendentes(client, db, force = false) {
   }
   // Mantém somente as chaves recentes para o processo não crescer indefinidamente.
   if (ultimaExecucao.size > 500) ultimaExecucao = new Map([...ultimaExecucao].slice(-250));
+}
+async function executarPendentes(client, db, force = false) {
+  if (varreduraEmAndamento) return varreduraEmAndamento;
+  const atual = varrerPendentes(client, db, force);
+  varreduraEmAndamento = atual;
+  try {
+    return await atual;
+  } finally {
+    if (varreduraEmAndamento === atual) varreduraEmAndamento = null;
+  }
 }
 function iniciar(client, db) {
   if (timer) return timer;

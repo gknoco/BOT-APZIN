@@ -23,16 +23,18 @@ function enviar(res, status, body) {
 function lerBody(req) {
   return new Promise((resolve, reject) => {
     let texto = '';
-    let excedeuLimite = false;
     req.setEncoding('utf8');
     req.on('data', (parte) => {
-      if (excedeuLimite) return;
       texto += parte;
-      if (Buffer.byteLength(texto) > MAX_BODY) excedeuLimite = true;
+      if (Buffer.byteLength(texto) > MAX_BODY) {
+        // Não esperar 'end': um cliente pode continuar enviando indefinidamente.
+        // A resposta 413 será escrita antes de fechar a conexão no handler.
+        req.pause();
+        reject(Object.assign(new Error('payload_too_large'), { code: 'payload_too_large' }));
+      }
     });
-    req.on('end', () => excedeuLimite
-      ? reject(Object.assign(new Error('payload_too_large'), { code: 'payload_too_large' }))
-      : resolve(texto));
+    req.on('end', () => resolve(texto));
+    req.on('aborted', () => reject(Object.assign(new Error('request_aborted'), { code: 'request_aborted' })));
     req.on('error', reject);
   });
 }
@@ -50,6 +52,11 @@ async function tratar(req, res) {
     const raw = await lerBody(req);
     body = raw ? JSON.parse(raw) : {};
   } catch (error) {
+    if (error?.code === 'payload_too_large') {
+      // O corpo não foi drenado; não reutilize esta conexão HTTP.
+      res.shouldKeepAlive = false;
+      res.setHeader('Connection', 'close');
+    }
     return enviar(res, error?.code === 'payload_too_large' ? 413 : 400, { error: error?.code || 'invalid_json' });
   }
 
