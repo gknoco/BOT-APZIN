@@ -433,6 +433,7 @@ test('publicação por /lojinhapainel funciona sem contexto e aceita cliente opc
   const mestres = require('../src/comandos/comandosMestres');
   const comandoPainel = mestres.comandos.find((c) => c.data.name === 'lojinhapainel');
   assert.ok(comandoPainel);
+  assert.equal(mestres.comandos.some((c) => c.data.name === 'loja' && c.data.toJSON().options?.some((o) => o.name === 'painel')), false);
   const db = dbFake(), i = interacao({ admin: true });
   await comDb(db, i, () => comandoPainel.executar(i));
   assert.ok(i.publico); assert.match(texto(i), /não fixado/);
