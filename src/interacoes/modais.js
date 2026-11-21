@@ -753,7 +753,7 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalpixss', 'modalregras', 'modalsala', 'modalrenomear', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila'].includes(tipo);
+    ['modalpix', 'modalpixss', 'modalregras', 'modalsala', 'modalrenomear', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila', 'modalconfigcanalfilasssmobile', 'modalconfigcanalfilasssemu'].includes(tipo);
   if (!reconhecido) return false;
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
@@ -821,6 +821,19 @@ async function handleModal(interaction, { db, client }) {
         interaction.fields.getTextInputValue('canal_id'),
       );
       await responderPrivado(interaction, { content: `✅ Canal de partidas formadas salvo: <#${canalId}>.` });
+      return true;
+    }
+    if (tipo === 'modalconfigcanalfilasssmobile' || tipo === 'modalconfigcanalfilasssemu') {
+      if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem configurar o canal de filas.'); return true; }
+      const modalidade = tipo === 'modalconfigcanalfilasssmobile' ? 'ss_mobile' : 'ss_emu';
+      const canalId = String(interaction.fields.getTextInputValue('canal_id') || '').trim();
+      if (!/^\d{17,20}$/.test(canalId)) throw new Error('Informe um ID de canal Discord válido.');
+      const canal = await interaction.guild.channels.fetch(canalId).catch(() => null);
+      if (!canal || String(canal.guildId || canal.guild?.id || '') !== String(interaction.guildId) || !canal.isTextBased?.()) {
+        throw new Error('Esse ID não corresponde a um canal de texto válido deste servidor.');
+      }
+      const salvo = await configCanalFila.salvarCanalModalidade(db, interaction.guildId, canalId, modalidade);
+      await responderPrivado(interaction, { content: `✅ Canal de filas ${modalidade === 'ss_mobile' ? 'SS Mobile' : 'SS EMU'} salvo: <#${salvo}>.` });
       return true;
     }
     if (tipo === 'modalfilas') {

@@ -17,6 +17,17 @@ const criarSalaComCredito = require('../src/servicos/criarSalaComCredito');
 const addsalas = require('../src/comandos/addsalas');
 const auditoria = require('../src/servicos/auditoria');
 
+test('comandos de canais SS estão registrados e o roteamento preserva a fila normal', () => {
+  const nomes = new Set(registro.definicoes().map((comando) => comando.name));
+  assert.ok(nomes.has('configcanalfilasssmobile'));
+  assert.ok(nomes.has('configcanalfilasssemu'));
+  const fluxo = require('../src/servicos/fluxo');
+  assert.equal(fluxo.chaveCanalAceite({ modo: 'x2mobile' }), 'canal_filas_ss_mobile');
+  assert.equal(fluxo.chaveCanalAceite({ modo: 'x1emu' }), 'canal_filas_ss_emu');
+  assert.equal(fluxo.chaveCanalAceite({ modo: 'x2fullcapa' }), null);
+  assert.equal(fluxo.chaveCanalAceite({ modo: 'x2misto' }), null);
+});
+
 async function substituir(alteracoes, fn) {
   const anteriores = alteracoes.map(([obj, chave, valor]) => {
     const anterior = obj[chave]; obj[chave] = valor; return [obj, chave, anterior];
