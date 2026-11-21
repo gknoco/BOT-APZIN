@@ -221,6 +221,10 @@ async function validarSQL() {
       await pg.exec(sqlPainel);
       await pg.exec(sqlPainel);
     }
+    const cooldownTelagem = path.join(raiz, 'supabase/migrations/20261121000100_telagem_link_cooldown.sql');
+    const sqlCooldownTelagem = fs.readFileSync(cooldownTelagem, 'utf8');
+    await pg.exec(sqlCooldownTelagem);
+    await pg.exec(sqlCooldownTelagem);
     const chamar = async (nome, valores = []) => {
       const parametros = valores.map((_, i) => `$${i + 1}`).join(',');
       const res = await pg.query(`SELECT public.${nome}(${parametros}) AS resultado`, valores);
@@ -278,8 +282,8 @@ async function validarSQL() {
       assert.equal(primeira.origem, 'pool');
       assert.equal((await chamar('royal_operacional_reservar_telagem', ['g', 'partida:m', 'outro', [url]])).codigo, 'abc');
       await criar('n');
-      await assert.rejects(chamar('royal_operacional_reservar_telagem', ['g', 'partida:n', 'def', [url]]), /Todos os links/);
-      await assert.rejects(chamar('royal_operacional_fixar_telagem', ['g', 'partida:n', url, 'def']), /outra partida ativa/);
+      await assert.rejects(chamar('royal_operacional_reservar_telagem', ['g', 'partida:n', 'def', [url]]), /cooldown de 2 horas/);
+      await assert.rejects(chamar('royal_operacional_fixar_telagem', ['g', 'partida:n', url, 'def']), /cooldown de 2 horas/);
     });
     await caso('finalização + auditoria são atômicas e resultado não se duplica', async () => {
       const fim = await chamar('royal_operacional_encerrar_partida', ['m', 1, 'staff', 'resultado', false]);
@@ -303,7 +307,14 @@ async function validarSQL() {
       await pg.exec('ALTER TABLE royal_audit_events DROP CONSTRAINT rejeitar_n');
     });
     await caso('link da partida finalizada pode ser reciclado e limpeza é atômica', async () => {
-      assert.equal((await chamar('royal_operacional_reservar_telagem', ['g', 'partida:n', 'def', ['https://meet.google.com/abc-defg-hij']])).origem, 'pool');
+      const url = 'https://meet.google.com/abc-defg-hij';
+      await assert.rejects(chamar('royal_operacional_reservar_telagem', ['g', 'partida:n', 'def', [url]]), /cooldown de 2 horas/);
+      await pg.exec("CREATE OR REPLACE FUNCTION public.royal_operacional_agora() RETURNS bigint LANGUAGE sql VOLATILE SET search_path=public,pg_temp AS $$ SELECT 9000000000000::bigint $$");
+      await pg.exec("UPDATE royal_telagem_cooldowns SET usado_em=8999992800001 WHERE guild_id='g' AND url='https://meet.google.com/abc-defg-hij'");
+      await assert.rejects(chamar('royal_operacional_reservar_telagem', ['g', 'partida:n', 'def', [url]]), /cooldown de 2 horas/);
+      await pg.exec("UPDATE royal_telagem_cooldowns SET usado_em=8999992800000 WHERE guild_id='g' AND url='https://meet.google.com/abc-defg-hij'");
+      assert.equal((await chamar('royal_operacional_reservar_telagem', ['g', 'partida:n', 'def', [url]])).origem, 'pool');
+      await pg.exec("CREATE OR REPLACE FUNCTION public.royal_operacional_agora() RETURNS bigint LANGUAGE sql VOLATILE SET search_path=public,pg_temp AS $$ SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint $$");
       const limpo = await chamar('royal_operacional_limpar_telagem', ['g']);
       assert.deepEqual(limpo, { removidos: 0, atribuicoes: 1 });
     });

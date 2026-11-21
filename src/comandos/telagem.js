@@ -6,16 +6,18 @@
  * • Reserva um link REAL do Google Meet do pool (TELAGEM_LINKS + /telagem_links).
  *   O mesmo canal/partida sempre recebe o mesmo link; canais diferentes nunca
  *   dividem a call.
- * • Restrito a quem tem um dos CARGOS configurados no /mediadores (Mediador/ADM).
+ * • Restrito ao cargo de mediador e a uma partida AP ativa.
  * • `link:` fixa um Meet específico para aquela partida.
  */
 
 const { SlashCommandBuilder } = require('discord.js');
-const mediadores = require('../servicos/mediadores');
+const config = require('../config');
 const partidas = require('../servicos/partidas');
 const telagem = require('../servicos/telagem');
 const { responderPrivado, responderErro } = require('../util/seguranca');
 const { embedSucesso } = require('../util/embeds');
+
+const CARGO_MEDIADOR_TELAGEM = '1543684028719173732';
 
 const comandos = [
   {
@@ -32,8 +34,8 @@ const comandos = [
       if (!interaction.guild) {
         return responderErro(interaction, 'Use esse comando dentro do servidor da ORG.');
       }
-      if (!(await mediadores.podeUsarSalas(db, interaction.guildId, interaction.member))) {
-        return responderErro(interaction, mediadores.AVISO_CARGO);
+      if (!interaction.member?.roles?.cache?.has?.(CARGO_MEDIADOR_TELAGEM)) {
+        return responderErro(interaction, `Somente mediadores com o cargo <@&${CARGO_MEDIADOR_TELAGEM}> podem criar telagens.`);
       }
 
       const canal = interaction.channel;
@@ -51,9 +53,12 @@ const comandos = [
       }
 
       const partida = await partidas.porCanal(db, interaction.guildId, interaction.channelId);
+      const modo = partida && config.modoPorId(partida.modo);
+      if (!partida || !modo || ['finalizada', 'cancelada'].includes(partida.status)) {
+        return responderErro(interaction, 'Use `/criar_telagem` somente dentro de uma fila/sala de AP ativa.');
+      }
 
-      // Cada partida tem sua chave; fora de partida a chave é o próprio canal.
-      const chave = partida ? `partida:${partida.id}` : `canal:${interaction.channelId}`;
+      const chave = `partida:${partida.id}`;
 
       let sala;
       try {

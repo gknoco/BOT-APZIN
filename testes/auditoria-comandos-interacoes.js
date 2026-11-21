@@ -18,6 +18,8 @@ const addsalas = require('../src/comandos/addsalas');
 const auditoria = require('../src/servicos/auditoria');
 const partidas = require('../src/servicos/partidas');
 const fluxo = require('../src/servicos/fluxo');
+const botoes = require('../src/interacoes/botoes');
+const config = require('../src/config');
 
 test('comandos oficiais e variações de configuração SS estão registrados', () => {
   const nomes = new Set(registro.definicoes().map((comando) => comando.name));
@@ -52,6 +54,53 @@ function interacao(nome, opcoes = {}) {
   return i;
 }
 function descricao(i) { return i.responses.at(-1)[1].embeds[0].toJSON().description; }
+
+test('preço mínimo das filas é 15 centavos e as demais faixas permanecem inalteradas', () => {
+  assert.deepEqual(config.PRECOS, [15, 30, 50, 70, 100, 150, 200, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 7000, 10000]);
+});
+
+test('botão Como funciona mostra literalmente o texto atualizado e a menção de ticket', async () => {
+  const i = interacao('button', { customId: 'ap:como' });
+  await botoes.handleBotao(i, { db: {} });
+  const corpo = i.responses.at(-1)[1].embeds[0].toJSON().description;
+  assert.equal(corpo, '1. Escolha **Gelo Infinito**, **Gelo Normal** ou **full UMP e XM8**.\n' +
+    '2. Espere outro jogador entra na mesma fila → O grupo fecha → sala privada criada automaticamente.\n' +
+    '3. Um jogador envia a regra e **todos** dúvidas!\n' +
+    '4. O mediador assume, manda o PIX e confere o pagamento.\n' +
+    '5. Sala liberada → joguem → mediador declara o vencedor.\n\n' +
+    'Dúvida? Só abrir um ticket no canal (<#1571081064796000326>) para tirar suas duvidas!');
+});
+
+test('/criar_telagem exige cargo exato de mediador e uma partida AP ativa', async () => {
+  const chamado = registro.buscar('criar_telagem');
+  assert.ok(chamado);
+  const canal = { id: 'fila-ap', send: async () => ({ id: 'mensagem' }) };
+  const ctx = { db: {} };
+  const semCargo = interacao('criar_telagem', { guild: { id: 'guild-a' }, channel: canal, options: { getString: () => null } });
+  await registro.executar(semCargo, ctx);
+  assert.match(semCargo.responses.at(-1)[1].embeds[0].toJSON().description, /cargo <@&1543684028719173732>/);
+
+  const foraDaFila = interacao('criar_telagem', { guild: { id: 'guild-a' }, channel: canal, options: { getString: () => null } });
+  foraDaFila.member.roles.cache.set('1543684028719173732', {});
+  await substituir([[partidas, 'porCanal', async () => null]], async () => registro.executar(foraDaFila, ctx));
+  assert.match(foraDaFila.responses.at(-1)[1].embeds[0].toJSON().description, /somente dentro de uma fila\/sala de AP ativa/i);
+
+  const partidaEncerrada = interacao('criar_telagem', { guild: { id: 'guild-a' }, channel: canal, options: { getString: () => null } });
+  partidaEncerrada.member.roles.cache.set('1543684028719173732', {});
+  await substituir([[partidas, 'porCanal', async () => ({ id: 'partida', modo: 'x1mobile', status: 'finalizada' })]], async () => registro.executar(partidaEncerrada, ctx));
+  assert.match(partidaEncerrada.responses.at(-1)[1].embeds[0].toJSON().description, /somente dentro de uma fila\/sala de AP ativa/i);
+
+  const envio = [];
+  const dentroDaFila = interacao('criar_telagem', { guild: { id: 'guild-a' }, channel: { ...canal, send: async (payload) => { envio.push(payload); return { id: 'publicada' }; } }, options: { getString: () => null } });
+  dentroDaFila.member.roles.cache.set('1543684028719173732', {});
+  const reservas = [];
+  await substituir([
+    [partidas, 'porCanal', async () => ({ id: 'partida-ativa', modo: 'x1mobile', status: 'aguardando_mediador' })],
+    [telagem, 'reservar', async (_db, _guildId, chave) => { reservas.push(chave); return { codigo: 'abc-defg-hij', url: 'https://meet.google.com/abc-defg-hij', origem: 'pool' }; }],
+  ], async () => registro.executar(dentroDaFila, ctx));
+  assert.deepEqual(reservas, ['partida:partida-ativa']);
+  assert.equal(envio.length, 1);
+});
 
 test('/ssmob e /ssemu com cargo mediador publicam botão Aceitar nos canais SS configurados', async () => {
   const publicados = [];

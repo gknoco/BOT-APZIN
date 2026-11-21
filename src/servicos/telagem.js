@@ -11,11 +11,10 @@
  * Como o Google não tem API pública para criar salas, o bot mantém um POOL de
  * links reais do Meet (TELAGEM_LINKS no .env + links cadastrados pelo
  * `/telagem_links`). Cada partida/canal RESERVA um link ainda não usado e o
- * link fica gravado no banco: a sala nunca se cruza com outra partida e, se a
- * partida terminou, o link volta a ficar disponível.
+ * link fica gravado no banco: a sala nunca se cruza com outra partida e o link
+ * só volta ao pool após 2 horas da criação da call e o encerramento da partida.
  *
- * Sem nenhum link no pool, o bot cai no provedor configurado (jitsi por
- * padrão) para nunca deixar a staff sem sala.
+ * Sem links configurados, o comando usa o provedor alternativo configurado.
  */
 
 const crypto = require('crypto');
@@ -32,7 +31,7 @@ const PROVEDORES = {
   google: { nome: 'Google Meet', base: 'https://meet.google.com', prefixo: '' },
 };
 
-const MENSAGEM_POOL = 'Todos os links do Google Meet do pool estão em uso. Peça a um ADM para adicionar mais com `/telagem_links adicionar`.';
+const MENSAGEM_POOL = 'Nenhum link do Google Meet está disponível: todos estão em uso ou no cooldown de 2 horas. Tente novamente após a liberação ou peça a um ADM para adicionar links com `/telagem_links adicionar`.';
 
 function bloco(tamanho) {
   let texto = '';
@@ -166,8 +165,8 @@ async function atribuicaoDoCanal(db, guildId, chave) {
  * Reserva o link de uma partida/canal.
  * • Já reservado → devolve o mesmo link (a sala é fixa).
  * • Pool com link livre → reserva e grava.
- * • Pool cheio → libera o link de uma partida já encerrada; se todas estão
- *   ativas, lança erro amigável.
+ * • Pool cheio → libera apenas links encerrados cujo cooldown de 2h expirou.
+ *   Partidas ativas nunca compartilham links, mesmo depois de 2h.
  * • Pool vazio → devolve null (o comando cai no provedor padrão).
  */
 async function reservar(db, guildId, chave) {

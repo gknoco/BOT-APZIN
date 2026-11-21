@@ -1303,13 +1303,12 @@ async function handleBotao(interaction, ctx) {
           embeds: [
             embed(
               '❓ Como funciona o AP',
-              '1. Escolha a faixa no menu do painel.\n' +
-                '2. Escolha **Gelo Infinito** ou **Gelo Normal**.\n' +
-                '3. O grupo fecha → sala privada criada automaticamente.\n' +
-                '4. Um jogador envia a regra e **todos** confirmam.\n' +
-                '5. O mediador assume, manda o PIX e confere o pagamento.\n' +
-                '6. Sala liberada → joguem → mediador declara o vencedor.\n\n' +
-                'Dúvida? Use a staff pelos canais oficiais.',
+              '1. Escolha **Gelo Infinito**, **Gelo Normal** ou **full UMP e XM8**.\n' +
+                '2. Espere outro jogador entra na mesma fila → O grupo fecha → sala privada criada automaticamente.\n' +
+                '3. Um jogador envia a regra e **todos** dúvidas!\n' +
+                '4. O mediador assume, manda o PIX e confere o pagamento.\n' +
+                '5. Sala liberada → joguem → mediador declara o vencedor.\n\n' +
+                'Dúvida? Só abrir um ticket no canal (<#1571081064796000326>) para tirar suas duvidas!',
               { rodape: 'ORG Royal AP' },
             ),
           ],

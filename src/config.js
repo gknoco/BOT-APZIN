@@ -15,13 +15,13 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const PLACEHOLDER = 'COLE_SEU_TOKEN_AQUI';
 
 /**
- * Faixas de aposta em centavos: 18 valores, de R$ 0,10 a R$ 100,00.
+ * Faixas de aposta em centavos: 18 valores, de R$ 0,15 a R$ 100,00.
  *
  * Cada valor vira UMA mensagem no canal da fila. As mensagens são enviadas do
- * maior para o menor, então a faixa de R$ 0,10 fica na última mensagem
+ * maior para o menor, então a faixa de R$ 0,15 fica na última mensagem
  * (embaixo) e os valores sobem conforme você rola para cima.
  */
-const PRECOS = [10, 30, 50, 70, 100, 150, 200, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 7000, 10000];
+const PRECOS = [15, 30, 50, 70, 100, 150, 200, 300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 7000, 10000];
 
 const PLATAFORMAS = {
   mobile: 'mobile',

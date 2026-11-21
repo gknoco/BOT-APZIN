@@ -54,6 +54,7 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
    - `supabase/migrations/20261120002002_eco01_eco02_shop_intentions.sql`
    - `supabase/migrations/20261120002003_eco03_rescue_claim.sql`
    - `supabase/migrations/20261120002004_fil08_match_outbox.sql`
+   - `supabase/migrations/20261121000100_telagem_link_cooldown.sql`
 
    Em banco já existente, faça backup e confira o histórico **e o schema real** antes de aplicar somente as migrações ainda necessárias, em ordem, sem reaplicar indiscriminadamente migrações antigas. Arquivos executados manualmente no SQL Editor podem não constar no histórico gerenciado; os dois scripts de imagem de fila alteram a configuração de um servidor específico. Confira também se foram adicionados arquivos posteriores à lista acima e aplique-os antes do deploy. A execução manual no SQL Editor não registra automaticamente a migração no histórico da CLI.
    Para o corte das novas migrações, pare e drene todas as instâncias antigas, atendimentos e integrações incompatíveis; siga os roteiros de [estorno de compra direta](docs/runbooks/direct-room-refund-review.md), [resgates](docs/runbooks/rescue-claim-cutover.md) e [encerramento de partidas](docs/runbooks/fil08-encerramento-outbox.md) e o [guia da lojinha](GUIA_ROLETA_LOJINHA.md). Faça backup, audite permissões e integrações, aplique as migrações em ordem e só depois inicie o novo código e registre os comandos slash. Não misture versões durante o corte.
@@ -132,6 +133,10 @@ O aviso `npm warn config production Use --omit=dev instead` pode vir da flag ant
 Se o aviso persistir no Railway, confira em qual etapa do log ele aparece e verifique as variáveis do serviço e eventuais comandos de build/start personalizados ou arquivos de configuração npm externos. Variáveis como `NIXPACKS_INSTALL_CMD` e `NIXPACKS_START_CMD` também podem sobrescrever comandos do arquivo. Remova a opção ou variável legada na origem apropriada após verificar seu uso por outros processos; não exponha valores de segredos. Outros comandos npm, incluindo `npm start`, também podem emitir o aviso ao herdar essa variável. Configurações do painel, etapas anteriores ou comandos externos não são controlados pelo `nixpacks.toml`; um redeploy e a inspeção dos logs do serviço são necessários para confirmar o resultado.
 
 O bot exige o **Server Members Intent** para rastrear convites. A detecção por diferença de usos é tratada como observação; convites simultâneos ou indisponíveis são registrados sem inventar um convidador.
+
+### Links de telagem do Google Meet
+
+A migração `20261121000100_telagem_link_cooldown.sql` persiste o último uso por link e servidor em uma RPC transacional. Reservas diferentes nunca recebem simultaneamente a mesma URL; após uma call, o link só pode voltar ao pool depois de 7.200.000 ms e se a partida anterior já estiver encerrada. Se não houver link disponível, `/criar_telagem` informa que o pool está em uso ou no cooldown e não reutiliza a URL antes do prazo.
 
 ## Central de vendas ROYAL SALA
 
