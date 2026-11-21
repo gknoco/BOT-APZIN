@@ -20,7 +20,7 @@ const PAGINA = 25;
 const COR = 0xfacc15;
 const ARTE = path.join(__dirname, '../../assets/lojinha-royal-ap.png');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TIPOS = { pix: 'Pix', physical: 'Produto físico', role: 'Cargo', spins: 'Giros', coins: 'Moedas' };
+const TIPOS = { pix: 'Pix', physical: 'Produto físico', role: 'Cargo', spins: 'Giros', coins: 'Royal Coins' };
 const STATUS = { pending: 'Pendente', completed: 'Concluído', paid: 'Pago', delivered: 'Entregue', cancelled: 'Cancelado' };
 const mencoesSeguras = { parse: [] };
 
@@ -60,7 +60,7 @@ async function editar(i, payload) {
 }
 function mensagemErro(erro, compra = false) {
   const mensagem = String(erro?.message || '');
-  if (/saldo insuficiente/i.test(mensagem)) return 'Saldo insuficiente para este item. Confira suas moedas antes de tentar novamente.';
+  if (/saldo insuficiente/i.test(mensagem)) return 'Saldo insuficiente para este item. Confira seus Royal Coins antes de tentar novamente.';
   if (/o preço mudou/i.test(mensagem)) return 'O preço mudou. Abra o catálogo e confirme o valor atualizado antes de comprar.';
   if (/termos do item mudaram/i.test(mensagem)) return 'Os termos do item mudaram. Abra o catálogo e confirme novamente.';
   if (/intenção expirada/i.test(mensagem)) return 'Esta confirmação expirou. Abra o catálogo e confirme novamente.';
@@ -88,17 +88,17 @@ function painel(instrucoes) {
   const destaque = card('ROYAL AP  |  LOJINHA',
     '**JOGUE. VENÇA. RESGATE.**\n' +
     'A cada WIN, você ganha 1 COIN\n\n' +
-    'Acompanhe sua evolução e troque suas moedas por recompensas da comunidade.\n' +
+    'Acompanhe sua evolução e troque seus Royal Coins por recompensas da comunidade.\n' +
     'Escolha uma opção abaixo para abrir sua área **privada**.' +
     (textoInstrucoes ? `\n\n**Instruções**\n${textoInstrucoes}` : ''));
   destaque.addFields(
-    { name: '01  /  SUAS MOEDAS', value: 'Saldo, posição e estatísticas', inline: true },
+    { name: '01  /  SEUS ROYAL COINS', value: 'Saldo, posição e estatísticas', inline: true },
     { name: '02  /  RANKING', value: 'Os líderes em COINS', inline: true },
     { name: '03  /  RESGATES', value: 'Inventário e histórico', inline: true },
     { name: '04  /  CATÁLOGO', value: 'Itens, preços e estoque', inline: true },
   );
   const componentes = new ActionRowBuilder().addComponents(
-    botao('moedas', 'Suas Moedas', ButtonStyle.Primary),
+    botao('coins', 'Seus Royal Coins', ButtonStyle.Primary),
     botao('ranking', 'Ranking'),
     botao('inventario', 'Seu Inventário/Resgates'),
     botao('catalogo', 'Catálogo de Itens', ButtonStyle.Success),
@@ -183,15 +183,15 @@ async function publicarPainel(interaction, ctx = {}) {
   return editar(interaction, { embeds: [card('PAINEL PUBLICADO', status)], components: [] });
 }
 
-async function mostrarMoedas(i) {
+async function mostrarCoins(i) {
   const [perfil, posicao] = await Promise.all([
     royal.resumo(i.guildId, i.user.id), royal.posicaoRanking(i.guildId, i.user.id, 'coins'),
   ]);
   const descricao = `**SALDO**\n# ${moeda(perfil.coins)}\n\n` +
-    `**POSIÇÃO EM COINS**\n${posicao ? `#${numeroBR(posicao)}` : 'Fora do top 1.000 ou sem moedas'}\n\n` +
+    `**POSIÇÃO EM COINS**\n${posicao ? `#${numeroBR(posicao)}` : 'Fora do top 1.000 ou sem Royal Coins'}\n\n` +
     `**ESTATÍSTICAS**\nVitórias: **${numeroBR(perfil.vitorias)}**  •  Derrotas: **${numeroBR(perfil.derrotas)}**\n` +
     `Aproveitamento: **${numeroBR(perfil.aproveitamento)}%**  •  Giros: **${numeroBR(perfil.giros)}**`;
-  return editar(i, { embeds: [card('SUA CONTA  /  MOEDAS', descricao)], components: [] });
+  return editar(i, { embeds: [card('SUA CONTA  /  ROYAL COINS', descricao)], components: [] });
 }
 async function mostrarRanking(i) {
   const rows = await royal.topPerfis(i.guildId, 'coins', 10);
@@ -434,7 +434,7 @@ async function handleComponent(i) {
   }
   try {
     if (resto.length || extra) await erroPrivado(i, 'Interação inválida. Abra o catálogo novamente.');
-    else if (acao === 'moedas' && !dono) await mostrarMoedas(i);
+    else if (acao === 'coins' && !dono) await mostrarCoins(i);
     else if (acao === 'ranking' && !dono) await mostrarRanking(i);
     else if (acao === 'inventario' && !dono) await mostrarInventario(i);
     else if (acao === 'catalogo' && !dono) await mostrarCatalogo(i);

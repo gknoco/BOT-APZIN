@@ -385,7 +385,7 @@ async function mostrarPremios(interaction, pagina = 0, ctx = {}) {
 
 async function obterMensagemPainel(guild, cliente) {
   const registro = await supabase.obterConfig(guild.id, CHAVE_PAINEL, cliente);
-  if (!registro) throw new Error('O painel da roleta ainda não foi registrado. Publique-o com /roletapainel.');
+  if (!registro) throw new Error('O painel da roleta ainda não foi registrado. Publique-o com /roleta painel.');
   let referencia;
   try { referencia = JSON.parse(registro); } catch { throw new Error('A referência salva do painel é inválida.'); }
   const { channel_id: canalId, message_id: mensagemId } = referencia || {};

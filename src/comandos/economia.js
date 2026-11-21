@@ -1,9 +1,8 @@
 'use strict';
 
-/** Economia: perfis, moedas, giros e vitórias persistidos no Supabase. */
+/** Economia: perfis, Royal Coins, giros e vitórias persistidos no Supabase. */
 
 const { SlashCommandBuilder } = require('discord.js');
-const config = require('../config');
 const royal = require('../servicos/royalSupabase');
 const { exigirStaff, exigirAdmin, responderPrivado } = require('../util/seguranca');
 const { embedSucesso, numeroBR, mencao } = require('../util/embeds');
@@ -76,7 +75,7 @@ const comandos = [
         detail: `+${quantidade} vitória(s)`,
       });
       return responderPrivado(interaction, {
-        embeds: [embedSucesso(`+${quantidade} vitória(s) e +${quantidade} ${config.MOEDA} para ${mencao(alvo.id)}.\nAgora: **${perfil.wins}V / ${perfil.losses}D**.`)],
+        embeds: [embedSucesso(`+${quantidade} vitória(s) e +${quantidade} Royal Coins para ${mencao(alvo.id)}.\nAgora: **${perfil.wins}V / ${perfil.losses}D**.`)],
       });
     },
   },
@@ -119,7 +118,7 @@ const comandos = [
           embedSucesso(
             `Vitória registrada para ${mencao(alvo.id)}${centavos ? ` (R$ ${(centavos / 100).toFixed(2).replace('.', ',')})` : ''}.\n` +
               `Perfil: **${perfil.wins}V / ${perfil.losses}D** · ${aproveitamento}% de aproveitamento.\n` +
-              `Recompensa: **+1 ${config.MOEDA}**.`,
+              `Recompensa: **+1 Royal Coin**.`,
           ),
         ],
       });
@@ -129,64 +128,26 @@ const comandos = [
   {
     data: new SlashCommandBuilder()
       .setName('loja')
-      .setDescription('Loja de moedas da ORG')
+      .setDescription('Loja de Royal Coins da ORG')
       .addSubcommand((sub) =>
         sub
           .setName('addcoins')
-          .setDescription('Adiciona moedas para um jogador')
+          .setDescription('Adiciona Royal Coins para um jogador')
           .addUserOption((o) => o.setName('usuario').setDescription('Jogador').setRequired(true))
-          .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de moedas').setRequired(true)),
+          .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de Royal Coins').setRequired(true)),
       )
       .addSubcommand((sub) =>
         sub
           .setName('removecoins')
-          .setDescription('Remove moedas de um jogador')
+          .setDescription('Remove Royal Coins de um jogador')
           .addUserOption((o) => o.setName('usuario').setDescription('Jogador').setRequired(true))
-          .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de moedas').setRequired(true)),
-      )
-      .addSubcommand((sub) =>
-        sub
-          .setName('enviar')
-          .setDescription('Envia moedas para outro jogador')
-          .addUserOption((o) => o.setName('usuario').setDescription('Quem recebe').setRequired(true))
-          .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de moedas').setRequired(true)),
+          .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de Royal Coins').setRequired(true)),
       ),
 
     async executar(interaction, { db, client }) {
       const sub = interaction.options.getSubcommand();
       const alvo = interaction.options.getUser('usuario');
       const quantidade = interaction.options.getInteger('quantidade');
-
-      if (sub === 'enviar') {
-        if (!Number.isInteger(quantidade) || quantidade <= 0) throw new Error('Informe uma quantidade maior que zero.');
-        if (alvo.id === interaction.user.id) throw new Error('Você não pode enviar moedas para você mesmo.');
-        const transferencia = await royal.transferirCoins({
-          guildId: interaction.guildId,
-          deId: interaction.user.id,
-          paraId: alvo.id,
-          valor: quantidade,
-          actorId: interaction.user.id,
-          reason: 'envio entre jogadores',
-          request: interaction.id,
-        });
-        await royal.auditar({
-          guildId: interaction.guildId,
-          actorId: interaction.user.id,
-          action: 'wallet.coins.transfer',
-          entityType: 'profile',
-          entityId: interaction.user.id,
-          requestId: interaction.id,
-          detail: `${numeroBR(quantidade)} ${config.MOEDA} para usuário ${alvo.id}`,
-        });
-        return responderPrivado(interaction, {
-          embeds: [
-            embedSucesso(
-              `Você enviou **${numeroBR(quantidade)} ${config.MOEDA}** para ${mencao(alvo.id)}.\n` +
-                `Seu saldo: **${numeroBR(transferencia.from_balance)}**.`,
-            ),
-          ],
-        });
-      }
 
       if (!(await exigirAdmin(interaction, 'Só ADM pode mexer no saldo de outra pessoa.'))) return;
       if (!Number.isInteger(quantidade) || quantidade <= 0) throw new Error('Informe uma quantidade maior que zero.');
@@ -206,13 +167,13 @@ const comandos = [
         entityType: 'profile',
         entityId: alvo.id,
         requestId: interaction.id,
-        detail: `${numeroBR(Math.abs(valor))} ${config.MOEDA}`,
+        detail: `${numeroBR(Math.abs(valor))} Royal Coins`,
       });
 
       return responderPrivado(interaction, {
         embeds: [
           embedSucesso(
-            `${sub === 'addcoins' ? 'Adicionado' : 'Removido'} **${numeroBR(Math.abs(valor))} ${config.MOEDA}** de ${mencao(alvo.id)}.\n` +
+            `${sub === 'addcoins' ? 'Adicionado' : 'Removido'} **${numeroBR(Math.abs(valor))} Royal Coins** de ${mencao(alvo.id)}.\n` +
               `Saldo agora: **${numeroBR(perfil.coins)}**.`,
           ),
         ],

@@ -138,7 +138,7 @@ test('painel principal mantém o desenho original e adiciona Usar Saldo sem remo
   ]);
   assert.equal(componentes[2].emoji.name, '💳');
   assert.deepEqual(vendas.comandos.map((item) => item.data.name), [
-    'painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar',
+    'painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas',
   ]);
 });
 

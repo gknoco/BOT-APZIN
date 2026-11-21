@@ -23,13 +23,13 @@ const { embed, embedSucesso } = require('../util/embeds');
 const CATEGORIAS_AJUDA = [
   { id: 'inicio', titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
   { id: 'filas', titulo: '🎮 Filas e partidas', nomes: ['painelfilas', 'vencedor', 'wo', 'apostas', 'criar_telagem', 'telagem_links'] },
-  { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'painelpixmediadores', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixsss', 'registrar_pix', 'pix', 'painel_mediador', 'receita_mediadores', 'analista'] },
+  { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'painelpixmediadores', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixsss', 'registrar_pix', 'pix', 'painel_mediador'] },
   { id: 'perfil', titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'rankingall', 'convites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta', 'lojinha', 'inventario'] },
   { id: 'feedback', titulo: '💬 Comunidade e suporte', nomes: ['reportarbug', 'sugestao', 'versiculododia'] },
-  { id: 'compras', titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar', 'recarga'] },
+  { id: 'compras', titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'comprar', 'permicompras', 'cupomcompras', 'minhassalas', 'recarga'] },
   { id: 'salas', titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
-  { id: 'moderacao', titulo: '🛡️ Moderação e administração', avancada: true, nomes: ['blacklist', 'limpar', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
-  { id: 'configuracao', titulo: '⚙️ Configuração e comunidade', avancada: true, nomes: ['config', 'boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'setcargo', 'configpainelajuda', 'ssmob', 'ssemu', 'temu', 'botperfil', 'setbot'] },
+  { id: 'moderacao', titulo: '🛡️ Moderação e administração', avancada: true, nomes: ['blacklist', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
+  { id: 'configuracao', titulo: '⚙️ Configuração e comunidade', avancada: true, nomes: ['config', 'boombot', 'conectar', 'desconectar', 'configcanal1', 'configcanal2', 'setcargo', 'configpainelajuda', 'ssmob', 'ssemu', 'botperfil'] },
 ];
 
 const GUIA_AJUDA = {
@@ -586,34 +586,7 @@ const comandos = [
     },
   },
 
-  {
-    data: new SlashCommandBuilder().setName('temu').setDescription('Ferramentas rápidas para jogadores de emulador'),
 
-    async executar(interaction) {
-      const botoes = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ap:aux').setLabel('Falar com a staff').setEmoji('🎫').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('ap:como').setLabel('Como funciona o AP').setEmoji('❓').setStyle(ButtonStyle.Secondary),
-      );
-      return responderPrivado(interaction, {
-        embeds: [
-          embed(
-            '🧰 Ferramentas · Emulador',
-            [
-              '**Antes de entrar na fila emu:**',
-              '1. Teste o ping: `Configurações → Rede → Ping` no emulador.',
-              '2. Resolução recomendada: 1280x720 (60 FPS).',
-              '3. Feche macros/scripts e reinicie o emulador.',
-              '4. Deixe a gravação pronta antes do AP começar.',
-              '',
-              '**Travou no meio do AP?** Avise a staff imediatamente com print — sem print, vale W.O.',
-            ].join('\n'),
-            { cor: config.CORES.neutro, rodape: 'ORG Royal AP' },
-          ),
-        ],
-        components: [botoes],
-      });
-    },
-  },
 ];
 
 module.exports = { comandos, ajudaEmbeds, formatarComandoAjuda, ajudaPagina, mostrarAjuda, dividirAjuda, contarTabela };

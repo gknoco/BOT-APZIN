@@ -33,20 +33,6 @@ async function ajustarPerfil({ guildId, userId, deltas, reason, actorId, request
   return row;
 }
 
-async function transferirCoins({ guildId, deId, paraId, valor, actorId, reason, request }) {
-  const row = await rpc('royal_transfer_coins', {
-    p_guild_id: String(guildId),
-    p_from_user_id: String(deId),
-    p_to_user_id: String(paraId),
-    p_amount: Math.trunc(Number(valor)),
-    p_actor_id: actorId ? String(actorId) : null,
-    p_reason: String(reason || 'transferência'),
-    p_request_id: requestId('transfer', request),
-  });
-  if (!row) throw new Error('O Supabase não retornou o saldo da transferência.');
-  return row;
-}
-
 async function registrarResultadoPartida({ guildId, matchId, winnerTime, stake, players, reason }) {
   return rpc('royal_apply_match_result', {
     p_guild_id: String(guildId),
@@ -269,7 +255,6 @@ async function auditarAjusteGiros({ guildId, actorId, userId, quantidade, motivo
 module.exports = {
   girar,
   ajustarPerfil,
-  transferirCoins,
   registrarResultadoPartida,
   criarIntencaoLoja,
   confirmarIntencaoLoja,

@@ -20,15 +20,15 @@ Aplique o banco antes de ativar os novos componentes: eles dependem de todas as 
 
 1. Use `/configroleta` para criar e gerenciar prêmios, pesos, estoque, canal e intervalo entre giros. O peso é relativo: um prêmio de peso 3, diante de outro elegível de peso 1, terá 3/4 da chance enquanto esses forem os únicos disponíveis. O intervalo padrão é de três segundos; pode ser alterado ou desativado com zero.
 2. Use `/config lojinha` para criar itens, preços, tipo de recompensa, estoque, limite por usuário, canal e instruções. Para vender giros, escolha o tipo `spins` e informe a quantidade. Os registros antigos são preservados: quando um item já tiver histórico, crie outro em vez de mudar sua identidade ou recompensa.
-3. Publique com `/roleta painel` (ou `/roletapainel`) e `/lojinhapainel`. Os painéis são enviados publicamente no canal configurado ou, caso não haja configuração, no canal atual. O bot tenta fixá-los e informa se não conseguir.
+3. Publique com `/roleta painel` e `/lojinhapainel`. Os painéis são enviados publicamente no canal configurado ou, caso não haja configuração, no canal atual. O bot tenta fixá-los e informa se não conseguir.
 4. Após mudanças em canais, instruções ou prêmios, publique novamente quando quiser atualizar o conteúdo do painel. A republicação não exclui nem desafixa os painéis anteriores automaticamente: confira-os e remova os antigos manualmente, se desejar.
 5. Use `/ajuda` para consultar as definições reais dos comandos, incluindo opções, categorias e subcomandos. A ajuda também inclui a central `/resgates`.
 
-Não são criados produtos nem prêmios fictícios: cadastre os itens e seus valores conforme as regras da organização. `/loja addcoins` adiciona moedas e `/addgiros` administra giros. Cada vitória registrada pelos fluxos atualizados concede um COIN; resultados já registrados antes da migração não são creditados novamente.
+Não são criados produtos nem prêmios fictícios: cadastre os itens e seus valores conforme as regras da organização. `/loja addcoins` adiciona Royal Coins e `/addgiros` administra giros. Cada vitória registrada pelos fluxos atualizados concede um COIN; resultados já registrados antes da migração não são creditados novamente.
 
 ## Funcionamento e limites
 
-- O painel é público, mas moedas, giros, histórico, catálogo e resultados individuais são mostrados em respostas privadas. Um painel público compartilhado não consegue exibir, ao mesmo tempo, um saldo diferente para cada pessoa.
+- O painel é público, mas Royal Coins, giros, histórico, catálogo e resultados individuais são mostrados em respostas privadas. Um painel público compartilhado não consegue exibir, ao mesmo tempo, um saldo diferente para cada pessoa.
 - A arte do painel é ilustrativa. Ao girar, a resposta privada mostra uma roda animada que desacelera até o prêmio sorteado e registrado no Supabase. As fatias identificam os prêmios, mas não representam suas chances: o sorteio no banco continua respeitando pesos e estoques elegíveis. Se a imagem falhar, o resultado registrado é informado em texto.
 - Compras e giros são operações transacionais no Supabase: conferem saldo, estoque e repetição da solicitação. A confirmação da loja também protege contra alterações de preço entre a visualização e o débito.
 - Coins e giros são creditados automaticamente. A entrega de cargo é tentada pelo bot; falhas ficam pendentes. Um prêmio do tipo `shop_item` é adicionado ao inventário, mas não executa automaticamente a entrega associada ao produto vinculado.

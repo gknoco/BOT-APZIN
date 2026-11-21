@@ -201,7 +201,7 @@ test('publicação exige ADM, envia painel público estável, salva IDs e tolera
   assert.match(JSON.stringify(i.publico.embeds[0].toJSON()), /A cada WIN, você ganha 1 COIN/);
   assert.equal(i.publico.files, undefined);
   const botoes = i.publico.components[0].toJSON().components;
-  assert.deepEqual(botoes.map((b) => b.label), ['Suas Moedas', 'Ranking', 'Seu Inventário/Resgates', 'Catálogo de Itens']);
+  assert.deepEqual(botoes.map((b) => b.label), ['Seus Royal Coins', 'Ranking', 'Seu Inventário/Resgates', 'Catálogo de Itens']);
   assert.ok(botoes.every((b) => b.custom_id.startsWith('lojinhapro:')));
   assert.deepEqual(JSON.parse(db.tables.discord_configuracoes[0].valor), { canal_id: i.channelId, mensagem_id: '666666666666666666' });
 });
@@ -222,13 +222,13 @@ test('se a gravação de IDs falhar, confirma que o painel já foi publicado', a
 });
 
 test('componentes não pertencentes ao prefixo não são tocados', async () => {
-  const i = interacao({ customId: 'outro:moedas' });
+  const i = interacao({ customId: 'outro:coins' });
   assert.equal(await loja.handleComponent(i), false); assert.deepEqual(i.chamadas, []);
 });
 
-test('moedas e ranking usam dados reais da guild, com resposta privada', async () => {
+test('Royal Coins e ranking usam dados reais da guild, com resposta privada', async () => {
   const db = dbFake();
-  const saldo = await clicar(db, 'lojinhapro:moedas');
+  const saldo = await clicar(db, 'lojinhapro:coins');
   assert.match(texto(saldo), /1\.000 COIN/); assert.match(texto(saldo), /Vitórias.*8/); assert.match(texto(saldo), /#1/);
   const rank = await clicar(db, 'lojinhapro:ranking');
   assert.match(texto(rank), new RegExp(U1)); assert.match(texto(rank), new RegExp(U2)); assert.doesNotMatch(texto(rank), /9\.000 COIN/);

@@ -24,10 +24,8 @@ function comandoConfig(nome, descricao, dominio) {
 }
 
 const comandos = [
-  comandoPainel('roletapainel', 'Publica e fixa o painel público oficial da roleta', roleta.publicarPainel),
   comandoPainel('lojinhapainel', 'Publica e fixa o painel público oficial da lojinha', lojinha.publicarPainel),
   comandoConfig('configroleta', 'Abre a configuração mestre da roleta', 'roleta'),
-  comandoConfig('configlojinhas', 'Abre a configuração mestre da lojinha e economia', 'lojinha'),
 ];
 
 module.exports = { comandos };

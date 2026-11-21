@@ -53,7 +53,7 @@ test('novos comandos estão registrados e comandos legados não existem', () => 
 });
 
 test('ROYAL SALA registra os comandos pedidos e o painel inclui Usar Saldo junto aos botões oficiais', () => {
-  for (const nome of ['painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas', 'salasreconciliar']) {
+  for (const nome of ['painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas']) {
     assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
   }
   const painel = vendas.componentesPainelCompra().flatMap((linha) => linha.components.map((componente) => componente.toJSON()));
@@ -187,7 +187,7 @@ test('economia, perfil, placar e rankings usam serviço Supabase, sem chamadas a
   const verp = fs.readFileSync(path.join(__dirname, '../src/comandos/verp.js'), 'utf8');
   const botoes = fs.readFileSync(path.join(__dirname, '../src/interacoes/botoes.js'), 'utf8');
   assert.match(economia, /royal\.ajustarPerfil/);
-  assert.match(economia, /royal\.transferirCoins/);
+  assert.doesNotMatch(economia, /royal\.transferirCoins/);
   assert.doesNotMatch(economia, /require\(['"]\.\.\/servicos\/usuarios['"]\)|usuarios\./);
   assert.match(perfil, /royalSupabase\.ranking/);
   assert.doesNotMatch(perfil, /usuarios\.(resumo|top|posicaoNoRanking)\(/);

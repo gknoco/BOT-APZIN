@@ -11,7 +11,7 @@ function reais(centavos) {
   return `R$ ${(valor / 100).toFixed(2).replace('.', ',')}`;
 }
 
-/** 1500 -> "1.500" (contagem de moedas) */
+/** 1500 -> "1.500" (contagem de Royal Coins) */
 function numeroBR(valor) {
   return (Number(valor) || 0).toLocaleString('pt-BR');
 }

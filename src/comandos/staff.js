@@ -1,6 +1,6 @@
 'use strict';
 
-/** Comandos da staff: PIX, taxas fixas, painel do mediador e análise. */
+/** Comandos da staff: PIX e painel do mediador. */
 
 const {
   ActionRowBuilder,
@@ -9,7 +9,6 @@ const {
   SlashCommandBuilder,
 } = require('discord.js');
 const config = require('../config');
-const staff = require('../servicos/staff');
 const staffSupabase = require('../servicos/staffSupabase');
 const partidas = require('../servicos/partidas');
 const auditoria = require('../servicos/auditoria');
@@ -22,9 +21,7 @@ const {
   responderPrivado,
   responderErro,
 } = require('../util/seguranca');
-const { embed, embedSucesso, reais, numeroBR, mencao, dataBR } = require('../util/embeds');
-
-const DIA = 24 * 60 * 60 * 1000;
+const { embed, embedSucesso, mencao } = require('../util/embeds');
 
 async function lerPaginado(db, tabela, colunas, filtrar) {
   const registros = [];
@@ -36,19 +33,6 @@ async function lerPaginado(db, tabela, colunas, filtrar) {
     registros.push(...(data || []));
     if (!data || data.length < tamanhoPagina) return registros;
   }
-}
-
-async function contarJogadores(db, idsPartidas) {
-  const contagens = new Map();
-  for (let inicio = 0; inicio < idsPartidas.length; inicio += 100) {
-    const grupo = idsPartidas.slice(inicio, inicio + 100);
-    const jogadores = await lerPaginado(db, 'royal_partida_jogadores', 'partida_id,user_id', (consulta) =>
-      consulta.in('partida_id', grupo).order('partida_id').order('user_id'));
-    for (const jogador of jogadores) {
-      contagens.set(jogador.partida_id, (contagens.get(jogador.partida_id) || 0) + 1);
-    }
-  }
-  return contagens;
 }
 
 const comandos = [
@@ -171,43 +155,6 @@ const comandos = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('receita_mediadores')
-      .setDescription('Relatório das taxas fixas dos mediadores')
-      .addIntegerOption((opcao) =>
-        opcao.setName('dias').setDescription('Período em dias (padrão 30)').setMinValue(1).setMaxValue(365),
-      ),
-
-    async executar(interaction, { db }) {
-      if (!(await exigirStaff(interaction))) return;
-      const dias = interaction.options.getInteger('dias') ?? 30;
-      const desde = Date.now() - dias * DIA;
-      const linhas = await staff.receita(db, interaction.guildId, desde);
-
-      const corpo = linhas.length
-        ? linhas
-            .map(
-              (linha) =>
-                `${mencao(linha.mediador_id)}\n` +
-                `┄ ${linha.partidas} partida(s) · movimentado ${reais(linha.movimentado)}\n` +
-                `┄ taxa fixa recebida: **${reais(Math.round(linha.taxa_mediador || 0))}**`,
-            )
-            .join('\n\n')
-        : 'Nenhuma partida finalizada com mediador nesse período.';
-
-      const total = linhas.reduce((soma, linha) => soma + Math.round(linha.taxa_mediador || 0), 0);
-      return responderPrivado(interaction, {
-        embeds: [
-          embed(`💼 Receita dos mediadores · últimos ${dias} dias`, corpo, {
-            cor: config.CORES.ouro,
-            rodape: `Total de taxas fixas: ${reais(total)}`,
-          }),
-        ],
-      });
-    },
-  },
-
-  {
-    data: new SlashCommandBuilder()
       .setName('painel_mediador')
       .setDescription('Publica o painel de controle da moderação/mediadores'),
 
@@ -226,7 +173,7 @@ const comandos = [
           '3. Clique em **Pagamento recebido** e depois em **Liberar sala** com o ID e a senha.',
           '4. No fim, declare o vencedor pelo botão ou com `/vencedor`.',
           '',
-          '**Comandos úteis:** `/vencedor` · `/wo` · `/registrar_pix` · `/pix` · `/receita_mediadores`',
+          '**Comandos úteis:** `/vencedor` · `/wo` · `/registrar_pix` · `/pix`',
         ].join('\n'),
         {
           cor: config.CORES.principal,
@@ -256,48 +203,7 @@ const comandos = [
     },
   },
 
-  {
-    data: new SlashCommandBuilder().setName('analista').setDescription('Ferramentas de análise para a staff'),
 
-    async executar(interaction, { db }) {
-      if (!(await exigirStaff(interaction))) return;
-      const guildId = interaction.guildId;
-      const todas = await lerPaginado(db, 'royal_partidas', 'id,modo,preco,status,regras', (consulta) =>
-        consulta.eq('guild_id', String(guildId)).order('id'));
-      const finalizadas = todas.filter((partida) => partida.status === 'finalizada');
-      const canceladas = todas.filter((partida) => partida.status === 'cancelada');
-      const emAndamento = todas.filter((partida) => !['finalizada', 'cancelada'].includes(partida.status));
-      const jogadoresPorPartida = await contarJogadores(db, finalizadas.map((partida) => partida.id));
-      const movimentado = finalizadas.reduce(
-        (soma, partida) => soma + partida.preco * (jogadoresPorPartida.get(partida.id) || 2),
-        0,
-      );
-      const porModo = new Map();
-      for (const partida of finalizadas) {
-        porModo.set(partida.modo, (porModo.get(partida.modo) || 0) + 1);
-      }
-      const modos = [...porModo.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-      const semRegras = finalizadas.filter((partida) => !partida.regras).length;
-      const valorMedio = finalizadas.length ? Math.round(movimentado / finalizadas.length) : 0;
-
-      const corpo = [
-        `**APs finalizados:** ${finalizadas.length}`,
-        `**Em andamento:** ${emAndamento.length}`,
-        `**Cancelados:** ${canceladas.length}`,
-        `**Valor movimentado:** ${reais(movimentado)}`,
-        `**Valor médio:** ${reais(valorMedio)}`,
-        `**Salas sem regra registrada:** ${semRegras}`,
-        '',
-        modos.length
-          ? `**Modos que mais fecham:**\n${modos.map(([modo, total]) => `┄ ${modo}: ${total}`).join('\n')}`
-          : '**Modos que mais fecham:** ainda sem dados',
-      ].join('\n');
-
-      return responderPrivado(interaction, {
-        embeds: [embed('📈 Análise da ORG Royal AP', corpo, { cor: config.CORES.gelo, rodape: 'ORG Royal AP' })],
-      });
-    },
-  },
 ];
 
-module.exports = { comandos, lerPaginado, contarJogadores };
+module.exports = { comandos, lerPaginado };

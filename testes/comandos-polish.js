@@ -93,18 +93,14 @@ function tamanhoPayload(payload) {
 }
 
 test('aliases intencionais usam roteamento único e não duplicam definições', () => {
-  assert.equal(botPerfil.comandos.find((c) => c.data.name === 'botperfil').executar,
-    botPerfil.comandos.find((c) => c.data.name === 'setbot').executar);
-  assert.deepEqual(mestres.comandos.map((c) => c.data.name), ['roletapainel', 'lojinhapainel', 'configroleta', 'configlojinhas']);
+  assert.ok(botPerfil.comandos.some((c) => c.data.name === 'botperfil'));
+  assert.deepEqual(mestres.comandos.map((c) => c.data.name), ['lojinhapainel', 'configroleta']);
   assert.equal(new Set(registro.nomes).size, registro.nomes.length);
 });
 
-test('/limpar, /clear e /clearall compartilham permissões e tratam mensagens antigas', () => {
-  assert.deepEqual(limpeza.comandos.map((c) => c.data.name), ['limpar', 'clearall', 'clear']);
-  const limpar = comando(limpeza, 'limpar').data.toJSON();
+test('/clear e /clearall compartilham permissões e tratam mensagens antigas', () => {
+  assert.deepEqual(limpeza.comandos.map((c) => c.data.name), ['clearall', 'clear']);
   const clear = comando(limpeza, 'clear').data.toJSON();
-  assert.equal(limpar.default_member_permissions, clear.default_member_permissions);
-  assert.equal(limpar.options[0].max_value, 100);
   assert.equal(clear.options[0].max_value, 100000);
   assert.equal(limpeza.podeLimpar({ memberPermissions: { has: (p) => p === PermissionFlagsBits.Administrator } }), true);
 });
@@ -152,7 +148,7 @@ test('/ajuda inclui todos os nomes e subcomandos reais, sem aliases inventados',
       }
     }
   }
-  for (const nome of ['minhassalas', 'comprar', 'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras', 'salasreconciliar']) {
+  for (const nome of ['minhassalas', 'comprar', 'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras']) {
     assert.ok(texto.includes(`**/${nome}**`));
   }
   assert.ok(!texto.includes('**/configcanal**'), 'O nome real é configcanal1');
@@ -428,25 +424,6 @@ test('consultas staff paginam além de 500 registros e não escondem falhas Supa
   await assert.rejects(staffComandos.lerPaginado(banco(falha.client), 'royal_partidas', 'id', (q) => q), /erro de leitura/);
 });
 
-test('/analista preserva contagem de jogadores e cálculo financeiro anterior', async () => {
-  const fake = clienteFake((c) => ({
-    error: null,
-    data: c.tabela === 'royal_partidas' ? [
-      { id: 'final1', status: 'finalizada', modo: 'x1', preco: 500, regras: 'regras' },
-      { id: 'final2', status: 'finalizada', modo: 'x2', preco: 1000, regras: null },
-      { id: 'cancel1', status: 'cancelada', modo: 'x1', preco: 500 },
-      { id: 'ativa1', status: 'pago', modo: 'x1', preco: 500 },
-    ] : [{ partida_id: 'final1', user_id: 'a' }, { partida_id: 'final1', user_id: 'b' }, { partida_id: 'final1', user_id: 'c' }],
-  }));
-  const i = interaction();
-  await comando(staffComandos, 'analista').executar(i, { db: banco(fake.client) });
-  const texto = i.respostas[0].embeds[0].toJSON().description;
-  assert.match(texto, /APs finalizados:\*\* 2/);
-  assert.match(texto, /Valor movimentado:\*\* R\$ 35,00/);
-  assert.match(texto, /Valor médio:\*\* R\$ 17,50/);
-  assert.match(texto, /Salas sem regra registrada:\*\* 1/);
-});
-
 test('/pix busca salas no Supabase e aguarda anúncio sem alterar geração financeira', async () => {
   const fake = clienteFake(() => ({ data: [{ id: 'pix-partida', canal_id: 'canal-teste', mediador_id: 'executor-secreto', status: 'pago' }], error: null }));
   let anunciou = false;
@@ -458,32 +435,6 @@ test('/pix busca salas no Supabase e aguarda anúncio sem alterar geração fina
   ], async () => comando(staffComandos, 'pix').executar(interaction(), { db: banco(fake.client) }));
   assert.equal(anunciou, true);
   assert.equal(fake.chamadas[0].tabela, 'royal_partidas');
-});
-
-test('/receita_mediadores e /painel_mediador aguardam dados dos serviços', async () => {
-  const db = banco({});
-  const client = {};
-  await substituindo([
-    [staffServico, 'receita', async () => { await proximoTurno(); return [{ mediador_id: 'med', partidas: 2, movimentado: 2000, comissao: 100 }]; }],
-    [partidas, 'ativasReais', async (bancoAtual, guildId, clienteAtual) => {
-      assert.equal(bancoAtual, db);
-      assert.equal(guildId, 'guild-teste');
-      assert.equal(clienteAtual, client);
-      await proximoTurno();
-      return [{ status: 'pago' }, { status: 'confirmando' }];
-    }],
-    [staffSupabase, 'obter', async () => ({ comissao: 0.05 })],
-  ], async () => {
-    const receita = interaction();
-    await comando(staffComandos, 'receita_mediadores').executar(receita, { db });
-    assert.match(receita.respostas[0].embeds[0].toJSON().description, /2 partida/);
-    const enviados = [];
-    const painel = interaction({ channel: { send: async (p) => { enviados.push(p); } } });
-    await comando(staffComandos, 'painel_mediador').executar(painel, { db, client });
-    const fields = enviados[0].embeds[0].toJSON().fields;
-    assert.equal(fields[0].value, '2');
-    assert.equal(fields[1].value, '1');
-  });
 });
 
 test('/clearall trata 10008 em exclusões individuais e em massa', async () => {

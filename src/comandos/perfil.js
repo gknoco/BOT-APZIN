@@ -21,7 +21,7 @@ function embedRanking(tipo, lista) {
           const valor = tipo === 'invites'
             ? `${numeroBR(linha.total)} convite(s)`
             : tipo === 'coins'
-              ? `${numeroBR(linha.coins)} ${config.MOEDA}`
+              ? `${numeroBR(linha.coins)} Royal Coins`
               : tipo === 'giros'
                 ? `${numeroBR(linha.giros)} giros`
                 : `${linha.wins}V / ${linha.losses}D`;
@@ -29,7 +29,7 @@ function embedRanking(tipo, lista) {
         })
         .join('\n')
     : 'Ainda não tem ninguém no ranking. Publiquem os painéis e comecem os APs!';
-  const titulo = tipo === 'invites' ? '📨 Ranking de invites' : tipo === 'coins' ? '💰 Ranking de moedas' : tipo === 'giros' ? '🎰 Ranking de giros' : '🏆 Ranking de vitórias';
+  const titulo = tipo === 'invites' ? '📨 Ranking de invites' : tipo === 'coins' ? '💰 Ranking de Royal Coins' : tipo === 'giros' ? '🎰 Ranking de giros' : '🏆 Ranking de vitórias';
   return embed(titulo, corpo, { rodape: 'ORG Royal AP' });
 }
 
@@ -51,7 +51,7 @@ const comandos = [
         { name: 'Vitórias', value: resumo.vitorias.toString(), inline: true },
         { name: 'Derrotas', value: `${resumo.derrotas}${resumo.wos ? ` (${resumo.wos} W.O.)` : ''}`, inline: true },
         { name: 'Aproveitamento', value: `${resumo.aproveitamento}%`, inline: true },
-        { name: `${config.MOEDA}`, value: numeroBR(resumo.coins), inline: true },
+        { name: `Royal Coins`, value: numeroBR(resumo.coins), inline: true },
         { name: 'Giros', value: numeroBR(resumo.giros), inline: true },
         { name: 'Já apostou', value: reais(resumo.apostado), inline: true },
         { name: 'Prêmios recebidos', value: reais(resumo.ganho), inline: true },
@@ -104,7 +104,7 @@ const comandos = [
           .setDescription('O que rankear')
           .addChoices(
             { name: 'Vitórias', value: 'vitorias' },
-            { name: `${config.MOEDA}`, value: 'coins' },
+            { name: `Royal Coins`, value: 'coins' },
             { name: 'Giros', value: 'giros' },
             { name: 'Invites', value: 'invites' },
           ),

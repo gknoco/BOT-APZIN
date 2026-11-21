@@ -3,11 +3,9 @@
 /** Limpeza silenciosa do canal sem clonar nem substituir o canal. */
 const { PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const { responderErro } = require('../util/seguranca');
-const config = require('../config');
 const IDADE_LIMITE_EM_MASSA = 14 * 24 * 60 * 60 * 1000;
 const PERMISSAO_PADRAO = PermissionFlagsBits.ManageMessages;
 const MAXIMO_CLEAR = 100000;
-const MAXIMO_LIMPAR = config.LIMITES.MENSAGENS_LIMPAR;
 
 function podeLimpar(interaction) {
   const permissoes = interaction.memberPermissions;
@@ -126,7 +124,6 @@ const comandoQuantidade = (nome, descricao, maximo) => ({
   async executar(interaction) { return executarLimpeza(interaction, interaction.options.getInteger('quantidade')); },
 });
 const comandos = [
-  comandoQuantidade('limpar', 'Apaga mensagens recentes e antigas do canal', MAXIMO_LIMPAR),
   {
     data: new SlashCommandBuilder().setName('clearall').setDescription('Apaga todas as mensagens deste canal, inclusive as antigas').setDefaultMemberPermissions(PERMISSAO_PADRAO),
     defer: 'privado',

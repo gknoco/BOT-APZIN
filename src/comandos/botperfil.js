@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * /botperfil (e o atalho /setbot): painel de ADM para mudar o perfil do bot
+ * /botperfil: painel de ADM para mudar o perfil do bot
  * direto pelo Discord, sem abrir o Developer Portal.
  *
  *   Nome      → client.user.setUsername (2 trocas por hora, limite do Discord)
@@ -57,13 +57,7 @@ const comandos = [
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     executar,
   },
-  {
-    data: new SlashCommandBuilder()
-      .setName('setbot')
-      .setDescription('Atalho do /botperfil — perfil do bot (só ADM)')
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-    executar,
-  },
+
 ];
 
 module.exports = { comandos, painelPerfil };

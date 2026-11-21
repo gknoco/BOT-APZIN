@@ -1,6 +1,6 @@
 # ORG Royal AP — Bot Discord v4
 
-Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, roleta e lojinha. Toda a persistência usa exclusivamente o Supabase: filas, partidas, painéis, plantão, blacklist, telagem, configurações, auditoria, PIX, carteira (moedas e giros), compras, roleta, inventário e rankings. O dispatcher deduplica interações Discord e os helpers evitam uma segunda resposta inicial quando a API retorna 40060.
+Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, roleta e lojinha. Toda a persistência usa exclusivamente o Supabase: filas, partidas, painéis, plantão, blacklist, telagem, configurações, auditoria, PIX, carteira (Royal Coins e giros), compras, roleta, inventário e rankings. O dispatcher deduplica interações Discord e os helpers evitam uma segunda resposta inicial quando a API retorna 40060.
 
 ## O que mudou na v4
 
@@ -146,7 +146,6 @@ Comandos e permissões:
 - `/setcargo cargo:<cargo>` — Administrador ou proprietário do servidor; atribui o cargo escolhido a todos os membros (humanos e bots) e apresenta relatório de resultados.
 - `/cupomcompras criar` e `/cupomcompras desativar` — somente `DEV_OWNER_ID`.
 - `/minhassalas` — qualquer membro pode consultar privadamente o próprio saldo, reservas e histórico no Supabase; o `guild_id` e o `user_id` são obtidos da interação.
-- `/salasreconciliar` — somente dono do bot/Administrador; resolve uma chamada Nix cujo resultado ficou incerto. Não repita a criação enquanto o crédito estiver reservado.
 
 O painel principal mantém o visual original e os botões **Adquirir Sala** e **Ver pacotes de salas**. **Adquirir Sala** abre o formulário direto; **Ver pacotes de salas** responde em privado apenas com o embed “Escolha seu pacote”, uma instrução curta para usar o menu abaixo e o select, sem lista de preços no corpo do embed nem botões adicionais. O select usa o placeholder `Escolha seu pacote de salas...` e lista os pacotes com carrinho, quantidade e preço total. Essa resposta é efêmera e expira em 30 minutos. O formulário pede quantidade, cupom opcional e e-mail do pagador, exigido pela API do Mercado Pago.
 

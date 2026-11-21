@@ -33,7 +33,7 @@ test('as definições registradas são únicas e contêm os painéis solicitados
   assert.ok(subs('lojinha').includes('listar'));
   assert.ok(subs('loja').includes('addcoins'));
   assert.deepEqual(subs('config'), ['lojinha']);
-  for (const nome of ['configroleta', 'roletapainel', 'lojinhapainel', 'configlojinhas']) {
+  for (const nome of ['configroleta', 'lojinhapainel']) {
     assert.equal(nomes.filter((item) => item === nome).length, 1);
   }
 });

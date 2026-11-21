@@ -107,32 +107,6 @@ function clienteConsultaUso(registro, erro = null) {
     },
   };
 }
-function interacaoReconciliar() {
-  return interacao('salasreconciliar', { options: { getString: (campo) => ({ codigo: 'op-b', resultado: 'failed' })[campo] || null } });
-}
-test('/salasreconciliar bloqueia protocolo de outra guild e não chama a RPC', async () => {
-  const db = { client: clienteConsultaUso({ guild_id: 'guild-b', request_id: 'op-b' }) };
-  let chamadas = 0;
-  const i = interacaoReconciliar();
-  await substituir([[vendasDb, 'reconciliarUso', async () => { chamadas++; return { status: 'failed' }; }]], async () => {
-    await registro.executar(i, { db });
-  });
-  assert.equal(chamadas, 0);
-  assert.match(descricao(i), /não encontrad[ao].*servidor/i);
-  assert.deepEqual(db.client.filtros, [['request_id', 'op-b'], ['guild_id', 'guild-a']]);
-});
-test('/salasreconciliar chama RPC apenas após consulta do protocolo na guild atual', async () => {
-  const db = { client: clienteConsultaUso({ guild_id: 'guild-a', request_id: 'op-b' }) };
-  let chamadas = 0;
-  const i = interacaoReconciliar();
-  await substituir([[vendasDb, 'reconciliarUso', async () => { chamadas++; return { status: 'failed' }; }]], async () => {
-    await registro.executar(i, { db });
-  });
-  assert.equal(chamadas, 1);
-  assert.match(descricao(i), /conciliada/);
-  assert.deepEqual(db.client.filtros, [['request_id', 'op-b'], ['guild_id', 'guild-a']]);
-});
-
 test('publicação de filas não escreve em canais fixos de outra guild', async () => {
   let envios = 0;
   const canalAlheio = { guildId: 'guild-b', send: async () => { envios++; } };
