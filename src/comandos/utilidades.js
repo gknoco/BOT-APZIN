@@ -18,6 +18,51 @@ const paineis = require('../servicos/paineis');
 const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso } = require('../util/embeds');
 
+const CARGO_MEDIADOR_PEDIDO_SS = '1543684028719173732';
+
+async function publicarPedidoSS(interaction, db, modalidade, checklist) {
+  if (!interaction.member?.roles?.cache?.has?.(CARGO_MEDIADOR_PEDIDO_SS)) {
+    return responderErro(interaction, `Somente mediadores com o cargo <@&${CARGO_MEDIADOR_PEDIDO_SS}> podem abrir pedidos SS.`);
+  }
+  if (!interaction.guildId || !interaction.guild?.channels?.fetch) {
+    return responderErro(interaction, 'Este comando precisa ser usado dentro do servidor.');
+  }
+  const mobile = modalidade === 'ss_mobile';
+  const chave = mobile ? 'canal_filas_ss_mobile' : 'canal_filas_ss_emu';
+  const comandoConfig = mobile ? '/configcanalfilasssmobile' : '/configcanalfilasssemu';
+  const valor = await persistenciaSupabase.obterConfig(interaction.guildId, chave, db?.client);
+  if (!valor) return responderErro(interaction, `Canal SS não configurado. Configure-o com ${comandoConfig} antes de abrir pedidos.`);
+
+  let canal = null;
+  try { canal = await interaction.guild.channels.fetch(String(valor)); } catch { /* resposta explícita abaixo */ }
+  if (!canal || !canal.send || !canal.isTextBased?.() || String(canal.guildId || canal.guild?.id || '') !== String(interaction.guildId)) {
+    return responderErro(interaction, `O canal SS configurado em ${comandoConfig} não existe, não é de texto ou não pertence a este servidor.`);
+  }
+
+  const customId = `ap:sspedido:${modalidade}:${interaction.user.id}:${interaction.id}`;
+  const payload = {
+    embeds: [embed(`📨 Pedido de SS ${mobile ? 'Mobile' : 'EMU'}`,
+      `**Solicitado por:** ${interaction.user}\nA equipe SS pode aceitar este pedido pelo botão abaixo.`, {
+        cor: config.CORES.aviso, rodape: `ORG Royal AP · Pedido ${interaction.id}`,
+      })],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(customId).setLabel('Aceitar pedido').setEmoji('👑').setStyle(ButtonStyle.Success),
+    )],
+    allowedMentions: { users: [interaction.user.id] },
+  };
+  try {
+    const mensagem = await canal.send(payload);
+    if (!mensagem?.id) throw new Error('Discord não confirmou a mensagem.');
+  } catch (erro) {
+    console.error(`[utilidades] falha ao publicar pedido ${modalidade} em ${valor}:`, erro);
+    return responderErro(interaction, `Não consegui enviar o pedido no canal <#${valor}>. Verifique se o bot tem Ver canal, Enviar mensagens e Incorporar links. (Detalhe: ${String(erro?.message || 'erro do Discord').slice(0, 140)})`);
+  }
+  return responderPrivado(interaction, {
+    content: `✅ Pedido de SS ${mobile ? 'Mobile' : 'EMU'} enviado em <#${valor}>.`,
+    embeds: [checklist],
+  });
+}
+
 // Organiza os comandos e aplica o filtro opcional de categorias por cargo;
 // nomes ainda não categorizados aparecem em "Outros comandos".
 const CATEGORIAS_AJUDA = [
@@ -541,10 +586,8 @@ const comandos = [
   {
     data: new SlashCommandBuilder().setName('ssmob').setDescription('Regras e checklist de mobile (anti-trapaça)'),
 
-    async executar(interaction) {
-      return responderPrivado(interaction, {
-        embeds: [
-          embed(
+    async executar(interaction, { db }) {
+      return publicarPedidoSS(interaction, db, 'ss_mobile', embed(
             '📱 Verificação · Mobile',
             [
               '**Obrigatório no AP mobile:**',
@@ -556,19 +599,15 @@ const comandos = [
               '_Suspeita de emulador = W.O. imediato, com print enviado para a staff._',
             ].join('\n'),
             { cor: config.CORES.gelo, rodape: 'ORG Royal AP' },
-          ),
-        ],
-      });
+          ));
     },
   },
 
   {
     data: new SlashCommandBuilder().setName('ssemu').setDescription('Regras e checklist de emulador'),
 
-    async executar(interaction) {
-      return responderPrivado(interaction, {
-        embeds: [
-          embed(
+    async executar(interaction, { db }) {
+      return publicarPedidoSS(interaction, db, 'ss_emu', embed(
             '🖥️ Verificação · Emulador',
             [
               '**Obrigatório no AP emu:**',
@@ -580,9 +619,7 @@ const comandos = [
               '_Macro, script ou tecla automática = banimento da ORG._',
             ].join('\n'),
             { cor: config.CORES.principal, rodape: 'ORG Royal AP' },
-          ),
-        ],
-      });
+          ));
     },
   },
 

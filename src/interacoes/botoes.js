@@ -513,6 +513,23 @@ async function handleBotao(interaction, ctx) {
 
   try {
     switch (acao) {
+      case 'sspedido': {
+        const modalidade = args[0];
+        const nome = modalidade === 'ss_mobile' ? 'SS Mobile' : modalidade === 'ss_emu' ? 'SS EMU' : null;
+        if (!nome || !/^\d{17,20}$/.test(String(args[1] || '')) || !/^\d{17,20}$/.test(String(args[2] || ''))) {
+          await responderErro(interaction, 'Este pedido SS está inválido ou expirado.');
+          return true;
+        }
+        if (!plantaoModalidade.autorizado(interaction.member, modalidade)) {
+          const cargo = plantaoModalidade.obterModalidade(modalidade).cargoAcesso;
+          await responderErro(interaction, `Você precisa do cargo <@&${cargo}> para aceitar pedidos de ${nome}.`);
+          return true;
+        }
+        await interaction.message.edit({ components: [] });
+        await responderPrivado(interaction, { content: `✅ Pedido de ${nome} aceito por você.` });
+        return true;
+      }
+
       case 'ssmobileentrar':
       case 'ssmobilesair':
       case 'ssmobilestatus':

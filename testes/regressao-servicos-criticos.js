@@ -270,7 +270,7 @@ test('notificação de partida não duplica painel após erro de busca nem usa c
   const plantao = require('../src/servicos/plantao');
   const plantaoOriginal = plantao.listar;
   const jogadoresOriginal = partidas.jogadores;
-  const configs = { canal_partidas_formadas: 'c', canal_bateponto: null, partida_aceite_mensagem_p: 'msg' };
+  const configs = { canal_partidas_formadas: 'c', canal_filas_ss_mobile: 'ss', canal_bateponto: null, partida_aceite_mensagem_p: 'msg' };
   const db = { client: { from() {
     let chave;
     return {
@@ -292,7 +292,9 @@ test('notificação de partida não duplica painel após erro de busca nem usa c
     } },
     async send() { enviados++; return { id: 'nova-msg' }; },
   };
-  const client = { channels: { cache: new Map([['c', canal]]) }, guilds: { cache: new Map() } };
+  let enviosSS = 0;
+  const canalSS = { guildId: 'g', messages: { fetch: async () => new Map() }, async send() { enviosSS++; return { id: 'ss-msg' }; } };
+  const client = { channels: { cache: new Map([['c', canal], ['ss', canalSS]]) }, guilds: { cache: new Map() } };
   const partida = { id: 'p', guild_id: 'g', modo: 'x1mobile', gelo: 'normal', preco: 10, status: 'aguardando_mediador' };
   plantao.listar = async () => [{ user_id: 'med' }];
   partidas.jogadores = async () => [{ user_id: 'j', time: 1 }];
@@ -309,6 +311,7 @@ test('notificação de partida não duplica painel após erro de busca nem usa c
     canal.guildId = 'g';
     assert.equal(await fluxo.notificarPartidaFormada(client, db, partida), true);
     assert.equal(enviados, 1);
+    assert.equal(enviosSS, 0, 'partida mobile normal não deve ser desviada do canal padrão');
     assert.equal(configs.partida_aceite_mensagem_p, 'nova-msg');
   } finally {
     plantao.listar = plantaoOriginal;

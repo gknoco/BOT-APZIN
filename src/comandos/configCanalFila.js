@@ -14,6 +14,7 @@ const { ehAdmin, responderPrivado, responderErro } = require('../util/seguranca'
 const CONFIGS = {
   configcanalfila: { key: 'canal_partidas_formadas', label: 'partidas formadas', modal: 'modalconfigcanalfila' },
   configcanalfilasssmobile: { key: 'canal_filas_ss_mobile', label: 'filas SS Mobile', modal: 'modalconfigcanalfilasssmobile' },
+  configcanalfilassmobile: { key: 'canal_filas_ss_mobile', label: 'filas SS Mobile', modal: 'modalconfigcanalfilasssmobile' },
   configcanalfilasssemu: { key: 'canal_filas_ss_emu', label: 'filas SS EMU', modal: 'modalconfigcanalfilasssemu' },
 };
 
@@ -39,6 +40,7 @@ function criarComando(nome, descricao) {
 const comandos = [
   criarComando('configcanalfila', 'Configura o canal de avisos de partidas formadas'),
   criarComando('configcanalfilasssmobile', 'Configura o canal de filas SS Mobile'),
+  criarComando('configcanalfilassmobile', 'Alias: configura o canal de filas SS Mobile'),
   criarComando('configcanalfilasssemu', 'Configura o canal de filas SS EMU'),
 ];
 

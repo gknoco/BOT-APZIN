@@ -34,13 +34,6 @@ const NOME_TIME = { 1: 'Equipe 1', 2: 'Equipe 2' };
 const TAXA_MEDIADOR_CENTAVOS = 10;
 const nomeTime = (time) => NOME_TIME[Number(time)] || `Equipe ${time}`;
 const valorPorCapitao = (partida) => Math.trunc(Number(partida?.preco) || 0) + TAXA_MEDIADOR_CENTAVOS;
-function chaveCanalAceite(partida) {
-  const modo = config.modoPorId(partida?.modo);
-  if (modo?.plataforma === 'mobile') return 'canal_filas_ss_mobile';
-  if (modo?.plataforma === 'emu') return 'canal_filas_ss_emu';
-  return null;
-}
-
 function textoJogadores(lista) {
   return [1, 2]
     .map((time) => {
@@ -376,13 +369,8 @@ async function notificarPartidaFormada(client, db, partida) {
     console.warn(`[fluxo] partida ${partida.id} mantida pendente: nenhum mediador ativo na guild ${partida.guild_id}.`);
     return false;
   }
-  const chaveCanalModalidade = chaveCanalAceite(partida);
   const canalPadraoId = await obterConfig(db, partida.guild_id, 'canal_partidas_formadas', null);
-  const canalModalidadeId = chaveCanalModalidade ? await obterConfig(db, partida.guild_id, chaveCanalModalidade, null) : null;
-  let canalId = canalModalidadeId || canalPadraoId;
-  if (chaveCanalModalidade && !canalModalidadeId) {
-    console.warn(`[fluxo] ${chaveCanalModalidade} não configurado na guild ${partida.guild_id}; usando canal_partidas_formadas.`);
-  }
+  const canalId = canalPadraoId;
   if (!canalId) {
     console.error(`[fluxo] canal_partidas_formadas não configurado para guild ${partida.guild_id}; execute /configcanalfila.`);
     return false;
@@ -401,14 +389,8 @@ async function notificarPartidaFormada(client, db, partida) {
       return null;
     });
     if (!canal?.send || !partida.guild_id || String(canal.guildId || canal.guild?.id || '') !== String(partida.guild_id)) {
-      console.error(`[fluxo] canal de aceite ${canalId} indisponível ou não pertence à guild ${partida.guild_id}.`);
-      if (!canalModalidadeId || String(canalId) === String(canalPadraoId || '')) return false;
-      canalId = canalPadraoId;
-      canal = canalId && (client.channels.cache.get(String(canalId)) || await client.channels.fetch(String(canalId)).catch(() => null));
-      if (!canal?.send || String(canal.guildId || canal.guild?.id || '') !== String(partida.guild_id)) {
-        console.error(`[fluxo] fallback canal_partidas_formadas ${canalId || '(não configurado)'} inválido; painel não publicado.`);
-        return false;
-      }
+      console.error(`[fluxo] canal_partidas_formadas ${canalId} indisponível ou não pertence à guild ${partida.guild_id}.`);
+      return false;
     }
     // Revalida imediatamente antes do envio para não publicar se o último
     // mediador tiver saído durante a busca do canal ou a montagem do painel.
@@ -908,7 +890,6 @@ async function cancelarPartida(client, db, { partidaId, autorId, motivo }) {
 
 module.exports = {
   STATUS,
-  chaveCanalAceite,
   nomeTime,
   textoJogadores,
   tipoPartida,

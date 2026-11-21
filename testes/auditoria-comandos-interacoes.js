@@ -17,15 +17,13 @@ const criarSalaComCredito = require('../src/servicos/criarSalaComCredito');
 const addsalas = require('../src/comandos/addsalas');
 const auditoria = require('../src/servicos/auditoria');
 
-test('comandos de canais SS estão registrados e o roteamento preserva a fila normal', () => {
+test('comandos oficiais e variações de configuração SS estão registrados', () => {
   const nomes = new Set(registro.definicoes().map((comando) => comando.name));
   assert.ok(nomes.has('configcanalfilasssmobile'));
+  assert.ok(nomes.has('configcanalfilassmobile'));
   assert.ok(nomes.has('configcanalfilasssemu'));
-  const fluxo = require('../src/servicos/fluxo');
-  assert.equal(fluxo.chaveCanalAceite({ modo: 'x2mobile' }), 'canal_filas_ss_mobile');
-  assert.equal(fluxo.chaveCanalAceite({ modo: 'x1emu' }), 'canal_filas_ss_emu');
-  assert.equal(fluxo.chaveCanalAceite({ modo: 'x2fullcapa' }), null);
-  assert.equal(fluxo.chaveCanalAceite({ modo: 'x2misto' }), null);
+  assert.ok(nomes.has('ssmob'));
+  assert.ok(nomes.has('ssemu'));
 });
 
 async function substituir(alteracoes, fn) {
@@ -52,6 +50,51 @@ function interacao(nome, opcoes = {}) {
   return i;
 }
 function descricao(i) { return i.responses.at(-1)[1].embeds[0].toJSON().description; }
+
+test('/ssmob e /ssemu com cargo mediador publicam botão Aceitar nos canais SS configurados', async () => {
+  const publicados = [];
+  const canalBase = {
+    guildId: 'guild-a', isTextBased: () => true,
+    async send(payload) { publicados.push({ id: this.id, payload }); return { id: `msg-${publicados.length}` }; },
+  };
+  const makeInteraction = (name, id) => interacao(name, {
+    id, guild: { channels: { fetch: async (channelId) => ({ ...canalBase, id: channelId }) } },
+  });
+  const iMobile = makeInteraction('ssmob', '111111111111111111');
+  const iEmu = makeInteraction('ssemu', '222222222222222222');
+  iMobile.member.roles.cache.set('1543684028719173732', {});
+  iEmu.member.roles.cache.set('1543684028719173732', {});
+  await substituir([[persistencia, 'obterConfig', async (_guildId, key) => key === 'canal_filas_ss_mobile' ? 'mobile-channel' : 'emu-channel']], async () => {
+    await registro.executar(iMobile, { db: { client: {} } });
+    await registro.executar(iEmu, { db: { client: {} } });
+  });
+  assert.deepEqual(publicados.map((item) => item.id), ['mobile-channel', 'emu-channel']);
+  assert.match(publicados[0].payload.embeds[0].toJSON().title, /Mobile/);
+  assert.match(publicados[1].payload.embeds[0].toJSON().title, /EMU/);
+  for (const { payload } of publicados) {
+    const button = payload.components[0].components[0].toJSON();
+    assert.equal(button.label, 'Aceitar pedido');
+    assert.match(button.custom_id, /^ap:sspedido:/);
+  }
+  assert.match(iMobile.responses.at(-1)[1].content, /mobile-channel/);
+  assert.match(iEmu.responses.at(-1)[1].content, /emu-channel/);
+});
+
+test('/ssmob responde claramente quando o canal está ausente, inválido ou sem permissão', async () => {
+  const cenarios = [
+    { valor: null, fetch: async () => null, esperado: /não configurado/i },
+    { valor: '123456789012345678', fetch: async () => null, esperado: /não existe, não é de texto/i },
+    { valor: '123456789012345678', fetch: async (id) => ({ id, guildId: 'guild-a', isTextBased: () => true, send: async () => { throw new Error('Missing Permissions'); } }), esperado: /Ver canal, Enviar mensagens/i },
+  ];
+  for (const cenario of cenarios) {
+    const i = interacao('ssmob', { guild: { channels: { fetch: cenario.fetch } } });
+    i.member.roles.cache.set('1543684028719173732', {});
+    await substituir([[persistencia, 'obterConfig', async () => cenario.valor]], async () => {
+      await registro.executar(i, { db: { client: {} } });
+    });
+    assert.match(descricao(i), cenario.esperado);
+  }
+});
 
 test('/resgatarsalas passa pelo dispatcher com um único defer e concede apenas após confirmação', async () => {
   const i = interacao('resgatarsalas');
