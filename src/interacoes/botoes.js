@@ -525,6 +525,11 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, `Você precisa do cargo <@&${cargo}> para aceitar pedidos de ${nome}.`);
           return true;
         }
+        if (!(await plantaoModalidade.ativo(db, interaction.guildId, interaction.user.id, modalidade))) {
+          const painel = modalidade === 'ss_mobile' ? '/painelbatepontossmobile' : '/painelbatepontossemu';
+          await responderErro(interaction, `Você precisa estar ativo no plantão ${nome}. Entre pelo painel ${painel} e tente aceitar novamente.`);
+          return true;
+        }
         await interaction.message.edit({ components: [] });
         await responderPrivado(interaction, { content: `✅ Pedido de ${nome} aceito por você.` });
         return true;

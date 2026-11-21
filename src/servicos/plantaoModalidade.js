@@ -84,6 +84,14 @@ async function listar(db, guildId, nome) {
   return data || [];
 }
 
+async function ativo(db, guildId, userId, nome) {
+  const modalidade = obterModalidade(nome);
+  const { data, error } = await db.client.from(modalidade.tabela).select('user_id')
+    .eq('guild_id', String(guildId)).eq('user_id', String(userId)).eq('modalidade', nome).maybeSingle();
+  if (error) throw new Error(`Não consegui validar o plantão ${modalidade.label}: ${error.message}`);
+  return Boolean(data?.user_id);
+}
+
 async function limpar(db, guildId, nome) {
   const modalidade = obterModalidade(nome);
   const { count, error } = await db.client.from(modalidade.tabela).delete({ count: 'exact' })
@@ -125,4 +133,4 @@ async function painel(db, guildId, nome) {
   return { embeds: [embed(`🛡️ Plantão ${modalidade.label}`, corpo, { cor: config.CORES.principal, rodape: `ORG Royal AP · ${modalidade.label}` })], components: componentes(nome) };
 }
 
-module.exports = { MODALIDADES, obterModalidade, autorizado, adicionarCargo, removerCargo, entrar, sair, listar, limpar, limparComCargo, painel };
+module.exports = { MODALIDADES, obterModalidade, autorizado, adicionarCargo, removerCargo, entrar, sair, listar, ativo, limpar, limparComCargo, painel };
