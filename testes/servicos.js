@@ -6,6 +6,7 @@ const { EventEmitter } = require('node:events');
 const { Collection, Events, PermissionFlagsBits } = require('discord.js');
 process.env.DISCORD_TOKEN ||= 'test.token.value';
 const plantao = require('../src/servicos/plantao');
+const plantaoModalidade = require('../src/servicos/plantaoModalidade');
 const paineis = require('../src/servicos/paineis');
 const mediadores = require('../src/servicos/mediadores');
 const auditoria = require('../src/servicos/auditoria');
@@ -161,6 +162,78 @@ test('erros de Supabase no plantão são propagados', async () => {
     () => plantao.listar(db, 'g'), () => plantao.total(db, 'g'),
     () => plantao.limpar(db, 'g'), () => plantao.proximo(db, 'g'),
   ]) await assert.rejects(operar, /falha simulada/);
+});
+
+test('plantões SS preservam cargos de acesso e cargos de plantão por modalidade', async () => {
+  assert.deepEqual(plantaoModalidade.MODALIDADES, {
+    ss_mobile: {
+      label: 'SS Mobile', cargoAcesso: '1543684008037326849', cargoPlantao: '1572608936110989404',
+      prefixo: 'ssmobile', tabela: 'royal_plantao_modalidades',
+    },
+    ss_emu: {
+      label: 'SS EMU', cargoAcesso: '1543683966203207770', cargoPlantao: '1572610855290544288',
+      prefixo: 'ssemu', tabela: 'royal_plantao_modalidades',
+    },
+  });
+  assert.equal(plantaoModalidade.autorizado({ roles: { cache: new Map([['1543684008037326849', true]]) } }, 'ss_mobile'), true);
+  assert.equal(plantaoModalidade.autorizado({ roles: { cache: new Map([['1543684008037326849', true]]) } }, 'ss_emu'), false);
+});
+
+test('plantões SS atribuem/removem o cargo correto e mantêm a fila por modalidade', async () => {
+  const db = bancoFalso();
+  const cargos = new Map([
+    ['1572608936110989404', { id: '1572608936110989404', managed: false }],
+    ['1572610855290544288', { id: '1572610855290544288', managed: false }],
+  ]);
+  const membros = new Map();
+  const guild = {
+    roles: { cache: cargos, fetch: async (id) => cargos.get(id) || null },
+    members: {
+      me: { permissions: { has: () => true }, roles: { highest: { comparePositionTo: () => 1 } } },
+      fetch: async (id) => {
+        if (!membros.has(String(id))) {
+          const cache = new Map();
+          membros.set(String(id), {
+            roles: {
+              cache,
+              add: async (cargo) => cache.set(cargo.id, cargo),
+              remove: async (cargo) => cache.delete(cargo.id),
+            },
+          });
+        }
+        return membros.get(String(id));
+      },
+    },
+  };
+  await plantaoModalidade.adicionarCargo(guild, 'u', 'ss_mobile');
+  assert.equal(membros.get('u').roles.cache.has('1572608936110989404'), true);
+  await plantaoModalidade.entrar(db, 'g', 'u', 'ss_mobile');
+  await plantaoModalidade.entrar(db, 'g', 'u', 'ss_emu');
+  assert.deepEqual((await plantaoModalidade.listar(db, 'g', 'ss_mobile')).map((linha) => linha.user_id), ['u']);
+  assert.deepEqual((await plantaoModalidade.listar(db, 'g', 'ss_emu')).map((linha) => linha.user_id), ['u']);
+  await plantaoModalidade.removerCargo(guild, 'u', 'ss_mobile');
+  assert.equal(membros.get('u').roles.cache.has('1572608936110989404'), false);
+  assert.equal(membros.get('u').roles.cache.has('1572610855290544288'), false);
+  assert.equal(await plantaoModalidade.sair(db, 'g', 'u', 'ss_mobile'), 1);
+  assert.equal((await plantaoModalidade.listar(db, 'g', 'ss_emu')).length, 1);
+});
+
+test('plantões SS falham de forma explícita sem permissão ou com cargo ausente/gerenciado', async () => {
+  const ausente = {
+    roles: { cache: new Map(), fetch: async () => null },
+    members: { me: { permissions: { has: () => false } } },
+  };
+  await assert.rejects(() => plantaoModalidade.adicionarCargo(ausente, 'u', 'ss_mobile'), /não existe/);
+  const semPermissao = {
+    roles: { cache: new Map([['1572608936110989404', { id: '1572608936110989404', managed: false }]]) },
+    members: { me: { permissions: { has: () => false } } },
+  };
+  await assert.rejects(() => plantaoModalidade.adicionarCargo(semPermissao, 'u', 'ss_mobile'), /Gerenciar Cargos/);
+  const gerenciado = {
+    roles: { cache: new Map([['1572608936110989404', { id: '1572608936110989404', managed: true }]]) },
+    members: { me: { permissions: { has: () => true }, roles: { highest: { comparePositionTo: () => 1 } } } },
+  };
+  await assert.rejects(() => plantaoModalidade.adicionarCargo(gerenciado, 'u', 'ss_mobile'), /abaixo/);
 });
 
 test('painéis usam upsert por servidor/modo e lista permanece compatível', async () => {
