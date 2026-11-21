@@ -274,38 +274,12 @@ test('erro assíncrono do plantão SS é capturado pelo handler e respondido', a
   });
 });
 
-test('aceite de pedido exige o plantão SS correspondente e bloqueia quem não está ativo', async () => {
-  const casos = [
-    ['ss_emu', 'SS EMU', '/painelbatepontossemu'],
-    ['ss_mobile', 'SS Mobile', '/painelbatepontossmobile'],
-  ];
-  const validados = [];
-  await comMocks([[plantaoModalidade, {
-    autorizado: () => true,
-    ativo: async (_db, guildId, userId, modalidade) => {
-      validados.push([guildId, userId, modalidade]);
-      return true;
-    },
-  }]], async () => {
-    for (const [modalidade] of casos) {
-      const i = interacao(`ap:sspedido:${modalidade}:123456789012345678:123456789012345679`);
-      i.message = { edit: async (payload) => i.calls.push(['messageEdit', payload]) };
-      await botoes.handleBotao(i, ctx);
-      assert.ok(i.calls.some(([nome]) => nome === 'messageEdit'));
-      assert.match(texto(resposta(i)), /aceito por você/);
-    }
-  });
-  assert.deepEqual(validados, casos.map(([modalidade]) => ['guild-a', 'user-a', modalidade]));
-
-  await comMocks([[plantaoModalidade, { autorizado: () => true, ativo: async () => false }]], async () => {
-    for (const [modalidade, nome, painel] of casos) {
-      const i = interacao(`ap:sspedido:${modalidade}:123456789012345678:123456789012345679`);
-      i.message = { edit: async (payload) => i.calls.push(['messageEdit', payload]) };
-      await botoes.handleBotao(i, ctx);
-      assert.match(texto(resposta(i)), new RegExp(`plantão ${nome}.*${painel}`));
-      assert.equal(i.calls.some(([acao]) => acao === 'messageEdit'), false);
-    }
-  });
+test('aceite SS rejeita customId antigo sem vínculo verificável com a partida', async () => {
+  for (const modalidade of ['ss_emu', 'ss_mobile']) {
+    const i = interacao(`ap:sspedido:${modalidade}:123456789012345678:123456789012345679`);
+    await botoes.handleBotao(i, ctx);
+    assert.match(texto(resposta(i)), /inválido ou expirado/i);
+  }
 });
 
 test('limite de 2.000 caracteres usa texto integral e 2.001 usa arquivo integral', async () => {

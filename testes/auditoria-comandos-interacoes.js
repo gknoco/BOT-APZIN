@@ -16,6 +16,8 @@ const paineis = require('../src/servicos/paineis');
 const criarSalaComCredito = require('../src/servicos/criarSalaComCredito');
 const addsalas = require('../src/comandos/addsalas');
 const auditoria = require('../src/servicos/auditoria');
+const partidas = require('../src/servicos/partidas');
+const fluxo = require('../src/servicos/fluxo');
 
 test('comandos oficiais e variações de configuração SS estão registrados', () => {
   const nomes = new Set(registro.definicoes().map((comando) => comando.name));
@@ -53,18 +55,27 @@ function descricao(i) { return i.responses.at(-1)[1].embeds[0].toJSON().descript
 
 test('/ssmob e /ssemu com cargo mediador publicam botão Aceitar nos canais SS configurados', async () => {
   const publicados = [];
+  const vinculados = [];
+  const partidaId = 'abcdef0123456789abcdef0123456789';
   const canalBase = {
     guildId: 'guild-a', isTextBased: () => true,
     async send(payload) { publicados.push({ id: this.id, payload }); return { id: `msg-${publicados.length}` }; },
   };
-  const makeInteraction = (name, id) => interacao(name, {
+  const makeInteraction = (name, id, channelId) => interacao(name, {
+    channelId,
     id, guild: { channels: { fetch: async (channelId) => ({ ...canalBase, id: channelId }) } },
   });
-  const iMobile = makeInteraction('ssmob', '111111111111111111');
-  const iEmu = makeInteraction('ssemu', '222222222222222222');
+  const iMobile = makeInteraction('ssmob', '111111111111111111', 'fila-mobile');
+  const iEmu = makeInteraction('ssemu', '222222222222222222', 'fila-emu');
   iMobile.member.roles.cache.set('1543684028719173732', {});
   iEmu.member.roles.cache.set('1543684028719173732', {});
-  await substituir([[persistencia, 'obterConfig', async (_guildId, key) => key === 'canal_filas_ss_mobile' ? 'mobile-channel' : 'emu-channel']], async () => {
+  await substituir([
+    [persistencia, 'obterConfig', async (_guildId, key) => key === 'canal_filas_ss_mobile' ? 'mobile-channel' : 'emu-channel'],
+    [partidas, 'porCanal', async (_db, _guild, canalId) => ({ id: partidaId, canal_id: canalId,
+      modo: canalId === 'fila-mobile' ? 'x1mobile' : 'x1emu', status: 'aguardando_mediador', mediador_id: null })],
+    [fluxo, 'obterPedidoSS', async () => null],
+    [fluxo, 'registrarPedidoSS', async (...args) => { vinculados.push(args); }],
+  ], async () => {
     await registro.executar(iMobile, { db: { client: {} } });
     await registro.executar(iEmu, { db: { client: {} } });
   });
@@ -74,8 +85,11 @@ test('/ssmob e /ssemu com cargo mediador publicam botão Aceitar nos canais SS c
   for (const { payload } of publicados) {
     const button = payload.components[0].components[0].toJSON();
     assert.equal(button.label, 'Aceitar pedido');
-    assert.match(button.custom_id, /^ap:sspedido:/);
+    assert.match(button.custom_id, new RegExp(`^ap:sspedido:(ss_mobile|ss_emu):${partidaId}$`));
   }
+  assert.deepEqual(vinculados.map(([, , id, pedido]) => [id, pedido.modalidade, pedido.channelId]), [
+    [partidaId, 'ss_mobile', 'mobile-channel'], [partidaId, 'ss_emu', 'emu-channel'],
+  ]);
   assert.match(iMobile.responses.at(-1)[1].content, /mobile-channel/);
   assert.match(iEmu.responses.at(-1)[1].content, /emu-channel/);
 });
@@ -84,12 +98,16 @@ test('/ssmob responde claramente quando o canal está ausente, inválido ou sem 
   const cenarios = [
     { valor: null, fetch: async () => null, esperado: /não configurado/i },
     { valor: '123456789012345678', fetch: async () => null, esperado: /não existe, não é de texto/i },
-    { valor: '123456789012345678', fetch: async (id) => ({ id, guildId: 'guild-a', isTextBased: () => true, send: async () => { throw new Error('Missing Permissions'); } }), esperado: /Ver canal, Enviar mensagens/i },
+    { valor: '123456789012345678', fetch: async (id) => ({ id, guildId: 'guild-a', isTextBased: () => true, send: async () => { throw new Error('Missing Permissions'); } }), esperado: /Verifique as permissões do bot/i },
   ];
   for (const cenario of cenarios) {
-    const i = interacao('ssmob', { guild: { channels: { fetch: cenario.fetch } } });
+    const i = interacao('ssmob', { channelId: 'fila-mobile', guild: { channels: { fetch: cenario.fetch } } });
     i.member.roles.cache.set('1543684028719173732', {});
-    await substituir([[persistencia, 'obterConfig', async () => cenario.valor]], async () => {
+    await substituir([
+      [persistencia, 'obterConfig', async () => cenario.valor],
+      [partidas, 'porCanal', async () => ({ id: 'abcdef0123456789abcdef0123456789', canal_id: 'fila-mobile', modo: 'x1mobile', status: 'aguardando_mediador', mediador_id: null })],
+      [fluxo, 'obterPedidoSS', async () => null],
+    ], async () => {
       await registro.executar(i, { db: { client: {} } });
     });
     assert.match(descricao(i), cenario.esperado);

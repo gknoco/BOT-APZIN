@@ -331,6 +331,8 @@ async function assumirSala(interaction, { db, client }, partidaId) {
   try {
     // O modelo atual usa taxa fixa por capitão; não há comissão percentual.
     const partida = await partidas.assumir(db, partidaId, interaction.user.id);
+    await fluxo.removerPedidoSS(client, db, interaction.guildId, partidaId).catch((erro) =>
+      console.error(`[botoes] falha ao limpar pedido SS após aceite normal ${partidaId}:`, erro));
     await fluxo.atualizarPartida(client, db, partidaId);
     await auditoria.registrar(db, client, {
       guildId: interaction.guildId,
@@ -351,6 +353,8 @@ async function assumirSala(interaction, { db, client }, partidaId) {
       embeds: [embedSucesso('Você assumiu a sala. Agora envie seu PIX e confira o pagamento.')],
     });
   } catch (erro) {
+    const atual = await buscarPartidaDaGuild(interaction, db, partidaId).catch(() => null);
+    if (atual?.mediador_id) return responderErro(interaction, `Esta partida já foi aceita por <@${atual.mediador_id}>.`);
     return responderErro(interaction, erro.message);
   }
 }
@@ -409,6 +413,8 @@ async function fecharSala(interaction, { db, client }, partidaId) {
   if (!ehMediador(interaction.member)) return responderErro(interaction, 'Só a staff pode fechar a sala.');
   const partida = await buscarPartidaDaGuild(interaction, db, partidaId);
   if (!partida) return responderErro(interaction, 'Sala não encontrada neste servidor.');
+  await fluxo.removerPedidoSS(client, db, interaction.guildId, partidaId).catch((erro) =>
+    console.error(`[botoes] falha ao limpar pedido SS antes de fechar a sala ${partidaId}:`, erro));
   await responderPrivado(interaction, { content: '🔒 Fechando esta sala em 5 segundos...' });
   setTimeout(async () => {
     try {
@@ -516,8 +522,23 @@ async function handleBotao(interaction, ctx) {
       case 'sspedido': {
         const modalidade = args[0];
         const nome = modalidade === 'ss_mobile' ? 'SS Mobile' : modalidade === 'ss_emu' ? 'SS EMU' : null;
-        if (!nome || !/^\d{17,20}$/.test(String(args[1] || '')) || !/^\d{17,20}$/.test(String(args[2] || ''))) {
+        const partidaId = args[1];
+        if (!nome || args.length !== 2 || !/^[a-f\d-]{16,40}$/i.test(String(partidaId || ''))) {
           await responderErro(interaction, 'Este pedido SS está inválido ou expirado.');
+          return true;
+        }
+        const pedido = await fluxo.obterPedidoSS(db, interaction.guildId, partidaId);
+        if (!pedido || pedido.modalidade !== modalidade || String(pedido.messageId) !== String(interaction.message?.id)
+          || String(pedido.channelId) !== String(interaction.channelId)) {
+          await responderErro(interaction, 'Este pedido SS está inválido, já foi removido ou expirou.');
+          return true;
+        }
+        const partida = await buscarPartidaDaGuild(interaction, db, partidaId);
+        if (!partida || partida.status !== partidas.STATUS.AGUARDANDO_MEDIADOR || partida.mediador_id) {
+          await fluxo.removerPedidoSS(client, db, interaction.guildId, partidaId, interaction.message).catch((erro) =>
+            console.error(`[botoes] falha ao limpar pedido SS encerrado ${partidaId}:`, erro));
+          const quem = partida?.mediador_id ? ` Já aceita por <@${partida.mediador_id}>.` : '';
+          await responderErro(interaction, `Esta partida já foi aceita ou encerrada.${quem}`);
           return true;
         }
         if (!plantaoModalidade.autorizado(interaction.member, modalidade)) {
@@ -530,8 +551,43 @@ async function handleBotao(interaction, ctx) {
           await responderErro(interaction, `Você precisa estar ativo no plantão ${nome}. Entre pelo painel ${painel} e tente aceitar novamente.`);
           return true;
         }
-        await interaction.message.edit({ components: [] });
-        await responderPrivado(interaction, { content: `✅ Pedido de ${nome} aceito por você.` });
+        try {
+          // A mesma RPC/lock PostgreSQL do aceite normal garante um único
+          // mediador ou SS vencedor, inclusive em processos concorrentes.
+          await partidas.assumir(db, partidaId, interaction.user.id);
+        } catch (erro) {
+          const atual = await buscarPartidaDaGuild(interaction, db, partidaId).catch(() => null);
+          if (atual?.mediador_id) {
+            await responderErro(interaction, `Esta partida já foi aceita por <@${atual.mediador_id}>.`);
+          } else {
+            await responderErro(interaction, erro.message || 'Não foi possível aceitar esta partida.');
+          }
+          return true;
+        }
+
+        await Promise.allSettled([
+          fluxo.removerPedidoSS(client, db, interaction.guildId, partidaId, interaction.message),
+          fluxo.removerPainelNotificacao(client, db, interaction.guildId, partidaId),
+          fluxo.atualizarPartida(client, db, partidaId),
+        ]);
+        let acessoConcedido = false;
+        try { acessoConcedido = await fluxo.concederAcessoPartida(client, db, partidaId, interaction.user.id); }
+        catch (erro) { console.error(`[botoes] falha ao liberar acesso SS à partida ${partidaId}:`, erro); }
+        try {
+          const sala = client.channels.cache.get(String(partida.canal_id)) || await client.channels.fetch(String(partida.canal_id));
+          await sala?.send?.({ content: `A equipe ${nome} aceitou esta sala.`, allowedMentions: { parse: [] } });
+        } catch (erro) { console.error(`[botoes] falha ao anunciar aceite SS da partida ${partidaId}:`, erro.message); }
+        try {
+          await auditoria.registrar(db, client, {
+            guildId: interaction.guildId, autorId: interaction.user.id,
+            acao: `Sala aceita por ${nome}`, detalhe: `Sala ${partidaId}`,
+          });
+        } catch (erro) { console.error(`[botoes] falha de auditoria do aceite SS ${partidaId}:`, erro.message); }
+        await responderPrivado(interaction, {
+          content: acessoConcedido
+            ? `✅ Pedido de ${nome} aceito por você; a sala ficou acessível somente para você e os jogadores.`
+            : `✅ Pedido de ${nome} aceito por você, mas não consegui aplicar as permissões da sala. Avise a administração imediatamente.`,
+        });
         return true;
       }
 

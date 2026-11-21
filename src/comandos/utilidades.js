@@ -15,6 +15,7 @@ const config = require('../config');
 const persistenciaSupabase = require('../servicos/supabase');
 const partidas = require('../servicos/partidas');
 const paineis = require('../servicos/paineis');
+const fluxoPartidas = require('../servicos/fluxo');
 const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso } = require('../util/embeds');
 
@@ -28,6 +29,14 @@ async function publicarPedidoSS(interaction, db, modalidade, checklist) {
     return responderErro(interaction, 'Este comando precisa ser usado dentro do servidor.');
   }
   const mobile = modalidade === 'ss_mobile';
+  const partida = await partidas.porCanal(db, interaction.guildId, interaction.channelId);
+  const modoPartida = partida && config.modoPorId(partida.modo);
+  const plataformaEsperada = mobile ? 'mobile' : 'emu';
+  if (!partida || partida.status !== 'aguardando_mediador' || partida.mediador_id || modoPartida?.plataforma !== plataformaEsperada) {
+    return responderErro(interaction, `Use /${mobile ? 'ssmob' : 'ssemu'} somente dentro de uma sala de AP ativa ${mobile ? 'Mobile' : 'EMU'} que aguarda aceite do mediador.`);
+  }
+  const pedidoExistente = await fluxoPartidas.obterPedidoSS(db, interaction.guildId, partida.id);
+  if (pedidoExistente) return responderErro(interaction, 'Já existe um pedido SS ativo para esta sala. Aguarde a equipe aceitar ou a sala ser encerrada.');
   const chave = mobile ? 'canal_filas_ss_mobile' : 'canal_filas_ss_emu';
   const comandoConfig = mobile ? '/configcanalfilasssmobile' : '/configcanalfilasssemu';
   const valor = await persistenciaSupabase.obterConfig(interaction.guildId, chave, db?.client);
@@ -39,10 +48,10 @@ async function publicarPedidoSS(interaction, db, modalidade, checklist) {
     return responderErro(interaction, `O canal SS configurado em ${comandoConfig} não existe, não é de texto ou não pertence a este servidor.`);
   }
 
-  const customId = `ap:sspedido:${modalidade}:${interaction.user.id}:${interaction.id}`;
+  const customId = `ap:sspedido:${modalidade}:${partida.id}`;
   const payload = {
     embeds: [embed(`📨 Pedido de SS ${mobile ? 'Mobile' : 'EMU'}`,
-      `**Solicitado por:** ${interaction.user}\nA equipe SS pode aceitar este pedido pelo botão abaixo.`, {
+      `**Sala de AP:** <#${partida.canal_id}>\n**Solicitado por:** ${interaction.user}\nA equipe SS pode aceitar este pedido pelo botão abaixo.`, {
         cor: config.CORES.aviso, rodape: `ORG Royal AP · Pedido ${interaction.id}`,
       })],
     components: [new ActionRowBuilder().addComponents(
@@ -50,12 +59,17 @@ async function publicarPedidoSS(interaction, db, modalidade, checklist) {
     )],
     allowedMentions: { users: [interaction.user.id] },
   };
+  let mensagemEnviada = null;
   try {
-    const mensagem = await canal.send(payload);
-    if (!mensagem?.id) throw new Error('Discord não confirmou a mensagem.');
+    mensagemEnviada = await canal.send(payload);
+    if (!mensagemEnviada?.id) throw new Error('Discord não confirmou a mensagem.');
+    await fluxoPartidas.registrarPedidoSS(db, interaction.guildId, partida.id, {
+      modalidade, channelId: canal.id, messageId: mensagemEnviada.id,
+    });
   } catch (erro) {
     console.error(`[utilidades] falha ao publicar pedido ${modalidade} em ${valor}:`, erro);
-    return responderErro(interaction, `Não consegui enviar o pedido no canal <#${valor}>. Verifique se o bot tem Ver canal, Enviar mensagens e Incorporar links. (Detalhe: ${String(erro?.message || 'erro do Discord').slice(0, 140)})`);
+    await Promise.resolve(mensagemEnviada?.delete?.()).catch(() => {});
+    return responderErro(interaction, `Não consegui enviar/registrar o pedido no canal <#${valor}>. Verifique as permissões do bot e a conexão com o Supabase. (Detalhe: ${String(erro?.message || 'erro do Discord').slice(0, 140)})`);
   }
   return responderPrivado(interaction, {
     content: `✅ Pedido de SS ${mobile ? 'Mobile' : 'EMU'} enviado em <#${valor}>.`,

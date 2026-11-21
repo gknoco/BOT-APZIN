@@ -22,6 +22,7 @@ const partidas = require('./partidas');
 const paineis = require('./paineis');
 const mediadores = require('./mediadores');
 const plantao = require('./plantao');
+const plantaoModalidade = require('./plantaoModalidade');
 const blacklist = require('./blacklist');
 const auditoria = require('./auditoria');
 
@@ -253,6 +254,7 @@ async function criarCanalPartida(client, db, guild, { modo, preco, gelo, jogador
   const cargosMediadores = new Set([
     CARGO_MEDIADOR_ACESSO,
     ...(await mediadores.cargos(db, guild.id)),
+    ...Object.values(plantaoModalidade.MODALIDADES).flatMap((modalidade) => [modalidade.cargoAcesso, modalidade.cargoPlantao]),
   ].filter(Boolean).map(String));
   const permissoes = [
     { id: guild.roles.everyone.id, deny: [A.ViewChannel] },
@@ -559,6 +561,49 @@ async function removerPainelNotificacao(client, db, guildId, partidaId, mensagem
   return true;
 }
 
+const chavePedidoSS = (partidaId) => `ss_pedido_partida_${String(partidaId)}`;
+
+async function obterPedidoSS(db, guildId, partidaId) {
+  const bruto = await obterConfig(db, guildId, chavePedidoSS(partidaId), null);
+  if (!bruto) return null;
+  try { return JSON.parse(String(bruto)); } catch { return null; }
+}
+
+async function registrarPedidoSS(db, guildId, partidaId, pedido) {
+  await definirConfig(db, guildId, chavePedidoSS(partidaId), JSON.stringify({
+    modalidade: String(pedido.modalidade),
+    channelId: String(pedido.channelId),
+    messageId: String(pedido.messageId),
+  }));
+}
+
+async function removerPedidoSS(client, db, guildId, partidaId, mensagemAtual = null) {
+  const chave = chavePedidoSS(partidaId);
+  const pedido = await obterPedidoSS(db, guildId, partidaId);
+  if (!pedido) return false;
+  let mensagem = mensagemAtual && String(mensagemAtual.id) === String(pedido.messageId) ? mensagemAtual : null;
+  if (!mensagem) {
+    const canal = client.channels.cache.get(String(pedido.channelId))
+      || await client.channels.fetch(String(pedido.channelId)).catch((erro) => {
+        console.error(`[fluxo] não consegui buscar canal do pedido SS ${pedido.messageId}:`, erro.message);
+        return null;
+      });
+    mensagem = await canal?.messages?.fetch?.(String(pedido.messageId)).catch((erro) => {
+      if (Number(erro?.code) !== 10008) console.error(`[fluxo] não consegui buscar pedido SS ${pedido.messageId}:`, erro.message);
+      return null;
+    });
+  }
+  if (mensagem) {
+    await mensagem.delete().catch((erro) => {
+      if (Number(erro?.code) !== 10008) console.error(`[fluxo] não consegui apagar pedido SS ${pedido.messageId}:`, erro.message);
+    });
+  }
+  // A ausência do vínculo invalida imediatamente botões antigos, mesmo que o
+  // Discord não permita apagar a mensagem por falta de permissão.
+  await definirConfig(db, guildId, chave, null);
+  return true;
+}
+
 async function concederAcessoPartida(client, db, partidaId, userId) {
   const partida = await partidas.buscar(db, partidaId);
   if (!partida) return false;
@@ -573,6 +618,7 @@ async function concederAcessoPartida(client, db, partidaId, userId) {
   const cargosMediadores = new Set([
     CARGO_MEDIADOR_ACESSO,
     ...(await mediadores.cargos(db, partida.guild_id)),
+    ...Object.values(plantaoModalidade.MODALIDADES).flatMap((modalidade) => [modalidade.cargoAcesso, modalidade.cargoPlantao]),
   ].filter(Boolean).map(String));
   const jogadores = await partidas.jogadores(db, partidaId);
   // Reaplica a trava no aceite para corrigir também salas criadas antes desta
@@ -873,19 +919,28 @@ async function finalizarERegistrarNoSupabase(db, dados) {
 }
 
 async function encerrarPartida(client, db, { partidaId, vencedorTime, autorId, motivo = 'resultado' }) {
-  return finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo });
+  const resultado = await finalizarERegistrarNoSupabase(db, { partidaId, vencedorTime, autorId, motivo });
+  const partida = resultado?.partida || await partidas.buscar(db, partidaId);
+  if (partida?.guild_id) await removerPedidoSS(client, db, partida.guild_id, partidaId);
+  return resultado;
 }
 
 async function aplicarWO(client, db, { partidaId, timeAusente, autorId }) {
   const ausente = Number(timeAusente);
   if (![1, 2].includes(ausente)) throw new Error('O time ausente precisa ser 1 ou 2.');
-  return finalizarERegistrarNoSupabase(db, {
+  const resultado = await finalizarERegistrarNoSupabase(db, {
     partidaId, vencedorTime: ausente === 1 ? 2 : 1, autorId, motivo: 'wo',
   });
+  const partida = resultado?.partida || await partidas.buscar(db, partidaId);
+  if (partida?.guild_id) await removerPedidoSS(client, db, partida.guild_id, partidaId);
+  return resultado;
 }
 
 async function cancelarPartida(client, db, { partidaId, autorId, motivo }) {
-  return partidas.cancelar(db, { partidaId, autorId, motivo });
+  const partida = await partidas.buscar(db, partidaId);
+  const resultado = await partidas.cancelar(db, { partidaId, autorId, motivo });
+  if (partida?.guild_id) await removerPedidoSS(client, db, partida.guild_id, partidaId);
+  return resultado;
 }
 
 module.exports = {
@@ -904,6 +959,10 @@ module.exports = {
   notificarPartidasPendentes,
   ocultarPartidasPendentes,
   removerPainelNotificacao,
+  chavePedidoSS,
+  obterPedidoSS,
+  registrarPedidoSS,
+  removerPedidoSS,
   concederAcessoPartida,
   entrarNaFila,
   anunciarPix,
