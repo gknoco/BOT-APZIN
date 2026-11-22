@@ -13,6 +13,7 @@ const { MessageFlags } = require('discord.js');
 const guildId = '12345678901234567';
 const userId = '22345678901234567';
 const roleId = '32345678901234567';
+const roleId2 = '42345678901234567';
 
 function clientFake() {
   const rows = [];
@@ -98,14 +99,15 @@ test('interceptor bloqueia em privado e informa o cargo necessário', async () =
   assert.deepEqual(respostas[0].allowedMentions, { parse: [] });
 });
 
-test('painel permite escolher cargo, configurar comandos em páginas, visualizar e limpar restrições', async () => {
+test('painel permite voltar à seleção, configurar vários cargos em lote e limpar todos', async () => {
   const fake = clientFake();
   permissions.limparCache(guildId);
   const role = { id: roleId, name: 'Mediadores', managed: false };
-  const guild = { roles: { cache: new Map([[roleId, role]]), fetch: async () => role } };
+  const role2 = { id: roleId2, name: 'SS Mobile', managed: false };
+  const guild = { roles: { cache: new Map([[roleId, role], [roleId2, role2]]), fetch: async (id) => id === roleId ? role : role2 } };
   const base = {
     guildId, guild, user: { id: userId }, member: { permissions: { has: () => true } },
-    deferred: false, replied: false, values: [roleId],
+    deferred: false, replied: false, values: [roleId, roleId2],
     deferUpdate: async function () { this.deferred = true; },
     editReply: async function (payload) { this.lastEdit = payload; return payload; },
     followUp: async function (payload) { this.lastFollowUp = payload; return payload; },
@@ -116,19 +118,32 @@ test('painel permite escolher cargo, configurar comandos em páginas, visualizar
   await configComandos.handleComponent(escolherCargo, { db: { client: fake.client } });
   const painel = escolherCargo.lastEdit;
   assert.match(painel.embeds[0].toJSON().description, /Nenhuma restrição configurada/);
+  assert.match(painel.embeds[0].toJSON().description, /Mediadores, SS Mobile/);
   const select = painel.components[0].components[0].toJSON();
   assert.ok(select.options.length <= 25);
   assert.ok(select.custom_id.endsWith(':commands'));
+  assert.equal(configComandos.menuInicial(userId).components[0].components[0].toJSON().max_values, 25);
+  const botoes = painel.components[1].components.map((botao) => botao.toJSON());
+  assert.equal(botoes[3].label, 'Voltar');
 
   const escolherComando = {
     ...base, values: [select.options[0].value], customId: select.custom_id,
     isRoleSelectMenu: () => false, isStringSelectMenu: () => true,
   };
   await configComandos.handleComponent(escolherComando, { db: { client: fake.client } });
-  assert.equal(fake.calls[0][0], 'discord_command_permissions_set_page');
+  assert.deepEqual(fake.calls.map(([nome]) => nome), [
+    'discord_command_permissions_set_page', 'discord_command_permissions_set_page',
+  ]);
   assert.ok(fake.rows.some((row) => row.role_id === roleId && row.command_name === select.options[0].value));
+  assert.ok(fake.rows.some((row) => row.role_id === roleId2 && row.command_name === select.options[0].value));
   assert.match(escolherComando.lastFollowUp.content, /salvas no Supabase/);
+  assert.match(escolherComando.lastFollowUp.content, /2 cargo/);
   assert.ok(escolherComando.lastEdit.embeds[0].toJSON().description.includes(`/${select.options[0].value}`));
+  const acessoCargo2 = await permissions.verificarAcesso(interaction({
+    commandName: select.options[0].value,
+    member: { permissions: { has: () => false }, roles: { cache: new Map([[roleId2, role2]]) } },
+  }), fake.client);
+  assert.equal(acessoCargo2.permitido, true, 'cache deve refletir a gravação em lote para o segundo cargo');
 
   const clearId = escolherComando.lastEdit.components[1].components[2].toJSON().custom_id;
   const limpar = {
@@ -136,9 +151,21 @@ test('painel permite escolher cargo, configurar comandos em páginas, visualizar
     isRoleSelectMenu: () => false, isStringSelectMenu: () => false, isButton: () => true,
   };
   await configComandos.handleComponent(limpar, { db: { client: fake.client } });
-  assert.equal(fake.calls[1][0], 'discord_command_permissions_clear_role');
+  assert.deepEqual(fake.calls.slice(2).map(([nome]) => nome), [
+    'discord_command_permissions_clear_role', 'discord_command_permissions_clear_role',
+  ]);
   assert.equal(fake.rows.some((row) => row.role_id === roleId), false);
-  assert.match(limpar.lastFollowUp.content, /restrições deste cargo foram removidas/);
+  assert.equal(fake.rows.some((row) => row.role_id === roleId2), false);
+  assert.match(limpar.lastFollowUp.content, /2 cargo\(s\)/);
+
+  const idVoltar = botoes[3].custom_id;
+  const voltar = {
+    ...base, values: [], customId: idVoltar,
+    isRoleSelectMenu: () => false, isStringSelectMenu: () => false, isButton: () => true,
+  };
+  await configComandos.handleComponent(voltar, { db: { client: fake.client } });
+  assert.equal(voltar.lastEdit.embeds[0].toJSON().title, '🔐 Permissões de comandos por cargo');
+  assert.equal(voltar.lastEdit.components[0].components[0].toJSON().max_values, 25);
 });
 
 test('migração cria regras por servidor/comando/cargo com RLS e operações transacionais restritas a service_role', () => {
