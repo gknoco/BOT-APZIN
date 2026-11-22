@@ -117,16 +117,16 @@ function embedExtratoCarteira(extrato = {}, usuario = {}) {
 const comandos = [
   {
     data: new SlashCommandBuilder()
-      .setName('recarga')
+      .setName('painelrecarga')
       .setDescription('Publica e fixa o painel de recargas da carteira digital Royal AP'),
     async executar(interaction, { db }) {
       if (!interaction.guildId || !interaction.channel?.send) {
-        return responderErroSeguro(interaction, 'Use /recarga em um canal de texto de um servidor.');
+        return responderErroSeguro(interaction, 'Use /painelrecarga em um canal de texto de um servidor.');
       }
       const ehDono = interaction.guild?.ownerId && String(interaction.user.id) === String(interaction.guild.ownerId);
       const ehAdministrador = interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator);
       if (!ehDono && !ehAdministrador) {
-        return responderErroSeguro(interaction, 'Somente um Administrador ou o proprietário do servidor pode publicar o painel /recarga.');
+        return responderErroSeguro(interaction, 'Somente um Administrador ou o proprietário do servidor pode publicar o painel /painelrecarga.');
       }
 
       let mensagem;

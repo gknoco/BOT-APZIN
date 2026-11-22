@@ -679,7 +679,7 @@ async function aplicarCompraSaldo(interaction) {
   });
   if (resultado.status === 'insufficient_funds') {
     await responderErro(interaction,
-      `Saldo insuficiente para esta compra. Seu saldo é **${reais(resultado.balance_cents)}** e o total é **${reais(amountCents)}**. Use **/recarga** para adicionar saldo à carteira.`);
+      `Saldo insuficiente para esta compra. Seu saldo é **${reais(resultado.balance_cents)}** e o total é **${reais(amountCents)}**. Use **/painelrecarga** para adicionar saldo à carteira.`);
     return true;
   }
   if (resultado.status === 'wallet_frozen' || resultado.wallet_frozen) {

@@ -66,6 +66,17 @@ async function salvarCupom({ guildId, code, discountPercent, active, actorId }) 
   });
 }
 
+async function listarCupons(guildId) {
+  const { data, error } = await cliente()
+    .from('royal_room_coupons')
+    .select('code,discount_percent,active,created_at,updated_at')
+    .eq('guild_id', String(guildId))
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw new Error(`listar cupons Supabase: ${error.message}`);
+  return data || [];
+}
+
 async function criarPedido({ guildId, userId, requestId, quantity, couponCode, payerEmail }) {
   return rpc('royal_room_create_purchase', {
     p_guild_id: String(guildId),
@@ -259,6 +270,7 @@ module.exports = {
   obterConfiguracao,
   salvarConfiguracao,
   salvarCupom,
+  listarCupons,
   criarPedido,
   comprarComSaldo,
   anexarPagamento,

@@ -222,7 +222,7 @@ test('contrato do comando e prefixo: IDs estranhos não são consumidos', async 
   preparar();
   const json = roleta.comando.data.toJSON();
   assert.equal(json.name, 'roleta');
-  assert.deepEqual(json.options.map((o) => o.name), ['painel', 'girar']);
+  assert.deepEqual(json.options.map((o) => o.name), ['painel']);
   const i = interacao({ componente: 'outro:botao' });
   assert.equal(await roleta.handleComponent(i), false);
   assert.deepEqual(chamadas, []);
@@ -353,18 +353,14 @@ test('componente é adiado imediatamente, antes de qualquer acesso ao banco', as
   assert.match(corpo(i), /Giros disponíveis:\*\* 5/);
 });
 
-test('giro do comando e botão usam RPC e respostas privadas, sem modificar painel', async () => {
+test('botão do painel usa RPC e resposta privada, sem modificar o painel público', async () => {
   preparar();
-  const slash = interacao({ id: 'command-001', sub: 'girar' });
-  await roleta.comando.executar(slash);
-  assert.equal(slash.deferPayload.flags & 64, 64);
-  assert.deepEqual(royal.ultimoGiro, { guildId: 'guild-a', userId: 'user-a', request: 'command-001' });
-  assert.match(corpo(slash), /Giros disponíveis:\*\* 4/);
-  assert.match(corpo(slash), /coins foram creditadas/);
-  const botao = interacao({ id: 'button-001', componente: 'roletapro:girar', usuario: 'user-b' });
+  const botao = interacao({ id: 'button-001', componente: 'roletapro:girar', usuario: 'user-a' });
   assert.equal(await roleta.handleComponent(botao), true);
-  assert.deepEqual(royal.ultimoGiro, { guildId: 'guild-a', userId: 'user-b', request: 'button-001' });
-  assert.match(corpo(botao), /Giros disponíveis:\*\* 1/);
+  assert.equal(botao.deferPayload.flags & 64, 64);
+  assert.deepEqual(royal.ultimoGiro, { guildId: 'guild-a', userId: 'user-a', request: 'button-001' });
+  assert.match(corpo(botao), /Giros disponíveis:\*\* 4/);
+  assert.match(corpo(botao), /coins foram creditadas/);
   assert.equal(botao.publicados.length, 0);
   assert.equal(botao.deferPayload.flags & 64, 64);
   assert.match(botao.respostas[0].embeds[0].toJSON().title, /SORTEANDO/);
@@ -374,9 +370,9 @@ test('giro do comando e botão usam RPC e respostas privadas, sem modificar pain
 
 test('repetir o mesmo ID de interação mantém a mesma chave e não consome outro giro', async () => {
   preparar();
-  await roleta.comando.executar(interacao({ id: 'mesmo-001' }));
-  const repeticao = interacao({ id: 'mesmo-001' });
-  await roleta.comando.executar(repeticao);
+  await roleta.handleComponent(interacao({ id: 'mesmo-001', componente: 'roletapro:girar' }));
+  const repeticao = interacao({ id: 'mesmo-001', componente: 'roletapro:girar' });
+  await roleta.handleComponent(repeticao);
   assert.equal(base.perfis.get('guild-a:user-a').spins, 4);
   assert.match(corpo(repeticao), /Prêmio/);
 });
@@ -430,7 +426,7 @@ test('falha de cargo ou confirmação gera pendência auditada e não esconde o 
 
 test('PIX é pendente para staff e nunca é anunciado como pago', async () => {
   preparar(); royal.resultado = { spin_id: 'spin-pix', prize_name: 'PIX R$ 10', reward_type: 'pix', reward_value: '10.00' };
-  const i = interacao(); await roleta.comando.executar(i);
+  const i = interacao({ componente: 'roletapro:girar' }); await roleta.handleComponent(i);
   assert.match(corpo(i), /pendente.*staff/);
   assert.match(corpo(i), /Nenhum pagamento foi confirmado/);
   assert.doesNotMatch(corpo(i), /pagamento (foi )?realizado|pix pago/i);
@@ -494,10 +490,10 @@ test('sem giros e falhas posteriores à transação apresentam resposta privada 
   let i = interacao({ componente: 'roletapro:girar' }); await roleta.handleComponent(i);
   assert.match(corpo(i), /não possui giros/); assert.match(corpo(i), /Giros disponíveis:\*\* 0/);
   preparar(); royal.erroPerfil = true;
-  i = interacao(); await roleta.comando.executar(i);
+  i = interacao({ componente: 'roletapro:girar' }); await roleta.handleComponent(i);
   assert.match(corpo(i), /Você ganhou/); assert.match(corpo(i), /temporariamente indisponível/);
   preparar(); royal.erroGiro = 'erro de rede';
-  i = interacao(); await roleta.comando.executar(i);
+  i = interacao({ componente: 'roletapro:girar' }); await roleta.handleComponent(i);
   assert.match(corpo(i), /Confira \*\*Meus Prêmios\*\* antes de tentar/);
 });
 

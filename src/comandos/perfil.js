@@ -163,6 +163,24 @@ const comandos = [
 
   {
     data: new SlashCommandBuilder()
+      .setName('meusconvites')
+      .setDescription('Mostra seus convites registrados para a ORG'),
+
+    async executar(interaction) {
+      const [total, origem] = await Promise.all([
+        royalSupabase.contarConvites(interaction.guildId, interaction.user.id),
+        royalSupabase.conviteDoUsuario(interaction.guildId, interaction.user.id),
+      ]);
+      const descricao = `Você convidou **${total}** pessoa(s) para a ORG.` +
+        (origem ? `\nVocê entrou por convite de ${mencao(origem.convidador_id)}.` : '');
+      return responderPrivado(interaction, {
+        embeds: [embed(`📨 Seus convites · ${interaction.user.username}`, descricao, { rodape: 'ORG Royal AP · dados do Supabase' })],
+      });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
       .setName('convites')
       .setDescription('Ranking de quem mais convida para a ORG')
       .addUserOption((opcao) => opcao.setName('usuario').setDescription('Ver os convites de uma pessoa')),

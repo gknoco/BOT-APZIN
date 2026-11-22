@@ -153,57 +153,6 @@ const comandos = [
     },
   },
 
-  {
-    data: new SlashCommandBuilder()
-      .setName('painel_mediador')
-      .setDescription('Publica o painel de controle da moderação/mediadores'),
-
-    async executar(interaction, { db, client }) {
-      if (!(await exigirMediador(interaction))) return;
-      const ativas = await partidas.ativasReais(db, interaction.guildId, client);
-      const pendentes = ativas.filter((partida) => partida.status !== 'confirmando').length;
-      const registroPix = await staffSupabase.obter(interaction.guildId, interaction.user.id);
-
-      const embedPainel = embed(
-        '👑 Painel do Mediador',
-        [
-          '**Rotina de uma sala:**',
-          '1. Assuma a sala pelo botão **Assumir sala** dentro do canal do AP.',
-          '2. Clique em **Enviar PIX** (ou use `/pix` na sala) e confira os comprovantes.',
-          '3. Clique em **Pagamento recebido** e depois em **Liberar sala** com o ID e a senha.',
-          '4. No fim, declare o vencedor pelo botão ou com `/vencedor`.',
-          '',
-          '**Comandos úteis:** `/vencedor` · `/wo` · `/registrar_pix` · `/pix`',
-        ].join('\n'),
-        {
-          cor: config.CORES.principal,
-          campos: [
-            { name: 'Salas em andamento', value: String(ativas.length), inline: true },
-            { name: 'Aguardando você', value: String(pendentes), inline: true },
-            {
-              name: 'Taxa do mediador',
-              value: registroPix
-                ? 'R$ 0,10 por capitão'
-                : 'sem PIX cadastrado',
-              inline: true,
-            },
-          ],
-          rodape: 'ORG Royal AP',
-        },
-      );
-
-      const botoes = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ap:minhasalas').setLabel('Minhas salas').setEmoji('📋').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('ap:pixinfo').setLabel('Meu PIX').setEmoji('💸').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('ap:ranking').setLabel('Ranking').setEmoji('🏆').setStyle(ButtonStyle.Secondary),
-      );
-
-      await interaction.channel.send({ embeds: [embedPainel], components: [botoes] });
-      return responderPrivado(interaction, { content: '✅ Painel do mediador publicado neste canal.' });
-    },
-  },
-
-
 ];
 
 module.exports = { comandos, lerPaginado };

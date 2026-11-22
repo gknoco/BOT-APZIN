@@ -28,7 +28,6 @@ const modulos = [
   require('./voz'),
   require('./verp'),
   require('./nix'),
-  require('./royal'),
   require('./vendas'),
   require('./recarga'),
   require('./resgates'),
@@ -46,7 +45,6 @@ const comandos = modulos.flatMap((modulo) => modulo.comandos)
   .filter((comando) => !['roleta', 'lojinha'].includes(comando.data.name));
 comandos.push(
   require('./roletaPro').comando,
-  require('./lojinhaPro').comando,
   require('./configEconomia').comando,
   ...require('./comandosMestres').comandos,
 );

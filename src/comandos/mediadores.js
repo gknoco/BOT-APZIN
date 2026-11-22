@@ -71,7 +71,7 @@ const comandos = [
   },
   {
     data: new SlashCommandBuilder()
-      .setName('painelpixsss')
+      .setName('painelpixss')
       .setDescription('Publica o painel de registro e gestão de PIX para SS Mobile e SS EMU'),
     async executar(interaction) {
       const autorizado = plantaoModalidade.autorizado(interaction.member, 'ss_mobile')

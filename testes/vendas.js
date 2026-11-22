@@ -138,7 +138,58 @@ test('painel principal mantém o desenho original e adiciona Usar Saldo sem remo
   ]);
   assert.equal(componentes[2].emoji.name, '💳');
   assert.deepEqual(vendas.comandos.map((item) => item.data.name), [
-    'painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas',
+    'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas',
+  ]);
+});
+
+test('/cupomcompras lista está registrado e mostra cupons do servidor com desconto e estado', async () => {
+  const comando = vendas.comandos.find((item) => item.data.name === 'cupomcompras');
+  const definicao = comando.data.toJSON();
+  assert.deepEqual(definicao.options.map((item) => item.name), ['lista', 'criar', 'desativar']);
+  let payload;
+  const interaction = {
+    guildId: 'guild-a', user: { id: 'owner-a' },
+    options: { getSubcommand: () => 'lista', getString: () => null },
+    reply: async (value) => { payload = value; },
+  };
+  const ownerAnterior = config.DEV_OWNER_ID;
+  config.DEV_OWNER_ID = 'owner-a';
+  await comMocks([
+    [vendasDb, { listarCupons: async (guildId) => {
+      assert.equal(guildId, 'guild-a');
+      return [
+        { code: 'ROYAL10', discount_percent: 10, active: true },
+        { code: 'ANTIGO', discount_percent: 5, active: false },
+      ];
+    } }],
+  ], async () => comando.executar(interaction));
+  config.DEV_OWNER_ID = ownerAnterior;
+  const textoResposta = payload.embeds[0].toJSON().description;
+  assert.match(textoResposta, /ROYAL10.*10%.*Ativo/);
+  assert.match(textoResposta, /ANTIGO.*5%.*Desativado/);
+});
+
+test('roomSalesSupabase lista cupons apenas do servidor, mais recentes primeiro e com limite', async () => {
+  const chamadas = [];
+  const rows = [{ code: 'ROYAL10', discount_percent: 10, active: true }];
+  const query = {
+    select(colunas) { chamadas.push(['select', colunas]); return query; },
+    eq(coluna, valor) { chamadas.push(['eq', coluna, valor]); return query; },
+    order(coluna, opcoes) { chamadas.push(['order', coluna, opcoes]); return query; },
+    limit(valor) { chamadas.push(['limit', valor]); return query; },
+    then(resolve, reject) { return Promise.resolve({ data: rows, error: null }).then(resolve, reject); },
+  };
+  await comMocks([[supabase, { obterCliente: () => ({ from: (tabela) => {
+    chamadas.push(['from', tabela]); return query;
+  } }) }]], async () => {
+    assert.deepEqual(await vendasDb.listarCupons('guild-a'), rows);
+  });
+  assert.deepEqual(chamadas, [
+    ['from', 'royal_room_coupons'],
+    ['select', 'code,discount_percent,active,created_at,updated_at'],
+    ['eq', 'guild_id', 'guild-a'],
+    ['order', 'created_at', { ascending: false }],
+    ['limit', 100],
   ]);
 });
 
@@ -212,7 +263,7 @@ test('saldo insuficiente não libera salas e orienta recarga em resposta privada
   ], async () => {
     await modais.handleModal(interaction, ctx);
     assert.match(texto(ultimoPayload(interaction)), /Saldo insuficiente/);
-    assert.match(texto(ultimoPayload(interaction)), /\/recarga/);
+    assert.match(texto(ultimoPayload(interaction)), /\/painelrecarga/);
     assert.equal(interaction.chamadas[0][1].flags & EFEMERO, EFEMERO);
   });
 });
@@ -565,7 +616,7 @@ test('Copia e Cola preserva formatação e limita apenas o tamanho do Discord', 
   }
 });
 
-test('/comprar expira em 30 minutos e /painelcomprar fixa no canal atual e salva a configuração Supabase', async () => {
+test('painel temporário de compra expira em 30 minutos e /painelcomprar fixa e salva a configuração Supabase', async () => {
   const tarefas = [];
   const timeoutOriginal = global.setTimeout;
   global.setTimeout = (callback, atraso) => { tarefas.push({ callback, atraso }); return { unref() {} }; };
@@ -594,11 +645,9 @@ test('/comprar expira em 30 minutos e /painelcomprar fixa no canal atual e salva
         salvarConfiguracao: async (args) => { configSalva = args; },
       }],
     ], async () => {
-      interaction.member.roles.cache.set('role-a', {});
-      await vendas.comandos.find((item) => item.data.name === 'comprar').executar(interaction);
+      vendas.agendarExclusaoPainel({ delete: async () => { temporaria.apagada = true; } });
       assert.equal(tarefas.length, 1);
       assert.equal(tarefas[0].atraso, 30 * 60 * 1000);
-      assert.equal(interaction.chamadas.at(-1)[1].embeds[0].toJSON().title, '⚡ CRÉDITOS DE SALA · NIX FF');
       await vendas.comandos.find((item) => item.data.name === 'painelcomprar').executar(interaction);
       assert.equal(tarefas.length, 1);
       assert.equal(enviadoNoCanal, true);

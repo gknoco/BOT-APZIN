@@ -12,6 +12,8 @@ const limpeza = require('../src/comandos/limpeza');
 const moderacao = require('../src/comandos/moderacao');
 const staffComandos = require('../src/comandos/staff');
 const registro = require('../src/comandos');
+const perfil = require('../src/comandos/perfil');
+const royalSupabase = require('../src/servicos/royalSupabase');
 const persistencia = require('../src/servicos/supabase');
 const versiculos = require('../src/servicos/versiculos');
 const partidas = require('../src/servicos/partidas');
@@ -37,6 +39,30 @@ async function substituindo(alteracoes, executar) {
   try { return await executar(); }
   finally { for (const [objeto, chave, original] of originais) objeto[chave] = original; }
 }
+
+test('/meusconvites mostra somente os dados de convite do usuário executante', async () => {
+  const i = interaction();
+  i.deferred = false;
+  const chamadas = [];
+  await substituindo([
+    [royalSupabase, 'contarConvites', async (guildId, userId) => {
+      chamadas.push(['contagem', guildId, userId]);
+      return 4;
+    }],
+    [royalSupabase, 'conviteDoUsuario', async (guildId, userId) => {
+      chamadas.push(['origem', guildId, userId]);
+      return { convidador_id: 'quem-convidou' };
+    }],
+  ], async () => comando(perfil, 'meusconvites').executar(i));
+  assert.deepEqual(chamadas, [
+    ['contagem', 'guild-teste', 'executor-secreto'],
+    ['origem', 'guild-teste', 'executor-secreto'],
+  ]);
+  const resposta = i.respostas[0];
+  assert.match(resposta.embeds[0].toJSON().description, /convidou \*\*4\*\* pessoa/);
+  assert.match(resposta.embeds[0].toJSON().description, /<@quem-convidou>/);
+  assert.equal(resposta.flags & MessageFlags.Ephemeral, MessageFlags.Ephemeral);
+});
 
 function interaction(opcoes = {}) {
   const respostas = [];
@@ -148,14 +174,14 @@ test('/ajuda inclui todos os nomes e subcomandos reais, sem aliases inventados',
       }
     }
   }
-  for (const nome of ['minhassalas', 'comprar', 'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras']) {
+  for (const nome of ['minhassalas', 'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras', 'meusconvites', 'painelpixss', 'painelrecarga']) {
     assert.ok(texto.includes(`**/${nome}**`));
   }
   assert.ok(!texto.includes('**/configcanal**'), 'O nome real é configcanal1');
   assert.ok(paginas.some((e) => /compras/.test(e.toJSON().title)));
 });
 
-test('/recarga publica, fixa e registra no Supabase o painel com banner e três botões oficiais', async () => {
+test('/painelrecarga publica, fixa e registra no Supabase o painel com banner e três botões oficiais', async () => {
   const fake = clienteFake();
   let publicado;
   let fixado = false;
@@ -172,7 +198,7 @@ test('/recarga publica, fixa e registra no Supabase o painel com banner e três 
     memberPermissions: { has: () => true },
   });
 
-  await comando(registro, 'recarga').executar(i, { db: banco(fake.client) });
+  await comando(registro, 'painelrecarga').executar(i, { db: banco(fake.client) });
 
   const banner = path.join(__dirname, '../assets/recarga-royal-ap.png');
   assert.ok(fs.existsSync(banner));

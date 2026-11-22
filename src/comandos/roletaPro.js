@@ -490,15 +490,14 @@ const comando = {
   data: new SlashCommandBuilder()
     .setName('roleta')
     .setDescription('Painel e sorteios da Roleta Royal AP')
-    .addSubcommand((sub) => sub.setName('painel').setDescription('Publica o painel da roleta no canal configurado ou atual (admin)'))
-    .addSubcommand((sub) => sub.setName('girar').setDescription('Gira a roleta usando um giro disponível')),
+    .addSubcommand((sub) => sub.setName('painel').setDescription('Publica o painel da roleta no canal configurado ou atual (admin)')),
   async executar(interaction, ctx = {}) {
     await adiarPrivado(interaction);
     if (!contextoValido(interaction)) {
       return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use este comando dentro de um servidor.')] });
     }
     if (interaction.options.getSubcommand() === 'painel') return publicarPainel(interaction, ctx);
-    return realizarGiro(interaction, ctx);
+    return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use o botão Girar roleta no painel publicado para sortear um prêmio.')] });
   },
 };
 

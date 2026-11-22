@@ -208,16 +208,6 @@ const comandos = [
     },
   },
   {
-    data: new SlashCommandBuilder().setName('comprar').setDescription('Abre em privado o painel ROYAL SALA por 30 minutos'),
-    async executar(interaction) {
-      if (!interaction.guildId) return responderErro(interaction, 'Use /comprar dentro do servidor.');
-      if (!(await exigirCargoCompra(interaction))) return;
-      const mensagem = await interaction.editReply({ embeds: [embedPainelCompra()], components: componentesPainelCompra(), allowedMentions: { parse: [] } });
-      agendarExclusaoPainel({ delete: () => interaction.deleteReply() });
-      return mensagem;
-    },
-  },
-  {
     data: new SlashCommandBuilder().setName('setcargo').setDescription('Atribui um cargo a todos os membros, inclusive bots')
       .addRoleOption((opcao) => opcao.setName('cargo').setDescription('Cargo que será atribuído a todos').setRequired(true)),
     async executar(interaction) {
@@ -251,7 +241,8 @@ const comandos = [
     },
   },
   {
-    data: new SlashCommandBuilder().setName('cupomcompras').setDescription('Cria ou desativa cupons da Central ROYAL SALA')
+    data: new SlashCommandBuilder().setName('cupomcompras').setDescription('Gerencia os cupons da Central ROYAL SALA')
+      .addSubcommand((sub) => sub.setName('lista').setDescription('Lista os cupons cadastrados neste servidor'))
       .addSubcommand((sub) => sub.setName('criar').setDescription('Cria/atualiza um cupom percentual')
         .addStringOption((o) => o.setName('codigo').setDescription('Código de 3 a 32 letras/números').setRequired(true).setMaxLength(32))
         .addIntegerOption((o) => o.setName('desconto').setDescription('Percentual (1 a 99%)').setRequired(true).setMinValue(1).setMaxValue(99)))
@@ -261,6 +252,16 @@ const comandos = [
       if (!interaction.guildId) return responderErro(interaction, 'Use /cupomcompras dentro do servidor.');
       if (!(await ehDonoConfigurado(interaction))) return;
       const sub = interaction.options.getSubcommand();
+      if (sub === 'lista') {
+        const cupons = await vendasDb.listarCupons(interaction.guildId);
+        const corpo = cupons.length
+          ? cupons.map((cupom) => `• **${cupom.code}** — ${Number(cupom.discount_percent)}% · ${cupom.active ? 'Ativo' : 'Desativado'}`).join('\n')
+          : 'Nenhum cupom cadastrado neste servidor.';
+        return responderPrivado(interaction, { embeds: [embed('Cupons da Central ROYAL SALA', corpo, {
+          cor: config.CORES.principal,
+          rodape: `${cupons.length} cupom(ns) · consultado no Supabase`,
+        })] });
+      }
       const code = interaction.options.getString('codigo');
       if (sub === 'criar') {
         const percent = interaction.options.getInteger('desconto');

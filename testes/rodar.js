@@ -47,13 +47,20 @@ test('convites de runtime são gravados no Supabase, não no SQLite', () => {
 
 test('novos comandos estão registrados e comandos legados não existem', () => {
   assert.ok(comandos.nomes.includes('roleta'));
-  assert.ok(comandos.nomes.includes('lojinha'));
-  assert.ok(comandos.nomes.includes('inventario'));
+  for (const nome of ['painel_mediador', 'comprar', 'lojinha', 'inventario', 'inventário', 'painelpixsss', 'recarga']) {
+    assert.equal(comandos.nomes.includes(nome), false, `comando removido/renomeado ainda registrado: ${nome}`);
+  }
+  for (const nome of ['painelpixss', 'painelrecarga', 'meusconvites']) assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
+  const roleta = comandos.comandos.find((item) => item.data.name === 'roleta').data.toJSON();
+  assert.deepEqual(roleta.options.map((opcao) => opcao.name), ['painel']);
+  const cupons = comandos.comandos.find((item) => item.data.name === 'cupomcompras').data.toJSON();
+  assert.ok(cupons.options.some((opcao) => opcao.name === 'lista'));
+  assert.ok(!cupons.options.some((opcao) => opcao.name === 'comprar'));
   for (const nome of comandos.nomes) assert.equal(/legado-impossivel/i.test(nome), false, nome);
 });
 
 test('ROYAL SALA registra os comandos pedidos e o painel inclui Usar Saldo junto aos botões oficiais', () => {
-  for (const nome of ['painelcomprar', 'comprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas']) {
+  for (const nome of ['painelcomprar', 'setcargo', 'permicompras', 'cupomcompras', 'minhassalas']) {
     assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
   }
   const painel = vendas.componentesPainelCompra().flatMap((linha) => linha.components.map((componente) => componente.toJSON()));
