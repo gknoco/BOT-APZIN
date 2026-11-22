@@ -178,7 +178,7 @@ test('/ajuda inclui todos os nomes e subcomandos reais, sem aliases inventados',
   for (const nome of ['minhassalas', 'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras', 'meusconvites', 'painelpixss', 'painelrecarga']) {
     assert.ok(texto.includes(`**/${nome}**`));
   }
-  assert.ok(texto.includes('/config entrada_e_saida'));
+  assert.ok(texto.includes('**/configentrada_saida**'));
   assert.ok(texto.includes('**/configcomandos**'));
   assert.ok(!registro.nomes.includes('configcanal1'));
   assert.ok(!registro.nomes.includes('configcanal2'));
@@ -319,7 +319,7 @@ test('/versiculododia usa ACK privado e envio público separado sem nome ou men�
   assert.ok(!i.respostas[0].embeds);
 });
 
-test('modal /config entrada_e_saida valida os dois canais e persiste as chaves compatíveis no Supabase', async () => {
+test('modal /configentrada_saida valida os dois canais e persiste as chaves compatíveis no Supabase', async () => {
   const fake = clienteFake();
   const db = banco(fake.client);
   const valores = { canal_entrada_id: '12345678901234567', canal_saida_id: '22345678901234567' };
@@ -359,17 +359,16 @@ test('modal /config entrada_e_saida valida os dois canais e persiste as chaves c
   assert.match(JSON.stringify(invalido.respostas[0]), /canal de texto válido deste servidor/i);
 });
 
-test('/config entrada_e_saida abre modal com dois IDs e as chaves antigas não ficam registradas', async () => {
+test('/configentrada_saida abre modal com dois IDs e as chaves antigas não ficam registradas', async () => {
   let modal;
   const i = interaction({
     deferred: false,
     guildId: '12345678901234567',
     guild: { id: '12345678901234567' },
     user: { id: '22345678901234567' },
-    options: { getSubcommand: () => 'entrada_e_saida' },
     showModal: async (valor) => { modal = valor; },
   });
-  const config = registro.buscar('config');
+  const config = registro.buscar('configentrada_saida');
   assert.equal(config.defer, 'nenhum');
   await config.executar(i);
   assert.deepEqual(modal.toJSON().components.map((row) => row.components[0].custom_id), ['canal_entrada_id', 'canal_saida_id']);

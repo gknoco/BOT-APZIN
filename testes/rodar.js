@@ -367,7 +367,7 @@ test('configurações de canais importantes são persistidas e restauradas pelo 
   const flowSource = fs.readFileSync(path.join(__dirname, '../src/servicos/fluxo.js'), 'utf8');
   const mediadoresSource = fs.readFileSync(path.join(__dirname, '../src/servicos/mediadores.js'), 'utf8');
   const supabaseSource = fs.readFileSync(path.join(__dirname, '../src/servicos/supabase.js'), 'utf8');
-  assert.match(configuracaoSource, /entrada_e_saida/);
+  assert.match(configuracaoSource, /setName\('configentrada_saida'\)/);
   assert.match(modaisSource, /'canal_boas_vindas'/);
   assert.match(modaisSource, /'canal_saida'/);
   assert.match(membrosSource, /persistenciaSupabase\.obterConfig/);

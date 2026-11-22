@@ -61,9 +61,10 @@ function interaction(overrides = {}) {
   };
 }
 
-test('registra /config entrada_e_saida e /configcomandos e remove os comandos de canal antigos', () => {
+test('registra /configentrada_saida e /configcomandos e remove os comandos de canal antigos', () => {
   assert.ok(comandos.buscar('configcomandos'));
-  assert.deepEqual(comandos.buscar('config').data.toJSON().options.map((item) => item.name), ['lojinha', 'entrada_e_saida']);
+  assert.deepEqual(comandos.buscar('config').data.toJSON().options.map((item) => item.name), ['lojinha']);
+  assert.equal(comandos.buscar('configentrada_saida').data.toJSON().default_member_permissions, '8');
   assert.equal(comandos.buscar('configcanal1'), null);
   assert.equal(comandos.buscar('configcanal2'), null);
   assert.equal(comandos.buscar('configcomandos').data.toJSON().default_member_permissions, '8');

@@ -31,7 +31,8 @@ test('as definições registradas são únicas e contêm os painéis solicitados
   assert.deepEqual(subs('painel'), ['geral', 'roleta', 'lojinha']);
   assert.deepEqual(subs('addcoins'), ['usuario', 'quantidade']);
   assert.deepEqual(subs('removercoins'), ['usuario', 'quantidade']);
-  assert.deepEqual(subs('config'), ['lojinha', 'entrada_e_saida']);
+  assert.deepEqual(subs('config'), ['lojinha']);
+  assert.equal(nomes.filter((nome) => nome === 'configentrada_saida').length, 1);
   for (const nome of ['registrar_pix', 'resgates', 'roleta', 'lojinhapainel', 'loja']) {
     assert.equal(nomes.includes(nome), false, `/${nome} não deve estar registrado`);
   }
@@ -46,7 +47,8 @@ test('sincronização envia a configuração atual em escopos global e de servid
     const resultado = await registrarComandos({ clientId: '123', guildId, definicoes: registro.definicoes(), rest });
     assert.equal(requisicao.rota, guildId ? '/applications/123/guilds/456/commands' : '/applications/123/commands');
     assert.equal(resultado.guildId, guildId);
-    assert.deepEqual(requisicao.payload.body.find((c) => c.name === 'config').options.map((o) => o.name), ['lojinha', 'entrada_e_saida']);
+    assert.deepEqual(requisicao.payload.body.find((c) => c.name === 'config').options.map((o) => o.name), ['lojinha']);
+    assert.ok(requisicao.payload.body.some((c) => c.name === 'configentrada_saida'));
     assert.equal(requisicao.payload.body.filter((c) => c.name === 'configroleta').length, 1);
   }
 });

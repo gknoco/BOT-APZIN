@@ -90,7 +90,7 @@ const CATEGORIAS_AJUDA = [
   { id: 'compras', titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'permicompras', 'cupomcompras', 'minhassalas', 'painelrecarga'] },
   { id: 'salas', titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
   { id: 'moderacao', titulo: '🛡️ Moderação e administração', avancada: true, nomes: ['blacklist', 'clear', 'clearall', 'anunciar', 'anunciar2', 'enviar_dm', 'envio_massa', 'limpardm', 'logs', 'conectarbotcall', 'tirarbotcall'] },
-  { id: 'configuracao', titulo: '⚙️ Configuração e comunidade', avancada: true, nomes: ['config', 'configcomandos', 'boombot', 'conectar', 'desconectar', 'setcargo', 'configpainelajuda', 'ssmob', 'ssemu', 'botperfil'] },
+  { id: 'configuracao', titulo: '⚙️ Configuração e comunidade', avancada: true, nomes: ['config', 'configentrada_saida', 'configcomandos', 'boombot', 'conectar', 'desconectar', 'setcargo', 'configpainelajuda', 'ssmob', 'ssemu', 'botperfil'] },
 ];
 
 const GUIA_AJUDA = {
@@ -108,7 +108,8 @@ const GUIA_AJUDA = {
   painelrecarga: ['Publica e fixa o painel principal da carteira digital.', '`/painelrecarga`', 'Exige Administrator ou proprietário do servidor.'],
   painelfilas: ['Gerencia a identidade visual e publica ou remove todas as filas nos canais oficiais configurados.', '`/painelfilas`', 'Exige Administrator; use os botões do painel para Banner, Avatar, Enviar todas as filas e Apagar filas.'],
   configpainelajuda: ['Define quais cargos podem visualizar categorias avançadas desta central.', '`/configpainelajuda acao:configurar categoria:<categoria> cargo:<cargo>`', 'Exige Administrator. Use `acao:listar` para consultar ou `acao:remover` para retirar um cargo.'],
-  config: ['Configura a lojinha ou os canais de entrada e saída de membros.', '`/config lojinha` · `/config entrada_e_saida`', 'Exige Administrator. O subcomando de entrada/saída abre um formulário para os IDs dos dois canais.'],
+  config: ['Configura os produtos e opções da lojinha.', '`/config lojinha`', 'Exige Administrator.'],
+  configentrada_saida: ['Define os canais de entrada e saída de membros.', '`/configentrada_saida`', 'Exige Administrator. Abre um formulário para informar os IDs dos dois canais.'],
   configcomandos: ['Gerencia os comandos que cada cargo pode executar, com paginação, consulta e remoção de restrições.', '`/configcomandos`', 'Exige Administrator. Sem cargos vinculados, os comandos seguem as permissões nativas; administradores sempre podem executar.'],
   reportarbug: ['Envia um reporte estruturado para a equipe técnica, com passos de reprodução e print opcional.', '`/reportarbug bug:<descrição> passos:<passo a passo> print:<imagem opcional>`', 'Use o canal configurado de reportes; não exige cargo.'],
 };

@@ -518,25 +518,30 @@ async function abrirConfiguracao(i, dominio) {
 const comando = {
   data: new SlashCommandBuilder().setName('config').setDescription('Configura painéis e recursos deste servidor').setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addSubcommand((s) => s.setName('lojinha').setDescription('Gerencia os produtos e opções da loja'))
-    .addSubcommand((s) => s.setName('entrada_e_saida').setDescription('Define os canais de entrada e saída de membros')),
+    .addSubcommand((s) => s.setName('lojinha').setDescription('Gerencia os produtos e opções da loja')),
   defer: 'nenhum',
   async executar(i) {
     const subcomando = i.options.getSubcommand();
-    if (subcomando === 'entrada_e_saida') {
-      if (!validoContexto(i) || !ehAdmin(i.member)) return responderPrivado(i, payload('Somente administradores podem configurar os canais de entrada e saída.'));
-      const modal = new ModalBuilder().setCustomId(`ap:modalconfigentradasaida:${i.guildId}:${i.user.id}`)
-        .setTitle('Configurar canais de entrada e saída')
-        .addComponents(
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('canal_entrada_id').setLabel('ID do canal de entrada').setPlaceholder('Cole o ID do canal de boas-vindas').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(15).setMaxLength(20)),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('canal_saida_id').setLabel('ID do canal de saída').setPlaceholder('Cole o ID do canal de saída').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(15).setMaxLength(20)),
-        );
-      return i.showModal(modal);
-    }
     if (subcomando !== 'lojinha') {
       return responderPrivado(i, payload('Subcomando inválido. Para configurar a roleta, use /configroleta.'));
     }
     return abrirConfiguracao(i, 'lojinha');
+  },
+};
+
+const comandoEntradaSaida = {
+  data: new SlashCommandBuilder().setName('configentrada_saida').setDescription('Define os canais de entrada e saída de membros').setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  defer: 'nenhum',
+  async executar(i) {
+    if (!validoContexto(i) || !ehAdmin(i.member)) return responderPrivado(i, payload('Somente administradores podem configurar os canais de entrada e saída.'));
+    const modal = new ModalBuilder().setCustomId(`ap:modalconfigentradasaida:${i.guildId}:${i.user.id}`)
+      .setTitle('Configurar canais de entrada e saída')
+      .addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('canal_entrada_id').setLabel('ID do canal de entrada').setPlaceholder('Cole o ID do canal de boas-vindas').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(15).setMaxLength(20)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('canal_saida_id').setLabel('ID do canal de saída').setPlaceholder('Cole o ID do canal de saída').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(15).setMaxLength(20)),
+      );
+    return i.showModal(modal);
   },
 };
 
@@ -577,4 +582,4 @@ async function handleComponent(i) {
   return true;
 }
 
-module.exports = { comando, abrirConfiguracao, handleComponent };
+module.exports = { comando, comandoEntradaSaida, abrirConfiguracao, handleComponent };
