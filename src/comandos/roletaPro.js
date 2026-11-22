@@ -11,7 +11,6 @@ const {
   ModalBuilder,
   PermissionFlagsBits,
   ChannelType,
-  SlashCommandBuilder,
   TextInputBuilder,
   TextInputStyle,
 } = require('discord.js');
@@ -385,7 +384,7 @@ async function mostrarPremios(interaction, pagina = 0, ctx = {}) {
 
 async function obterMensagemPainel(guild, cliente) {
   const registro = await supabase.obterConfig(guild.id, CHAVE_PAINEL, cliente);
-  if (!registro) throw new Error('O painel da roleta ainda não foi registrado. Publique-o com /roleta painel.');
+  if (!registro) throw new Error('O painel da roleta ainda não foi registrado. Publique-o com /painel roleta.');
   let referencia;
   try { referencia = JSON.parse(registro); } catch { throw new Error('A referência salva do painel é inválida.'); }
   const { channel_id: canalId, message_id: mensagemId } = referencia || {};
@@ -435,6 +434,10 @@ async function restaurarPainelSalvo(guild, ctx = {}) {
 }
 
 async function publicarPainel(interaction, ctx = {}) {
+  await adiarPrivado(interaction);
+  if (!contextoValido(interaction)) {
+    return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use este comando dentro de um servidor.')] });
+  }
   const dono = interaction.guild?.ownerId && String(interaction.guild.ownerId) === String(interaction.user.id);
   const administrador = interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator) || ehAdmin(interaction.member);
   if (!dono && !administrador) {
@@ -485,21 +488,6 @@ async function publicarPainel(interaction, ctx = {}) {
     : [];
   return editarPrivado(interaction, { embeds: [card('ROLETA  •  PAINEL', status)], components: componentes });
 }
-
-const comando = {
-  data: new SlashCommandBuilder()
-    .setName('roleta')
-    .setDescription('Painel e sorteios da Roleta Royal AP')
-    .addSubcommand((sub) => sub.setName('painel').setDescription('Publica o painel da roleta no canal configurado ou atual (admin)')),
-  async executar(interaction, ctx = {}) {
-    await adiarPrivado(interaction);
-    if (!contextoValido(interaction)) {
-      return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use este comando dentro de um servidor.')] });
-    }
-    if (interaction.options.getSubcommand() === 'painel') return publicarPainel(interaction, ctx);
-    return editarPrivado(interaction, { embeds: [card('ROLETA  •  ATENÇÃO', 'Use o botão Girar roleta no painel publicado para sortear um prêmio.')] });
-  },
-};
 
 async function responderErroEdicao(interaction, mensagem, modalSubmit) {
   const resposta = { embeds: [card('ROLETA  •  ATENÇÃO', mensagem)], allowedMentions: { parse: [] } };
@@ -590,4 +578,4 @@ async function handleComponent(interaction, ctx = {}) {
   return true;
 }
 
-module.exports = { comando, publicarPainel, restaurarPainelSalvo, handleComponent, painelPublico, TEXTO_PADRAO_PAINEL };
+module.exports = { publicarPainel, restaurarPainelSalvo, handleComponent, painelPublico, TEXTO_PADRAO_PAINEL };

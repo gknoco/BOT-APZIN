@@ -30,7 +30,6 @@ const modulos = [
   require('./nix'),
   require('./vendas'),
   require('./recarga'),
-  require('./resgates'),
   require('./automacoes'),
   require('./painelFilas'),
   require('./addsalas'),
@@ -41,10 +40,8 @@ const modulos = [
 
 // Preserva os demais comandos do módulo legado, substituindo apenas as duas
 // definições econômicas pelas versões com painéis persistentes.
-const comandos = modulos.flatMap((modulo) => modulo.comandos)
-  .filter((comando) => !['roleta', 'lojinha'].includes(comando.data.name));
+const comandos = modulos.flatMap((modulo) => modulo.comandos);
 comandos.push(
-  require('./roletaPro').comando,
   require('./configEconomia').comando,
   ...require('./comandosMestres').comandos,
 );

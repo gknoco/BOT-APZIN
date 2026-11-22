@@ -38,50 +38,6 @@ async function lerPaginado(db, tabela, colunas, filtrar) {
 const comandos = [
   {
     data: new SlashCommandBuilder()
-      .setName('registrar_pix')
-      .setDescription('Cadastra sua chave PIX de mediador (aparece nas salas que você assumir)')
-      .addStringOption((opcao) =>
-        opcao.setName('chave').setDescription('Sua chave PIX (CPF, e-mail, telefone ou aleatória)').setRequired(true),
-      )
-      .addStringOption((opcao) => opcao.setName('titular').setDescription('Nome de quem recebe')),
-
-    async executar(interaction, { db, client }) {
-      if (!(await staffSupabase.temCargoMediador(interaction.guildId, interaction.member))) {
-        return responderErro(interaction, 'Só staff/mediador com cargo pode registrar PIX.');
-      }
-
-      const chave = interaction.options.getString('chave');
-      const titular = interaction.options.getString('titular');
-
-      const registro = await staffSupabase.registrarPix({
-        guildId: interaction.guildId,
-        userId: interaction.user.id,
-        chave,
-        titular,
-      });
-
-      await auditoria.registrar(db, client, {
-        guildId: interaction.guildId,
-        autorId: interaction.user.id,
-        acao: 'PIX de mediador atualizado',
-        detalhe: `${mencao(interaction.user.id)} · taxa fixa de R$ 0,10 por capitão`,
-      });
-
-      return responderPrivado(interaction, {
-        embeds: [
-          embedSucesso(
-              `Sua chave PIX foi salva e vai aparecer nas salas que você assumir.\n` +
-              `**Chave:** \`${registro.pix_chave}\`\n` +
-              '**Taxa do mediador:** R$ 0,10 por capitão\n\n' +
-              '_A chave fica visível apenas para os jogadores das suas salas._',
-          ),
-        ],
-      });
-    },
-  },
-
-  {
-    data: new SlashCommandBuilder()
       .setName('pix')
       .setDescription('Envia sua chave PIX na sala de AP que você está mediando'),
 
@@ -123,7 +79,7 @@ const comandos = [
       if (!registro?.pix_chave) {
         return responderErro(
           interaction,
-          'Cadastre sua chave primeiro: `/registrar_pix chave:SuaChave`.',
+          'Cadastre sua chave no painel `/painelpixmediadores` antes de enviar o PIX.',
         );
       }
 

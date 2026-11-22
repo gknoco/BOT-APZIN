@@ -125,45 +125,33 @@ const comandos = [
     },
   },
 
-  {
+  ...['addcoins', 'removercoins'].map((nome) => ({
     data: new SlashCommandBuilder()
-      .setName('loja')
-      .setDescription('Loja de Royal Coins da ORG')
-      .addSubcommand((sub) =>
-        sub
-          .setName('addcoins')
-          .setDescription('Adiciona Royal Coins para um jogador')
-          .addUserOption((o) => o.setName('usuario').setDescription('Jogador').setRequired(true))
-          .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de Royal Coins').setRequired(true)),
-      )
-      .addSubcommand((sub) =>
-        sub
-          .setName('removecoins')
-          .setDescription('Remove Royal Coins de um jogador')
-          .addUserOption((o) => o.setName('usuario').setDescription('Jogador').setRequired(true))
-          .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de Royal Coins').setRequired(true)),
-      ),
+      .setName(nome)
+      .setDescription(nome === 'addcoins' ? 'Adiciona Royal Coins para um jogador' : 'Remove Royal Coins de um jogador')
+      .addUserOption((o) => o.setName('usuario').setDescription('Jogador').setRequired(true))
+      .addIntegerOption((o) => o.setName('quantidade').setDescription('Quantidade de Royal Coins').setRequired(true)),
 
-    async executar(interaction, { db, client }) {
-      const sub = interaction.options.getSubcommand();
+    async executar(interaction) {
+      const credito = nome === 'addcoins';
       const alvo = interaction.options.getUser('usuario');
       const quantidade = interaction.options.getInteger('quantidade');
 
       if (!(await exigirAdmin(interaction, 'Só ADM pode mexer no saldo de outra pessoa.'))) return;
       if (!Number.isInteger(quantidade) || quantidade <= 0) throw new Error('Informe uma quantidade maior que zero.');
-      const valor = sub === 'addcoins' ? quantidade : -quantidade;
+      const valor = credito ? quantidade : -quantidade;
       const perfil = await royal.ajustarPerfil({
         guildId: interaction.guildId,
         userId: alvo.id,
         deltas: { coins: valor },
-        reason: sub === 'addcoins' ? 'crédito da staff' : 'débito da staff',
+        reason: credito ? 'crédito da staff' : 'débito da staff',
         actorId: interaction.user.id,
         request: interaction.id,
       });
       await royal.auditar({
         guildId: interaction.guildId,
         actorId: interaction.user.id,
-        action: sub === 'addcoins' ? 'wallet.coins.credit' : 'wallet.coins.debit',
+        action: credito ? 'wallet.coins.credit' : 'wallet.coins.debit',
         entityType: 'profile',
         entityId: alvo.id,
         requestId: interaction.id,
@@ -173,13 +161,13 @@ const comandos = [
       return responderPrivado(interaction, {
         embeds: [
           embedSucesso(
-            `${sub === 'addcoins' ? 'Adicionado' : 'Removido'} **${numeroBR(Math.abs(valor))} Royal Coins** de ${mencao(alvo.id)}.\n` +
+            `${credito ? 'Adicionado' : 'Removido'} **${numeroBR(Math.abs(valor))} Royal Coins** de ${mencao(alvo.id)}.\n` +
               `Saldo agora: **${numeroBR(perfil.coins)}**.`,
           ),
         ],
       });
     },
-  },
+  })),
 ];
 
 module.exports = { comandos };

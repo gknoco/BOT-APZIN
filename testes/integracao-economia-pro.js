@@ -28,13 +28,15 @@ test('as definições registradas são únicas e contêm os painéis solicitados
   const nomes = definicoes.map((c) => c.name);
   assert.equal(nomes.length, new Set(nomes).size);
   const subs = (nome) => definicoes.find((c) => c.name === nome).options.map((o) => o.name);
-  assert.deepEqual(subs('roleta'), ['painel']);
-  assert.equal(nomes.includes('lojinha'), false);
-  assert.ok(subs('loja').includes('addcoins'));
+  assert.deepEqual(subs('painel'), ['geral', 'roleta', 'lojinha']);
+  assert.deepEqual(subs('addcoins'), ['usuario', 'quantidade']);
+  assert.deepEqual(subs('removercoins'), ['usuario', 'quantidade']);
   assert.deepEqual(subs('config'), ['lojinha']);
-  for (const nome of ['configroleta', 'lojinhapainel']) {
-    assert.equal(nomes.filter((item) => item === nome).length, 1);
+  for (const nome of ['registrar_pix', 'resgates', 'roleta', 'lojinhapainel', 'loja']) {
+    assert.equal(nomes.includes(nome), false, `/${nome} não deve estar registrado`);
   }
+  for (const nome of ['addcoins', 'removercoins']) assert.equal(nomes.filter((item) => item === nome).length, 1);
+  assert.equal(nomes.filter((item) => item === 'configroleta').length, 1);
 });
 
 test('sincronização envia a configuração atual em escopos global e de servidor', async () => {
@@ -49,13 +51,22 @@ test('sincronização envia a configuração atual em escopos global e de servid
   }
 });
 
-test('/lojinhapainel encaminha à publicação profissional', async () => {
-  const i = interacao(null, null);
+test('/painel lojinha encaminha à publicação profissional', async () => {
+  const i = interacao('lojinha', null);
   i.guildId = null;
   let resposta;
   i.editReply = async (payload) => { resposta = payload; };
-  await registro.buscar('lojinhapainel').executar(i, {});
+  await registro.buscar('painel').executar(i, {});
   assert.match(resposta.embeds[0].toJSON().description, /Use este comando em um servidor/);
+});
+
+test('/painel roleta encaminha para o publisher da roleta', async () => {
+  const i = interacao('roleta', null);
+  i.guildId = null;
+  let resposta;
+  i.editReply = async (payload) => { resposta = payload; };
+  await registro.buscar('painel').executar(i, {});
+  assert.match(resposta.embeds[0].toJSON().description, /Use este comando dentro de um servidor/);
 });
 
 test('vitórias manuais acrescentam um coin por vitória na mesma transação', async () => {
@@ -72,6 +83,26 @@ test('vitórias manuais acrescentam um coin por vitória na mesma transação', 
     await economia.comandos.find((c) => c.data.name === 'vitoria').executar(interacao(null, 5), {});
     assert.deepEqual(chamadas[0].deltas, { wins: 3, coins: 3 });
     assert.deepEqual(chamadas[1].deltas, { wins: 1, coins: 1, apostado: 500, ganho: 500 });
+  } finally {
+    royal.ajustarPerfil = ajustar;
+    royal.auditar = auditar;
+  }
+});
+
+test('/addcoins e /removercoins mantêm os ajustes e eventos de auditoria existentes', async () => {
+  const ajustar = royal.ajustarPerfil;
+  const auditar = royal.auditar;
+  const ajustes = [], auditorias = [];
+  royal.ajustarPerfil = async (args) => { ajustes.push(args); return { coins: args.deltas.coins === 5 ? 15 : 5 }; };
+  royal.auditar = async (args) => auditorias.push(args);
+  try {
+    for (const name of ['addcoins', 'removercoins']) {
+      const command = economia.comandos.find((item) => item.data.name === name);
+      await command.executar(interacao(null, 5));
+    }
+    assert.deepEqual(ajustes.map((item) => item.deltas.coins), [5, -5]);
+    assert.deepEqual(auditorias.map((item) => item.action), ['wallet.coins.credit', 'wallet.coins.debit']);
+    assert.deepEqual(ajustes.map((item) => item.reason), ['crédito da staff', 'débito da staff']);
   } finally {
     royal.ajustarPerfil = ajustar;
     royal.auditar = auditar;

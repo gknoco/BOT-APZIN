@@ -10,7 +10,7 @@ const TIPOS_LOJA = ['role', 'pix', 'physical'];
 const TIPOS_ROLETA = ['role', 'pix'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AVISO = 'Marque somente após o pagamento, envio ou concessão do cargo ter sido feito manualmente. Este comando não processa pagamentos nem realiza envios ou concede cargos.';
-const AVISO_RESERVA = 'Antes de qualquer atendimento, use /resgates iniciar. A reserva não expira. Em caso de dúvida ou falha, não repita o pagamento, envio ou concessão; reconcilie com a administração.';
+const AVISO_RESERVA = 'A reserva não expira. Em caso de dúvida ou falha, não repita pagamento, envio ou concessão; reconcilie com a administração.';
 const mencoesSeguras = { parse: [] };
 
 async function adiarPrivado(i) {
@@ -91,7 +91,7 @@ async function pendentes(i, cliente) {
   const [claimLoja, claimRoleta] = await Promise.all([consultarReserva(cliente, guild, 'loja', loja[0]?.id), consultarReserva(cliente, guild, 'roleta', roleta[0]?.request_id)]);
   let texto = `**Resgates pendentes · página ${pagina}**\n` +
     `**Loja**\n${linhaLoja(loja[0], claimLoja)}\n\n**Roleta**\n${linhaRoleta(roleta[0], claimRoleta)}\n\n` +
-    'Até 1 registro por origem por página; use /resgates pendentes pagina:<número> para navegar. ' +
+    'Até 1 registro por origem por página; consulte a próxima página pelo fluxo administrativo autorizado. ' +
     'A ordem pode mudar após conclusões; volte à página 1.\n\n' + AVISO_RESERVA + '\n\n' + AVISO;
   // Em dados legados anormalmente grandes, nunca dividir ou truncar um protocolo.
   if (texto.length > 2000) {
@@ -136,7 +136,7 @@ async function alterar(i, cliente, action) {
     case 'delivered': return responder(i, `Este resgate já consta como entregue. Não repita pagamento ou envio.\n\n${AVISO}`);
     case 'not_pending': return responder(i, `Este resgate não está pendente; nenhuma alteração foi feita.\n\n${AVISO}`);
     case 'not_found': return responder(i, `Resgate não encontrado ou não elegível neste servidor.\n\n${AVISO}`);
-    case 'unclaimed': return responder(i, `Sem reserva: use /resgates iniciar antes de atender ou concluir.\n\n${AVISO_RESERVA}`);
+    case 'unclaimed': return responder(i, `Sem reserva de atendimento registrada; nenhuma ação foi autorizada.\n\n${AVISO_RESERVA}`);
     case 'changed': return responder(i, `Dados da pendência mudaram desde a reserva. Não prossiga; solicite reconciliação.\n\n${AVISO_RESERVA}`);
     case 'finished': return responder(i, `Status registrado como entregue e auditoria gravada na mesma transação; o comando não verifica a entrega externa.\n\n${AVISO}`);
     default: throw new Error('Resultado desconhecido da reserva');

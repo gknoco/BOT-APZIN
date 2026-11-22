@@ -324,7 +324,7 @@ async function assumirSala(interaction, { db, client }, partidaId) {
   if (!registro?.pix_chave) {
     return responderErro(
       interaction,
-      'Cadastre sua chave PIX antes de assumir uma sala: `/registrar_pix chave:SuaChave`.',
+      'Cadastre sua chave PIX pelo painel `/painelpixmediadores` antes de assumir uma sala.',
     );
   }
 
@@ -369,7 +369,7 @@ async function enviarPix(interaction, { db, client }, partidaId) {
 
   const registro = await staffSupabase.obter(interaction.guildId, interaction.user.id);
   if (!registro?.pix_chave) {
-    return responderErro(interaction, 'Você ainda não cadastrou PIX. Use `/registrar_pix`.');
+    return responderErro(interaction, 'Você ainda não cadastrou PIX. Use o painel `/painelpixmediadores`.');
   }
   await fluxo.anunciarPix(client, db, {
     partidaId,
@@ -936,7 +936,7 @@ async function handleBotao(interaction, ctx) {
                   `taxa fixa de R$ 0,10 por capitão${linha.ativo ? '' : ' · inativo'}`,
               )
               .join('\n')
-          : 'Nenhum mediador cadastrado ainda. Use `/registrar_pix`.';
+          : 'Nenhum mediador cadastrado ainda. Publique `/painelpixmediadores` para cadastrar sua chave.';
         await responderPrivado(interaction, {
           embeds: [
             embed('💠 Gestão PIX · mediadores', corpo, {
@@ -1341,7 +1341,7 @@ async function handleBotao(interaction, ctx) {
         const corpo = registro?.pix_chave
           ? `**Chave:** \`${registro.pix_chave}\`\n**Titular:** ${registro.pix_titular || '—'}\n` +
             `**Taxa do mediador:** R$ 0,10 por capitão\n**Status:** ${registro.ativo ? 'ativo' : 'inativo'}`
-          : 'Você ainda não cadastrou PIX. Use `/registrar_pix chave:SuaChave`.';
+          : 'Você ainda não cadastrou PIX. Use o painel `/painelpixmediadores`.';
         await responderPrivado(interaction, { embeds: [embed('💸 Meu PIX', corpo)] });
         return true;
       }

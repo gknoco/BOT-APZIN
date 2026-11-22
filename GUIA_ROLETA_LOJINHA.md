@@ -20,11 +20,11 @@ Aplique o banco antes de ativar os novos componentes: eles dependem de todas as 
 
 1. Use `/configroleta` para criar e gerenciar prêmios, pesos, estoque, canal e intervalo entre giros. O peso é relativo: um prêmio de peso 3, diante de outro elegível de peso 1, terá 3/4 da chance enquanto esses forem os únicos disponíveis. O intervalo padrão é de três segundos; pode ser alterado ou desativado com zero.
 2. Use `/config lojinha` para criar itens, preços, tipo de recompensa, estoque, limite por usuário, canal e instruções. Para vender giros, escolha o tipo `spins` e informe a quantidade. Os registros antigos são preservados: quando um item já tiver histórico, crie outro em vez de mudar sua identidade ou recompensa.
-3. Publique com `/roleta painel` e `/lojinhapainel`. Os painéis são enviados publicamente no canal configurado ou, caso não haja configuração, no canal atual. O bot tenta fixá-los e informa se não conseguir.
+3. Publique com `/painel roleta` e `/painel lojinha`. Os painéis são enviados publicamente no canal configurado ou, caso não haja configuração, no canal atual. O bot tenta fixá-los e informa se não conseguir.
 4. Após mudanças em canais, instruções ou prêmios, publique novamente quando quiser atualizar o conteúdo do painel. A republicação não exclui nem desafixa os painéis anteriores automaticamente: confira-os e remova os antigos manualmente, se desejar.
-5. Use `/ajuda` para consultar as definições reais dos comandos, incluindo opções, categorias e subcomandos. A ajuda também inclui a central `/resgates`.
+5. Use `/ajuda` para consultar as definições reais dos comandos, incluindo opções, categorias e subcomandos.
 
-Não são criados produtos nem prêmios fictícios: cadastre os itens e seus valores conforme as regras da organização. `/loja addcoins` adiciona Royal Coins e `/addgiros` administra giros. Cada vitória registrada pelos fluxos atualizados concede um COIN; resultados já registrados antes da migração não são creditados novamente.
+Não são criados produtos nem prêmios fictícios: cadastre os itens e seus valores conforme as regras da organização. `/addcoins` e `/removercoins` ajustam Royal Coins; `/addgiros` administra giros. Cada vitória registrada pelos fluxos atualizados concede um COIN; resultados já registrados antes da migração não são creditados novamente.
 
 ## Funcionamento e limites
 
@@ -33,7 +33,7 @@ Não são criados produtos nem prêmios fictícios: cadastre os itens e seus val
 - Compras e giros são operações transacionais no Supabase: conferem saldo, estoque e repetição da solicitação. A confirmação da loja também protege contra alterações de preço entre a visualização e o débito.
 - Coins e giros são creditados automaticamente. A entrega de cargo é tentada pelo bot; falhas ficam pendentes. Um prêmio do tipo `shop_item` é adicionado ao inventário, mas não executa automaticamente a entrega associada ao produto vinculado.
 - PIX e itens físicos geram pendências: o bot **não envia dinheiro nem prova que um pagamento ou produto foi entregue**. Configure um canal de logs para avisos à staff; se o canal não estiver configurado ou o Discord falhar, consulte as pendências diretamente.
-- A equipe usa `/resgates pendentes` para consultar e `/resgates iniciar` para reservar o protocolo antes de qualquer atendimento. Apenas o titular usa `/resgates concluir` depois da entrega manual; a reserva não expira e não confirma a entrega externa. Em falhas, replays ou pendências legadas, não repita o efeito: reconcilie conforme `docs/runbooks/rescue-claim-cutover.md`. Status, conclusão e auditoria são transacionais; os comandos não pagam, enviam ou concedem cargos.
+- Os slash commands administrativos de resgates foram retirados do registro. A reserva transacional permanece usada pela entrega automática de cargos; pendências de PIX/itens físicos não são pagas ou entregues pelo bot. Não repita efeitos externos em falhas ou replays; reconcilie conforme `docs/runbooks/rescue-claim-cutover.md` antes de qualquer ação manual.
 - Se o histórico antigo foi alterado antes desta atualização, não é possível reconstruir nomes ou valores que não foram salvos na época. A migração registra o estado disponível e preserva snapshots para os novos giros.
 
 ## Verificações locais

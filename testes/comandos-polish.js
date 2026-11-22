@@ -120,7 +120,7 @@ function tamanhoPayload(payload) {
 
 test('aliases intencionais usam roteamento único e não duplicam definições', () => {
   assert.ok(botPerfil.comandos.some((c) => c.data.name === 'botperfil'));
-  assert.deepEqual(mestres.comandos.map((c) => c.data.name), ['lojinhapainel', 'configroleta']);
+  assert.deepEqual(mestres.comandos.map((c) => c.data.name), ['configroleta']);
   assert.equal(new Set(registro.nomes).size, registro.nomes.length);
 });
 

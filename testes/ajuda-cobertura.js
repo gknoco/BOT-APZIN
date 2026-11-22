@@ -91,16 +91,16 @@ test('auditamos comandos, grupos, subcomandos, opções e escolhas do registro r
     const formatado = utilidades.formatarComandoAjuda(definicao);
     for (const linha of formatado.split('\n')) assert.ok(texto.includes(linha), `Trecho ausente da ajuda: ${linha}`);
   }
-  for (const nome of ['roleta', 'loja', 'config', 'configroleta', 'painelpixss', 'painelrecarga', 'meusconvites']) {
+  for (const nome of ['painel', 'addcoins', 'removercoins', 'config', 'configroleta', 'painelpixss', 'painelrecarga', 'meusconvites']) {
     assert.ok(definicoes.some((definicao) => definicao.name === nome), `Comando esperado não registrado: /${nome}`);
     assert.ok(texto.includes(`**/${nome}**`));
   }
-  for (const nome of ['painel_mediador', 'comprar', 'lojinha', 'inventario', 'painelpixsss', 'recarga']) {
+  for (const nome of ['painel_mediador', 'comprar', 'lojinha', 'inventario', 'painelpixsss', 'recarga', 'registrar_pix', 'resgates', 'roleta', 'lojinhapainel', 'loja']) {
     assert.ok(!definicoes.some((definicao) => definicao.name === nome), `Comando removido ainda registrado: /${nome}`);
     assert.ok(!texto.includes(`**/${nome}**`), `Comando removido ainda aparece na ajuda: /${nome}`);
   }
-  const roleta = definicoes.find((definicao) => definicao.name === 'roleta');
-  assert.deepEqual(roleta.options.map((opcao) => opcao.name), ['painel']);
+  const painel = definicoes.find((definicao) => definicao.name === 'painel');
+  assert.deepEqual(painel.options.map((opcao) => opcao.name), ['geral', 'roleta', 'lojinha']);
   const cupomcompras = definicoes.find((definicao) => definicao.name === 'cupomcompras');
   assert.ok(cupomcompras.options.some((opcao) => opcao.name === 'lista'));
   assert.ok(texto.includes('/config lojinha'));

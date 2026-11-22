@@ -403,15 +403,13 @@ test('falhas ao fixar ou salvar IDs são relatadas honestamente', async () => {
   }
 });
 
-test('publicação por /lojinhapainel funciona sem contexto e aceita cliente opcional', async () => {
-  const mestres = require('../src/comandos/comandosMestres');
-  const comandoPainel = mestres.comandos.find((c) => c.data.name === 'lojinhapainel');
+test('publicação por /painel lojinha funciona sem contexto e aceita cliente opcional', async () => {
+  const comandoPainel = require('../src/comandos').buscar('painel');
   assert.ok(comandoPainel);
-  assert.equal(mestres.comandos.some((c) => c.data.name === 'loja' && c.data.toJSON().options?.some((o) => o.name === 'painel')), false);
-  const db = dbFake(), i = interacao({ admin: true });
-  await comDb(db, i, () => comandoPainel.executar(i));
+  const db = dbFake(), i = interacao({ admin: true, sub: 'lojinha' });
+  await comDb(db, i, () => comandoPainel.executar(i, {}));
   assert.ok(i.publico); assert.match(texto(i), /não fixado/);
-  const db2 = dbFake(), outro = interacao({ admin: true });
+  const db2 = dbFake(), outro = interacao({ admin: true, sub: 'lojinha' });
   db2.ack = () => assert.equal(outro.deferred, true);
   await comandoPainel.executar(outro, { db: { client: db2 } });
   assert.ok(outro.publico); assert.ok(db2.tables.discord_configuracoes.some((c) => c.chave === 'lojinhapro_painel'));

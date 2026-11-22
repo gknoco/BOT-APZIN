@@ -16,6 +16,8 @@ const persistenciaSupabase = require('../servicos/supabase');
 const partidas = require('../servicos/partidas');
 const paineis = require('../servicos/paineis');
 const fluxoPartidas = require('../servicos/fluxo');
+const roletaPro = require('./roletaPro');
+const lojinhaPro = require('./lojinhaPro');
 const { exigirStaff, exigirAdmin, responderPrivado, responderErro } = require('../util/seguranca');
 const { embed, embedSucesso } = require('../util/embeds');
 
@@ -82,8 +84,8 @@ async function publicarPedidoSS(interaction, db, modalidade, checklist) {
 const CATEGORIAS_AJUDA = [
   { id: 'inicio', titulo: '❓ Comece por aqui', nomes: ['ajuda', 'painel'] },
   { id: 'filas', titulo: '🎮 Filas e partidas', nomes: ['painelfilas', 'vencedor', 'wo', 'apostas', 'criar_telagem', 'telagem_links'] },
-  { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'painelpixmediadores', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixss', 'registrar_pix', 'pix'] },
-  { id: 'perfil', titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'rankingall', 'convites', 'meusconvites', 'addgiros', 'addvitoria', 'vitoria', 'loja', 'roleta'] },
+  { id: 'mediacao', titulo: '👥 Mediação e PIX', avancada: true, nomes: ['mediadores', 'painelpixmediadores', 'painelbatepontomediadores', 'painelbatepontossmobile', 'painelbatepontossemu', 'painelpixss', 'pix'] },
+  { id: 'perfil', titulo: '🏆 Perfil e economia', nomes: ['perfil', 'verp', 'ranking', 'rankingall', 'convites', 'meusconvites', 'addgiros', 'addvitoria', 'vitoria', 'addcoins', 'removercoins'] },
   { id: 'feedback', titulo: '💬 Comunidade e suporte', nomes: ['reportarbug', 'sugestao', 'versiculododia'] },
   { id: 'compras', titulo: '⚡ ROYAL SALA · compras', nomes: ['painelcomprar', 'permicompras', 'cupomcompras', 'minhassalas', 'painelrecarga'] },
   { id: 'salas', titulo: '🛠️ Salas Nix FF', nomes: ['nix'] },
@@ -98,6 +100,7 @@ const GUIA_AJUDA = {
   convites: ['Mostra o ranking de convites ou consulta os convites atribuídos a um membro.', '`/convites` ou `/convites usuario:<membro>`', 'Os dados dependem do rastreamento de convites configurado.'],
   meusconvites: ['Mostra em privado os convites atribuídos a você e quem o convidou, quando disponível.', '`/meusconvites`', 'Consulta seus dados no Supabase.'],
   painelpixmediadores: ['Publica o painel para cadastrar ou consultar a chave PIX usada pelo mediador.', '`/painelpixmediadores`', 'Exige o cargo de acesso dos mediadores e publicação em canal de texto.'],
+  painel: ['Abre o painel geral ou publica os painéis da roleta e da lojinha.', '`/painel geral` · `/painel roleta` · `/painel lojinha`', 'A publicação da roleta e da lojinha exige acesso administrativo.'],
   painelbatepontomediadores: ['Publica o bate-ponto geral, com Entrar, Sair e Atualizar para mediadores.', '`/painelbatepontomediadores`', 'Exige o cargo de acesso dos mediadores; o PIX cadastrado é obrigatório para entrar.'],
   painelbatepontossmobile: ['Publica o plantão exclusivo da equipe SS Mobile.', '`/painelbatepontossmobile`', 'A publicação é administrativa; interação exige o cargo SS Mobile.'],
   painelbatepontossemu: ['Publica o plantão exclusivo da equipe SS EMU.', '`/painelbatepontossemu`', 'A publicação é administrativa; interação exige o cargo SS EMU.'],
@@ -438,9 +441,19 @@ const comandos = [
   },
 
   {
-    data: new SlashCommandBuilder().setName('painel').setDescription('Painel geral de controle da ORG'),
+    data: new SlashCommandBuilder().setName('painel').setDescription('Painéis gerais e publicações da ORG')
+      .addSubcommand((sub) => sub.setName('geral').setDescription('Mostra o painel geral de controle da ORG'))
+      .addSubcommand((sub) => sub.setName('roleta').setDescription('Publica o painel da roleta'))
+      .addSubcommand((sub) => sub.setName('lojinha').setDescription('Publica o painel público da lojinha')),
 
-    async executar(interaction, { db }) {
+    async executar(interaction, ctx = {}) {
+      const sub = interaction.options.getSubcommand(false) || 'geral';
+      if (sub === 'roleta' && !interaction.guildId) {
+        return responderErro(interaction, 'Use este comando dentro de um servidor.');
+      }
+      if (sub === 'roleta') return roletaPro.publicarPainel(interaction, ctx);
+      if (sub === 'lojinha') return lojinhaPro.publicarPainel(interaction, ctx);
+      const { db } = ctx;
       if (!(await exigirStaff(interaction))) return;
       const guildId = interaction.guildId;
       const [ativas, publicados, naFila] = await Promise.all([

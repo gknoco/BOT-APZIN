@@ -46,13 +46,12 @@ test('convites de runtime são gravados no Supabase, não no SQLite', () => {
 });
 
 test('novos comandos estão registrados e comandos legados não existem', () => {
-  assert.ok(comandos.nomes.includes('roleta'));
-  for (const nome of ['painel_mediador', 'comprar', 'lojinha', 'inventario', 'inventário', 'painelpixsss', 'recarga']) {
+  for (const nome of ['painel_mediador', 'comprar', 'lojinha', 'inventario', 'inventário', 'painelpixsss', 'recarga', 'registrar_pix', 'resgates', 'roleta', 'lojinhapainel', 'loja']) {
     assert.equal(comandos.nomes.includes(nome), false, `comando removido/renomeado ainda registrado: ${nome}`);
   }
-  for (const nome of ['painelpixss', 'painelrecarga', 'meusconvites']) assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
-  const roleta = comandos.comandos.find((item) => item.data.name === 'roleta').data.toJSON();
-  assert.deepEqual(roleta.options.map((opcao) => opcao.name), ['painel']);
+  for (const nome of ['painelpixss', 'painelrecarga', 'meusconvites', 'addcoins', 'removercoins']) assert.ok(comandos.nomes.includes(nome), `comando ausente: ${nome}`);
+  const painel = comandos.comandos.find((item) => item.data.name === 'painel').data.toJSON();
+  assert.deepEqual(painel.options.map((opcao) => opcao.name), ['geral', 'roleta', 'lojinha']);
   const cupons = comandos.comandos.find((item) => item.data.name === 'cupomcompras').data.toJSON();
   assert.ok(cupons.options.some((opcao) => opcao.name === 'lista'));
   assert.ok(!cupons.options.some((opcao) => opcao.name === 'comprar'));

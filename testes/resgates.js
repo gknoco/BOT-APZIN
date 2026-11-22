@@ -99,7 +99,7 @@ test('todos os resultados da RPC são traduzidos sem concluir ou processar por f
     ['acquired', /Reserva obtida por você/], ['already_owned', /já detém.*retentativa não autoriza/],
     ['owned', /Reserva pertence a.*não inicie/], ['review', /revisão obrigatória/],
     ['not_found', /não encontrado ou não elegível/], ['not_pending', /não está pendente/],
-    ['delivered', /já consta como entregue/], ['unclaimed', /use \/resgates iniciar/],
+    ['delivered', /já consta como entregue/], ['unclaimed', /Sem reserva de atendimento registrada/],
     ['changed', /mudaram desde a reserva/], ['finished', /auditoria gravada na mesma transação/],
   ];
   for (const [result, esperado] of cenarios) {

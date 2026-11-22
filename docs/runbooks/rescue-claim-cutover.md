@@ -8,11 +8,9 @@
 
 ## Atendimento
 
-- `/resgates pendentes` mostra loja e roleta, o protocolo e o responsável ou a indicação de revisão. A página é informativa, não é uma reserva e pode desatualizar.
-- Antes de **qualquer** pagamento, envio ou concessão manual, execute `/resgates iniciar tipo:... protocolo:...`. Só a resposta de reserva recém-obtida permite começar. A aquisição é por servidor, origem e protocolo e fica vinculada à identidade Discord do atendente; as reservas automáticas pertencem a `auto:<id da interação>`.
-- Mesmo com reserva, confira evidências e dados atuais: um status pendente não prova que nada aconteceu no passado. Se o mesmo atendente repetir `iniciar`, a resposta informa que já é titular mas **não** autoriza repetir um efeito externo. Outro atendente não pode iniciar nem concluir. Não compartilhe a conta nem execute atendimentos paralelos com a mesma identidade.
-- Após confirmar a entrega externa, o titular usa `/resgates concluir`. A conclusão confere titular, situação e dados da pendência fotografados na reserva, e grava status, conclusão da reserva e auditoria na mesma transação. Ela não paga, envia, concede nem verifica o efeito externo. A loja registra o horário na reserva (`completed_at`); a roleta também registra `delivered_at` na origem.
-- Reservas não têm expiração, liberação ou transferência automáticas. Em timeout, reinício, erro do Discord ou mudança de dados, não repita a operação nem suponha que falhou. A execução automática nunca repete uma concessão em replay. A reserva permanece bloqueada, inclusive se a falha ocorreu antes da concessão.
+Os slash commands administrativos de resgates foram retirados do registro do bot. A RPC `royal_rescue_action` e a reserva persistente continuam sendo usadas pelo fluxo de entrega automática de cargos; essa camada transacional não foi removida. Não há, nesta versão, listagem, reserva ou conclusão manual de pendências pelo Discord. PIX e itens físicos continuam exigindo atendimento externo e não são processados pelo bot.
+
+Não repita pagamento, envio ou concessão em timeout, reinício, erro do Discord ou mudança de dados, nem suponha que uma operação externa falhou. A execução automática não repete uma concessão em replay. Reservas sem resolução permanecem bloqueadas; consulte os registros Supabase e reconcilie com um operador autorizado conforme os passos abaixo antes de qualquer ação manual.
 
 ## Reconciliação de legado ou de reserva travada
 
@@ -40,6 +38,6 @@ FROM removida;
 COMMIT;
 ```
 
-Confirme que exatamente uma linha foi removida/auditada; se não, pare e investigue. Se a entrega já ocorreu, **não repita**: após o corte operacional, o responsável usa `iniciar` e em seguida `concluir` para registrar a entrega comprovada, sem outro efeito externo. Se foi comprovado que não ocorreu, um responsável pode reservar e atender normalmente. Este procedimento não oferece prova matemática sobre efeitos externos: ele depende de evidências e de todos os envolvidos respeitarem o protocolo.
+Confirme que exatamente uma linha foi removida/auditada; se não, pare e investigue. Se a entrega já ocorreu, **não repita**. Como o handler de atendimento manual não está registrado no Discord, documente a evidência e faça a reconciliação transacional com um operador de banco autorizado, sem emitir um segundo efeito externo. Se foi comprovado que não ocorreu, siga o processo operacional aprovado para a organização antes de liberar ou atender a pendência. Este procedimento não oferece prova matemática sobre efeitos externos: depende de evidências e de todos os envolvidos respeitarem o protocolo.
 
 Testes locais sem Supabase: `node --test testes/resgates.js testes/lojinha-pro.js testes/roleta-pro.js` e `python3 testes/rescue_claim_sql.py` (requer `pg_config`, `initdb`, `pg_ctl` e `psql`).

@@ -203,7 +203,7 @@ function interacao({ id = 'interaction-001', usuario = 'user-a', guild = 'guild-
   return i;
 }
 async function publicar(interaction, ctx = {}) {
-  return roleta.comando.executar(interaction, ctx);
+  return roleta.publicarPainel(interaction, ctx);
 }
 function corpo(interaction) { return interaction.respostas.at(-1).embeds[0].toJSON().description; }
 function botoes(payload) { return payload.components.flatMap((row) => row.toJSON().components); }
@@ -220,9 +220,7 @@ function premiacao(id, usuario, guild, tipo, valor, status) {
 
 test('contrato do comando e prefixo: IDs estranhos não são consumidos', async () => {
   preparar();
-  const json = roleta.comando.data.toJSON();
-  assert.equal(json.name, 'roleta');
-  assert.deepEqual(json.options.map((o) => o.name), ['painel']);
+  assert.equal(typeof roleta.publicarPainel, 'function');
   const i = interacao({ componente: 'outro:botao' });
   assert.equal(await roleta.handleComponent(i), false);
   assert.deepEqual(chamadas, []);
