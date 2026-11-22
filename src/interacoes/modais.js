@@ -11,6 +11,7 @@ const {
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
 } = require('discord.js');
 const config = require('../config');
 const partidas = require('../servicos/partidas');
@@ -25,6 +26,7 @@ const vendasUI = require('../comandos/vendas');
 const paineis = require('../servicos/paineis');
 const automacoes = require('../servicos/automacoesDiscord');
 const configCanalFila = require('../comandos/configCanalFila');
+const persistenciaSupabase = require('../servicos/supabase');
 const plantaoModalidade = require('../servicos/plantaoModalidade');
 const { EFEMERO, responderPrivado, responderErro, ehAdmin } = require('../util/seguranca');
 const { embed, embedSucesso, reais, dataBR } = require('../util/embeds');
@@ -753,8 +755,14 @@ async function handleModal(interaction, { db, client }) {
   const tipo = partes[1];
   const partidaId = partes[2];
   const reconhecido = String(tipo || '').startsWith('modalbot') ||
-    ['modalpix', 'modalpixss', 'modalregras', 'modalsala', 'modalrenomear', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila', 'modalconfigcanalfilasssmobile', 'modalconfigcanalfilasssemu'].includes(tipo);
+    ['modalpix', 'modalpixss', 'modalregras', 'modalsala', 'modalrenomear', 'modalcompra', 'modalcomprasaldo', 'modalrecarga', 'modalinfinita', 'modalanuncioauto', 'modalfilas', 'modaladdsalas', 'modalconfigcanalfila', 'modalconfigcanalfilasssmobile', 'modalconfigcanalfilasssemu', 'modalconfigentradasaida'].includes(tipo);
   if (!reconhecido) return false;
+
+  if (tipo === 'modalconfigentradasaida' &&
+      (partes[2] !== String(interaction.guildId) || partes[3] !== String(interaction.user.id) || !ehAdmin(interaction.member))) {
+    await responderErro(interaction, 'Somente o administrador que abriu este formulário pode salvar os canais deste servidor.');
+    return true;
+  }
 
   // E-mail inválido é rejeitado localmente antes do defer e de qualquer
   // autorização/consulta remota ou criação de cobrança. O serviço repete a
@@ -813,6 +821,27 @@ async function handleModal(interaction, { db, client }) {
   }
 
   try {
+    if (tipo === 'modalconfigentradasaida') {
+      const ids = [
+        ['canal_entrada_id', 'canal_boas_vindas', 'entrada'],
+        ['canal_saida_id', 'canal_saida', 'saída'],
+      ].map(([campo, chave, rotulo]) => ({ id: String(interaction.fields.getTextInputValue(campo) || '').trim(), chave, rotulo }));
+      const canais = [];
+      for (const item of ids) {
+        if (!/^\d{15,20}$/.test(item.id)) throw new Error(`Informe um ID Discord válido para o canal de ${item.rotulo}.`);
+        const canal = await interaction.guild.channels.fetch(item.id).catch(() => null);
+        if (!canal || String(canal.guildId || canal.guild?.id || '') !== String(interaction.guildId) ||
+            ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(canal.type)) {
+          throw new Error(`O ID informado para ${item.rotulo} não corresponde a um canal de texto válido deste servidor.`);
+        }
+        canais.push({ ...item, canal });
+      }
+      const cliente = db?.client || db?.supabase;
+      await persistenciaSupabase.definirConfig(interaction.guildId, canais[0].chave, canais[0].id, cliente);
+      await persistenciaSupabase.definirConfig(interaction.guildId, canais[1].chave, canais[1].id, cliente);
+      await responderPrivado(interaction, { content: `✅ Configuração salva no Supabase.\n• Entrada: <#${canais[0].id}>\n• Saída: <#${canais[1].id}>`, allowedMentions: { parse: [] } });
+      return true;
+    }
     if (tipo === 'modalconfigcanalfila') {
       if (!ehAdmin(interaction.member)) { await responderErro(interaction, 'Somente administradores podem configurar o canal de filas.'); return true; }
       const canalId = await configCanalFila.salvarCanalFila(

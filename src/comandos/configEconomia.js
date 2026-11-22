@@ -3,7 +3,7 @@
 // Integração: registrar `comando` no índice de comandos e encaminhar os
 // componentes `configeco:` a handleComponent ANTES de qualquer deferUpdate.
 const {
-  SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits,
   ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType,
 } = require('discord.js');
 const supabase = require('../servicos/supabase');
@@ -516,10 +516,24 @@ async function abrirConfiguracao(i, dominio) {
 }
 
 const comando = {
-  data: new SlashCommandBuilder().setName('config').setDescription('Configura a lojinha deste servidor').setDMPermission(false)
-    .addSubcommand((s) => s.setName('lojinha').setDescription('Gerencia os produtos e opções da loja')),
+  data: new SlashCommandBuilder().setName('config').setDescription('Configura painéis e recursos deste servidor').setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addSubcommand((s) => s.setName('lojinha').setDescription('Gerencia os produtos e opções da loja'))
+    .addSubcommand((s) => s.setName('entrada_e_saida').setDescription('Define os canais de entrada e saída de membros')),
+  defer: 'nenhum',
   async executar(i) {
-    if (i.options.getSubcommand() !== 'lojinha') {
+    const subcomando = i.options.getSubcommand();
+    if (subcomando === 'entrada_e_saida') {
+      if (!validoContexto(i) || !ehAdmin(i.member)) return responderPrivado(i, payload('Somente administradores podem configurar os canais de entrada e saída.'));
+      const modal = new ModalBuilder().setCustomId(`ap:modalconfigentradasaida:${i.guildId}:${i.user.id}`)
+        .setTitle('Configurar canais de entrada e saída')
+        .addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('canal_entrada_id').setLabel('ID do canal de entrada').setPlaceholder('Cole o ID do canal de boas-vindas').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(15).setMaxLength(20)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('canal_saida_id').setLabel('ID do canal de saída').setPlaceholder('Cole o ID do canal de saída').setStyle(TextInputStyle.Short).setRequired(true).setMinLength(15).setMaxLength(20)),
+        );
+      return i.showModal(modal);
+    }
+    if (subcomando !== 'lojinha') {
       return responderPrivado(i, payload('Subcomando inválido. Para configurar a roleta, use /configroleta.'));
     }
     return abrirConfiguracao(i, 'lojinha');

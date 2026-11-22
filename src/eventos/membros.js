@@ -14,7 +14,7 @@ function avisarFalhaCanal(chave, erro, operacao) {
   if (Number(erro?.code) === 10003 || erro?.name === 'UnknownChannel') {
     if (avisosCanalDesconhecido.has(chave)) return;
     avisosCanalDesconhecido.add(chave);
-    console.warn(`[membros] canal configurado não existe (${operacao}); ajuste em /configcanal1 ou /configcanal2.`);
+    console.warn(`[membros] canal configurado não existe (${operacao}); ajuste em /config entrada_e_saida.`);
     return;
   }
   console.error(`[membros] ${operacao}: ${erro.message}`);

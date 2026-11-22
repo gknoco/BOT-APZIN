@@ -2,13 +2,7 @@
 
 /** Versículo do dia e configuração dos canais de entrada/saída. */
 
-const {
-  ChannelType,
-  EmbedBuilder,
-  PermissionFlagsBits,
-  SlashCommandBuilder,
-} = require('discord.js');
-const persistenciaSupabase = require('../servicos/supabase');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const versiculos = require('../servicos/versiculos');
 const { responderErro, responderPrivado } = require('../util/seguranca');
 
@@ -34,27 +28,6 @@ function embedVersiculo(versiculo, data = new Date()) {
     .setFooter({ text: `ORG Royal AP · ${dataHoraBrasilia(data)}` });
   return embed;
 }
-
-function temAdministrator(interaction) {
-  return Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator));
-}
-
-async function configurarCanal(interaction, chave, rotulo, clienteSupabase) {
-  if (!temAdministrator(interaction)) {
-    return responderErro(interaction, 'Você precisa da permissão **Administrator** do Discord para configurar este canal.');
-  }
-
-  const canal = interaction.options.getChannel('canal') || interaction.channel;
-  if (!canal?.isTextBased?.() || typeof canal.send !== 'function') {
-    return responderErro(interaction, 'Escolha um canal de texto válido, ou execute o comando em um canal de texto.');
-  }
-
-  await persistenciaSupabase.definirConfig(interaction.guildId, chave, canal.id, clienteSupabase);
-  return responderPrivado(interaction, { content: `✅ Canal de ${rotulo} salvo com sucesso no banco de dados (Supabase): ${canal}.` });
-}
-
-const canaisDeTexto = [ChannelType.GuildText, ChannelType.GuildAnnouncement];
-const permissaoAdmin = PermissionFlagsBits.Administrator;
 
 const comandos = [
   {
@@ -84,32 +57,6 @@ const comandos = [
       return responderPrivado(interaction, { content: 'Versículo publicado neste canal.', allowedMentions: { parse: [] } });
     },
   },
-  {
-    data: new SlashCommandBuilder()
-      .setName('configcanal1')
-      .setDescription('Define o canal de boas-vindas para a entrada de jogadores')
-      .addChannelOption((opcao) =>
-        opcao.setName('canal').setDescription('Canal de boas-vindas (vazio = canal atual)').addChannelTypes(...canaisDeTexto),
-      )
-      .setDefaultMemberPermissions(permissaoAdmin),
-
-    async executar(interaction, contexto = {}) {
-      return configurarCanal(interaction, 'canal_boas_vindas', 'boas-vindas', contexto.db?.client || contexto.supabase);
-    },
-  },
-  {
-    data: new SlashCommandBuilder()
-      .setName('configcanal2')
-      .setDescription('Define o canal de saída de jogadores')
-      .addChannelOption((opcao) =>
-        opcao.setName('canal').setDescription('Canal de saída (vazio = canal atual)').addChannelTypes(...canaisDeTexto),
-      )
-      .setDefaultMemberPermissions(permissaoAdmin),
-
-    async executar(interaction, contexto = {}) {
-      return configurarCanal(interaction, 'canal_saida', 'saída', contexto.db?.client || contexto.supabase);
-    },
-  },
 ];
 
-module.exports = { comandos, dataHoraBrasilia, embedVersiculo, configurarCanal };
+module.exports = { comandos, dataHoraBrasilia, embedVersiculo };

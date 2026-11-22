@@ -101,11 +101,11 @@ const produto = (overrides = {}) => ({ id: randomUUID(), guild_id: G, slug: 'pro
 const fieldsR = (overrides = {}) => ({ nome: 'Prêmio', tipo: 'coins', valor: '50', peso: '10', ...overrides });
 const fieldsL = (overrides = {}) => ({ slug: 'produto', nome: 'Produto', recompensa: 'spins|1', preco: '100', estoque: '5|livre|Descrição', ...overrides });
 
-test('/configroleta mantém o painel completo privado, e /config mantém somente lojinha', async () => {
+test('/configroleta mantém o painel completo privado, e /config registra lojinha e entrada_e_saida', async () => {
   iniciar();
   const def = modulo.comando.data.toJSON();
   assert.equal(def.name, 'config');
-  assert.deepEqual(def.options.map((x) => x.name), ['lojinha']);
+  assert.deepEqual(def.options.map((x) => x.name), ['lojinha', 'entrada_e_saida']);
   const i = interacao({ tipo: 'slash' });
   i.commandName = 'configroleta';
   i.options.getSubcommand = () => { throw new Error('/configroleta não tem subcomandos'); };

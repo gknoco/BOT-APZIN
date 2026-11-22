@@ -43,6 +43,7 @@ const modulos = [
 const comandos = modulos.flatMap((modulo) => modulo.comandos);
 comandos.push(
   require('./configEconomia').comando,
+  require('./configComandos').comando,
   ...require('./comandosMestres').comandos,
 );
 const porNome = new Map(comandos.map((comando) => [comando.data.name, comando]));

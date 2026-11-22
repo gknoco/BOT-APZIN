@@ -13,7 +13,8 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
 - Entregas de cargos da roleta/loja também ficam pendentes no Supabase até a atribuição do Discord ser confirmada; falhas não são descartadas silenciosamente.
 - As migrações v4 revogam acesso de `anon`/`authenticated`, ativam RLS nas tabelas persistentes e reservam policies/grants ao backend `service_role`; somente essa role executa as RPCs `SECURITY DEFINER`.
 - `/ajuda` é gerado a partir do registro real de comandos e os organiza por categoria; o modal valida o e-mail Pix, o botão **Copia e Cola** responde em privado e os painéis temporários de compra expiram após 30 minutos; `/painelcomprar` publica o painel permanente.
-- `/configcanal1`, `/configcanal2`, `/logs`, `/boombot setlog`, `/boombot setcategoria`, canais/cargos/modo de mediadores e configurações `/conectar` são gravados em `discord_configuracoes` sem espelho ou fallback local; os mediadores consultam as configurações persistidas na nuvem.
+- `/config entrada_e_saida` recebe em um formulário privado os IDs dos canais de boas-vindas e saída, valida que ambos pertencem ao servidor e persiste nas chaves compatíveis `canal_boas_vindas` e `canal_saida` em `discord_configuracoes`. `/logs`, `/boombot setlog`, `/boombot setcategoria`, canais/cargos/modo de mediadores e configurações `/conectar` também são persistidos no Supabase.
+- `/configcomandos` permite que administradores selecionem um cargo e configurem, em páginas, os comandos permitidos; as regras são por servidor, comando e cargo no Supabase. Comando sem regra mantém permissões nativas; quando existem cargos vinculados, basta possuir um deles; administradores sempre passam. A decisão é aplicada no interceptor central e o cache local é atualizado após cada gravação.
 - A remoção resiliente trata mensagens inexistentes (Discord `10008`) sem interromper `/clearall`; falhas de canal inexistente (`10003`) nas boas-vindas/saídas não geram avisos repetidos.
 
 ## Instalação e atualização
@@ -55,6 +56,7 @@ Bot Discord.js v14 para filas e apostas de Free Fire, mediação, economia, role
    - `supabase/migrations/20261120002003_eco03_rescue_claim.sql`
    - `supabase/migrations/20261120002004_fil08_match_outbox.sql`
    - `supabase/migrations/20261121000100_telagem_link_cooldown.sql`
+   - `supabase/migrations/20261122000100_discord_command_role_permissions.sql`
 
    Em banco já existente, faça backup e confira o histórico **e o schema real** antes de aplicar somente as migrações ainda necessárias, em ordem, sem reaplicar indiscriminadamente migrações antigas. Arquivos executados manualmente no SQL Editor podem não constar no histórico gerenciado; os dois scripts de imagem de fila alteram a configuração de um servidor específico. Confira também se foram adicionados arquivos posteriores à lista acima e aplique-os antes do deploy. A execução manual no SQL Editor não registra automaticamente a migração no histórico da CLI.
    Para o corte das novas migrações, pare e drene todas as instâncias antigas, atendimentos e integrações incompatíveis; siga os roteiros de [estorno de compra direta](docs/runbooks/direct-room-refund-review.md), [resgates](docs/runbooks/rescue-claim-cutover.md) e [encerramento de partidas](docs/runbooks/fil08-encerramento-outbox.md) e o [guia da lojinha](GUIA_ROLETA_LOJINHA.md). Faça backup, audite permissões e integrações, aplique as migrações em ordem e só depois inicie o novo código e registre os comandos slash. Não misture versões durante o corte.

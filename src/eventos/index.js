@@ -25,6 +25,8 @@ const { embedErro } = require('../util/embeds');
 const { responderPrivado } = require('../util/seguranca');
 const automacoes = require('../servicos/automacoesDiscord');
 const estadoRuntime = require('../estadoRuntime');
+const permissoesComandos = require('../servicos/permissoesComandos');
+const configComandos = require('../comandos/configComandos');
 
 // Compartilhado entre chamadas repetidas de montar(client, db): uma mesma
 // interação nunca pode iniciar dois handlers concorrentes (p.ex. dois modais).
@@ -42,6 +44,25 @@ async function publicarLogInvite(guild, titulo, descricao, cor) {
     embeds: [new EmbedBuilder().setColor(cor).setTitle(titulo).setDescription(descricao).setTimestamp()],
     allowedMentions: { parse: [] },
   });
+}
+
+async function autorizarComando(interaction, db) {
+  if (!interaction?.commandName || !interaction?.guildId) return true;
+  let acesso;
+  try {
+    acesso = await permissoesComandos.verificarAcesso(interaction, db?.client || db?.supabase);
+  } catch (erro) {
+    console.error('[permissoes-comandos] não foi possível validar o acesso:', erro.message);
+    await responderPrivado(interaction, { content: 'Não foi possível validar as permissões deste comando agora. Tente novamente em instantes.', allowedMentions: { parse: [] } });
+    return false;
+  }
+  if (acesso.permitido) return true;
+  const cargosNecessarios = acesso.cargos.map((id) => `<@&${id}>`).join(', ');
+  await responderPrivado(interaction, {
+    content: `⛔ Este comando está restrito a ${cargosNecessarios}. Você precisa ter pelo menos um desses cargos; administradores podem executar qualquer comando.`,
+    allowedMentions: { parse: [] },
+  });
+  return false;
 }
 
 function primeiraEntrega(client, interaction) {
@@ -182,6 +203,7 @@ function montar(client, db) {
         return;
       }
       if (interaction.isChatInputCommand()) {
+        if (!(await autorizarComando(interaction, db))) return;
         await comandos.executar(interaction, ctx);
         return;
       }
@@ -190,6 +212,10 @@ function montar(client, db) {
       // Custom IDs estáveis permitem que painéis públicos continuem operando
       // após reinicializações, sem depender de coletores em memória.
       const customId = String(interaction.customId || '');
+      if (customId.startsWith('cmdperm:')) {
+        await configComandos.handleComponent(interaction, ctx);
+        return;
+      }
       if (customId.startsWith('roletapro:')) {
         await roletaPro.handleComponent(interaction, ctx);
         return;
@@ -381,4 +407,4 @@ function ligarProcesso(db, recursos = {}) {
   process.on('SIGTERM', () => { void desligar('SIGTERM', process.exitCode || 0).catch((erro) => { console.error('[processo] desligamento:', erro?.stack || erro); process.exit(1); }); });
 }
 
-module.exports = { montar, ligarProcesso };
+module.exports = { montar, ligarProcesso, autorizarComando };

@@ -360,14 +360,16 @@ test('/clearall ignora mensagens já removidas com Discord 10008 sem mascarar ou
 });
 
 test('configurações de canais importantes são persistidas e restauradas pelo Supabase', () => {
-  const comunidadeSource = fs.readFileSync(path.join(__dirname, '../src/comandos/comunidade.js'), 'utf8');
+  const configuracaoSource = fs.readFileSync(path.join(__dirname, '../src/comandos/configEconomia.js'), 'utf8');
+  const modaisSource = fs.readFileSync(path.join(__dirname, '../src/interacoes/modais.js'), 'utf8');
   const membrosSource = fs.readFileSync(path.join(__dirname, '../src/eventos/membros.js'), 'utf8');
   const utilSource = fs.readFileSync(path.join(__dirname, '../src/comandos/utilidades.js'), 'utf8');
   const flowSource = fs.readFileSync(path.join(__dirname, '../src/servicos/fluxo.js'), 'utf8');
   const mediadoresSource = fs.readFileSync(path.join(__dirname, '../src/servicos/mediadores.js'), 'utf8');
   const supabaseSource = fs.readFileSync(path.join(__dirname, '../src/servicos/supabase.js'), 'utf8');
-  assert.match(comunidadeSource, /'canal_boas_vindas'/);
-  assert.match(comunidadeSource, /'canal_saida'/);
+  assert.match(configuracaoSource, /entrada_e_saida/);
+  assert.match(modaisSource, /'canal_boas_vindas'/);
+  assert.match(modaisSource, /'canal_saida'/);
   assert.match(membrosSource, /persistenciaSupabase\.obterConfig/);
   assert.match(utilSource, /definirConfig\(interaction\.guildId, 'canal_logs'/);
   assert.match(utilSource, /definirConfig\(interaction\.guildId, 'categoria_filas'/);

@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { EmbedBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { EmbedBuilder, MessageFlags, PermissionFlagsBits, ChannelType } = require('discord.js');
 const utilidades = require('../src/comandos/utilidades');
 const comunidade = require('../src/comandos/comunidade');
 const limpeza = require('../src/comandos/limpeza');
@@ -25,6 +25,7 @@ const staffSupabase = require('../src/servicos/staffSupabase');
 const fluxo = require('../src/servicos/fluxo');
 const botPerfil = require('../src/comandos/botperfil');
 const mestres = require('../src/comandos/comandosMestres');
+const modais = require('../src/interacoes/modais');
 
 const proximoTurno = () => new Promise((resolve) => setImmediate(resolve));
 const erroDiscord = (code) => Object.assign(new Error(`Discord ${code}`), { code });
@@ -177,7 +178,10 @@ test('/ajuda inclui todos os nomes e subcomandos reais, sem aliases inventados',
   for (const nome of ['minhassalas', 'painelcomprar', 'setcargo', 'permicompras', 'cupomcompras', 'meusconvites', 'painelpixss', 'painelrecarga']) {
     assert.ok(texto.includes(`**/${nome}**`));
   }
-  assert.ok(!texto.includes('**/configcanal**'), 'O nome real é configcanal1');
+  assert.ok(texto.includes('/config entrada_e_saida'));
+  assert.ok(texto.includes('**/configcomandos**'));
+  assert.ok(!registro.nomes.includes('configcanal1'));
+  assert.ok(!registro.nomes.includes('configcanal2'));
   assert.ok(paginas.some((e) => /compras/.test(e.toJSON().title)));
 });
 
@@ -315,39 +319,62 @@ test('/versiculododia usa ACK privado e envio público separado sem nome ou men�
   assert.ok(!i.respostas[0].embeds);
 });
 
-test('boas-vindas, saída, logs e categoria salvam somente no Supabase e aguardam a escrita', async () => {
+test('modal /config entrada_e_saida valida os dois canais e persiste as chaves compatíveis no Supabase', async () => {
   const fake = clienteFake();
   const db = banco(fake.client);
-  const canal = { id: 'canal-config', name: 'config', isTextBased: () => true, send: async () => {}, toString: () => '<#canal-config>' };
-  const opcoes = [
-    [comunidade, 'configcanal1', null, 'canal_boas_vindas'],
-    [comunidade, 'configcanal2', null, 'canal_saida'],
-    [moderacao, 'logs', null, 'canal_logs'],
-    [utilidades, 'boombot', 'setlog', 'canal_logs'],
-    [utilidades, 'boombot', 'setcategoria', 'categoria_filas'],
-  ];
-  for (const [modulo, nome, sub, chave] of opcoes) {
-    const i = interaction();
-    i.options.getChannel = () => canal;
-    i.options.getSubcommand = () => sub;
-    const inicio = fake.chamadas.length;
-    await comando(modulo, nome).executar(i, { db });
-    assert.equal(fake.chamadas.length, inicio + 1, 'Não deve existir espelho ou segunda gravação');
-    const chamada = fake.chamadas.at(-1);
-    assert.equal(chamada.tabela, 'discord_configuracoes');
-    const upsert = chamada.operacoes.find(([m]) => m === 'upsert');
-    assert.equal(upsert[1].chave, chave);
-    assert.equal(upsert[1].valor, canal.id);
-    assert.equal(upsert[2].onConflict, 'guild_id,chave');
-    assert.equal(i.respostas.length, 1);
-  }
+  const valores = { canal_entrada_id: '12345678901234567', canal_saida_id: '22345678901234567' };
+  const salvos = [];
+  const i = interaction({
+    deferred: false,
+    customId: 'ap:modalconfigentradasaida:guild-teste:executor-secreto',
+    isModalSubmit: () => true,
+    fields: { getTextInputValue: (campo) => valores[campo] },
+    guild: { channels: { fetch: async (id) => ({ id, guildId: 'guild-teste', type: ChannelType.GuildText }) } },
+    deferReply: async () => { i.deferred = true; },
+  });
+  await substituindo([[persistencia, 'definirConfig', async (guildId, chave, valor) => { salvos.push([guildId, chave, valor]); }]], async () => {
+    assert.equal(await modais.handleModal(i, { db }), true);
+  });
+  assert.deepEqual(salvos, [
+    ['guild-teste', 'canal_boas_vindas', valores.canal_entrada_id],
+    ['guild-teste', 'canal_saida', valores.canal_saida_id],
+  ]);
+  assert.match(i.respostas[0].content, /Entrada: <#12345678901234567>/);
+  assert.match(i.respostas[0].content, /Saída: <#22345678901234567>/);
+  const invalido = interaction({
+    deferred: false,
+    customId: 'ap:modalconfigentradasaida:guild-teste:executor-secreto',
+    isModalSubmit: () => true,
+    fields: { getTextInputValue: (campo) => valores[campo] },
+    guild: { channels: { fetch: async (id) => ({ id, guildId: 'outro-servidor', type: ChannelType.GuildText }) } },
+    deferReply: async () => { invalido.deferred = true; },
+  });
+  await substituindo([
+    [persistencia, 'definirConfig', async (...args) => { salvos.push(args); }],
+    [console, 'error', () => {}],
+  ], async () => {
+    assert.equal(await modais.handleModal(invalido, { db }), true);
+  });
+  assert.equal(salvos.length, 2, 'Nenhum canal deve ser salvo se a validação do servidor falhar.');
+  assert.match(JSON.stringify(invalido.respostas[0]), /canal de texto válido deste servidor/i);
 });
 
-test('falha na persistência de canal não confirma sucesso nem usa fallback local', async () => {
-  const fake = clienteFake(() => ({ error: { message: 'indisponível' } }));
-  const i = interaction({ channel: { id: 'config', isTextBased: () => true, send: async () => {} } });
-  await assert.rejects(comando(comunidade, 'configcanal1').executar(i, { db: banco(fake.client) }), /indisponível/);
-  assert.equal(i.respostas.length, 0);
+test('/config entrada_e_saida abre modal com dois IDs e as chaves antigas não ficam registradas', async () => {
+  let modal;
+  const i = interaction({
+    deferred: false,
+    guildId: '12345678901234567',
+    guild: { id: '12345678901234567' },
+    user: { id: '22345678901234567' },
+    options: { getSubcommand: () => 'entrada_e_saida' },
+    showModal: async (valor) => { modal = valor; },
+  });
+  const config = registro.buscar('config');
+  assert.equal(config.defer, 'nenhum');
+  await config.executar(i);
+  assert.deepEqual(modal.toJSON().components.map((row) => row.components[0].custom_id), ['canal_entrada_id', 'canal_saida_id']);
+  assert.equal(registro.buscar('configcanal1'), null);
+  assert.equal(registro.buscar('configcanal2'), null);
 });
 
 test('/painel aguarda serviços de partidas e painéis e conta filas remotas', async () => {
